@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main",
+    "floating",
+    "ocr-overlay"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "global-shortcut:default",
+    "clipboard-manager:default",
+    "autostart:default",
+    "shell:default",
+    "log:default"
+  ]
+}
