@@ -714,12 +714,51 @@ export default function Dashboard() {
                                 </div>
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                        <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">{ttsEngine === "local" ? t.ttsLocal : t.ttsOnline}</span></div>
+                                        <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">
+                                            {ttsEngine === "local" ? t.ttsLocal : ttsEngine === "edge" ? "Edge (Free)" : t.ttsOnline}
+                                        </span></div>
                                         <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
                                             <button onClick={() => setTtsEngine("local")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "local" ? "bg-white dark:bg-zinc-800 shadow-md text-blue-600" : "text-zinc-400"}`}>{t.ttsLocal}</button>
+                                            <button onClick={() => setTtsEngine("edge")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "edge" ? "bg-white dark:bg-zinc-800 shadow-md text-red-600" : "text-zinc-400"}`}>Edge (不可用)</button>
                                             <button onClick={() => setTtsEngine("online")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "online" ? "bg-white dark:bg-zinc-800 shadow-md text-blue-600" : "text-zinc-400"}`}>{t.ttsOnline}</button>
                                         </div>
                                     </div>
+                                    {ttsEngine === "edge" && (
+                                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5">
+                                            <div className="bg-red-500/10 border border-red-500/20 rounded-[18px] p-4 mb-4">
+                                                <p className="text-[10px] text-red-500 font-black uppercase tracking-widest text-center">
+                                                    ⚠️ Edge 语音目前不可用 (403 Forbidden)
+                                                </p>
+                                                <p className="text-[10px] text-red-500/70 font-bold mt-1 text-center">
+                                                    微软近期加强了反爬机制，正在排查修复中，请先使用本地或在线引擎。
+                                                </p>
+                                            </div>
+                                            <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">Microsoft Edge Neural Voices</label>
+                                                <div className="relative">
+                                                    <div className="mt-2 flex flex-wrap gap-2 px-2">
+                                                        {[
+                                                            { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女)' },
+                                                            { id: 'zh-CN-YunxiNeural', label: '云希 (男)' },
+                                                            { id: 'zh-CN-YunjianNeural', label: '云健 (男)' },
+                                                            { id: 'zh-CN-XiaoyiNeural', label: '晓依 (女)' },
+                                                            { id: 'en-US-AvaNeural', label: 'Ava (EN)' },
+                                                            { id: 'en-US-AndrewNeural', label: 'Andrew (EN)' },
+                                                            { id: 'en-US-EmmaNeural', label: 'Emma (EN)' },
+                                                            { id: 'ja-JP-NanamiNeural', label: 'Nanami (JP)' }
+                                                        ].map(v => (
+                                                            <button 
+                                                                key={v.id} 
+                                                                onClick={() => setTtsVoice(v.id)} 
+                                                                className={`text-[9px] px-3 py-1.5 rounded-xl border transition-all ${ttsVoice === v.id ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/20' : 'bg-black/5 dark:bg-white/5 border-transparent text-zinc-500 hover:bg-black/10'}`}
+                                                            >
+                                                                {v.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    )}
                                     {ttsEngine === "online" && (
                                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5">
                                             {[

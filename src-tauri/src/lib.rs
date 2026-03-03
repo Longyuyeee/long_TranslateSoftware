@@ -15,6 +15,15 @@ use sha2::{Sha256, Digest};
 use rusqlite::OptionalExtension;
 use std::sync::Mutex;
 use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+use futures_util::{StreamExt, SinkExt};
+use tokio_tungstenite::{
+    connect_async, 
+    tungstenite::{
+        protocol::Message,
+        client::IntoClientRequest
+    }
+};
+use url::Url;
 
 const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 
@@ -158,7 +167,6 @@ async fn export_data(app: AppHandle) -> Result<String, String> {
         let actual_path = match path {
             tauri_plugin_dialog::FilePath::Path(p) => p,
             tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
-            _ => return Err("Unsupported path type".to_string()),
         };
         std::fs::write(actual_path, ciphertext).map_err(|e| e.to_string())?;
         return Ok("Export successful".to_string());
@@ -176,7 +184,6 @@ async fn import_data(app: AppHandle) -> Result<(), String> {
         let actual_path = match path {
             tauri_plugin_dialog::FilePath::Path(p) => p,
             tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
-            _ => return Err("Unsupported path type".to_string()),
         };
         let ciphertext = std::fs::read(actual_path).map_err(|e| e.to_string())?;
 
@@ -376,8 +383,76 @@ fn check_audio_cache(app: AppHandle, cache_key: String) -> Result<bool, String> 
     Ok(cache_path.exists())
 }
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn generate_sec_ms_gec_token() -> String {
+    let ticks = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time flew backwards").as_secs();
+    // Use 3000 seconds rounding
+    let rounded_ticks = ticks / 3000 * 3000;
+    let str_to_hash = format!("{}6A5AA1D4EAFF4E9FB37E23D68491D6F4", rounded_ticks);
+    let mut hasher = Sha256::new();
+    hasher.update(str_to_hash.as_bytes());
+    hex::encode(hasher.finalize()) // Use lowercase
+}
+
+async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> {
+    let token = generate_sec_ms_gec_token();
+    let connection_id = uuid::Uuid::new_v4().simple().to_string();
+    // Use a very stable version
+    let edge_ua_version = "131.0.2903.86";
+    let version = format!("1-{}", edge_ua_version);
+    
+    let url = format!(
+        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC={}&Sec-MS-GEC-Version={}&ConnectionId={}",
+        token, version, connection_id
+    );
+    
+    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
+    {
+        let headers = request.headers_mut();
+        headers.insert("Host", "speech.platform.bing.com".parse().unwrap());
+        headers.insert("Origin", "https://www.bing.com".parse().unwrap());
+        headers.insert("User-Agent", format!("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36 Edg/{}", edge_ua_version.split('.').next().unwrap(), edge_ua_version).parse().unwrap());
+        headers.insert("Pragma", "no-cache".parse().unwrap());
+        headers.insert("Cache-Control", "no-cache".parse().unwrap());
+    }
+    
+    let (ws_stream, _) = connect_async(request).await.map_err(|e| e.to_string())?;
+    let (mut write, mut read) = ws_stream.split();
+
+    // 1. Send Config
+    let config = format!(r#"{{"context":{{"system":{{"name":"Edge","version":"{}","build":"{}","lang":"en-US"}}}}}}"#, edge_ua_version, edge_ua_version);
+    let config_msg = format!("Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{}", config);
+    write.send(Message::Text(config_msg.into())).await.map_err(|e| e.to_string())?;
+
+    // 2. Send SSML
+    let request_id = uuid::Uuid::new_v4().simple().to_string();
+    let escaped_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    let ssml = format!(
+        r#"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='{}'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>{}</prosody></voice></speak>"#,
+        voice, escaped_text
+    );
+    let ssml_msg = format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n{}", request_id, ssml);
+    write.send(Message::Text(ssml_msg.into())).await.map_err(|e| e.to_string())?;
+
+    let mut audio_data = Vec::new();
+    while let Some(msg) = read.next().await {
+        match msg.map_err(|e| e.to_string())? {
+            Message::Binary(data) => {
+                let data_vec = data.to_vec();
+                if let Some(pos) = data_vec.windows(12).position(|w| w == b"Path:audio\r\n") {
+                    audio_data.extend_from_slice(&data_vec[pos + 12..]);
+                }
+            },
+            Message::Text(t) if t.contains("Path:turn.end") => break,
+            _ => {}
+        }
+    }
+    Ok(audio_data)
+}
+
 #[tauri::command]
-async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>) -> Result<Vec<u8>, String> {
+async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>, engine: Option<String>, voice: Option<String>) -> Result<Vec<u8>, String> {
     let cache_dir = get_audio_cache_dir(&app);
     let key_to_hash = cache_key.clone().unwrap_or_else(|| url.clone());
     let mut hasher = Sha256::new();
@@ -391,16 +466,19 @@ async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String
         }
     }
 
-    if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
+    let bytes = if engine.as_deref() == Some("edge") {
+        fetch_edge_tts(url, voice.unwrap_or_else(|| "zh-CN-XiaoxiaoNeural".to_string())).await?
+    } else {
+        if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
+        let client = reqwest::Client::new();
+        let response = client.get(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        response.bytes().await.map_err(|e| e.to_string())?.to_vec()
+    };
 
-    let client = reqwest::Client::new();
-    let response = client.get(url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?.to_vec();
     if bytes.len() > 100 { let _ = fs::write(&cache_path, &bytes); }
     Ok(bytes)
 }

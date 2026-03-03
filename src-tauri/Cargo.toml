@@ -41,6 +41,9 @@ imageproc = "0.25"
 rusttype = "0.9"
 aes-gcm = "0.10.3"
 tauri-plugin-dialog = "2.0.0-rc.3"
+tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
+futures-util = "0.3.32"
+url = "2.5.8"
 
 [dependencies.windows]
 version = "0.58"

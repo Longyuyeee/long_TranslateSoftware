@@ -100,29 +100,30 @@ async function playBuffer(buffer: number[]) {
 
 export async function speak(text: string) {
   if (!text) return;
-  console.log("%c[TTS] >>> Global Speak Request:", "color: #007aff; font-weight: bold", text);
   
   try {
     const ttsEngine = (await invoke<string>("get_config_value", { key: "tts_engine" })) || "local";
     const speed = (await invoke<string>("get_config_value", { key: "tts_speed" })) || "1.0";
+    const voice = (await invoke<string>("get_config_value", { key: "tts_voice" })) || "zh-CN-XiaoxiaoNeural";
     
-    // 1. Determine Cache Key
     let cacheKey = "";
     let url = "";
+
+    // 1. Determine Engine Strategy
     if (ttsEngine === "local") {
       const isChinese = /[\u4e00-\u9fa5]/.test(text);
       url = `https://dict.youdao.com/dictvoice?audio=${encodeURIComponent(text)}&${isChinese ? "le=zh" : "type=2"}`;
-      cacheKey = url; // Youdao URLs are stable
+      cacheKey = url;
+    } else if (ttsEngine === "edge") {
+      cacheKey = `edge_${voice}_${text}`;
     } else {
       const rawModel = (await invoke<string>("get_config_value", { key: "tts_model_name" }) || await invoke<string>("get_config_value", { key: "tts_model" }))?.trim();
-      const voice = (await invoke<string>("get_config_value", { key: "tts_voice" }))?.trim();
       cacheKey = `online_${rawModel}_${voice}_${speed}_${text}`;
     }
 
     // 2. SHORT-CIRCUIT: Check local cache first
     const isCached = await invoke<boolean>("check_audio_cache", { cacheKey });
     if (isCached) {
-      console.log("%c[TTS] CACHE HIT! Short-circuiting network.", "color: green; font-weight: bold");
       const buffer = await invoke<number[]>("proxy_fetch_audio", { url: "", cacheKey: cacheKey });
       await playBuffer(buffer);
       return;
@@ -132,11 +133,19 @@ export async function speak(text: string) {
     if (ttsEngine === "local") {
       const buffer = await invoke<number[]>("proxy_fetch_audio", { url, cacheKey });
       await playBuffer(buffer);
+    } else if (ttsEngine === "edge") {
+      // Special handling for Edge-TTS: pass text as "url" parameter to backend
+      const buffer = await invoke<number[]>("proxy_fetch_audio", { 
+        url: text, 
+        cacheKey,
+        engine: "edge",
+        voice
+      });
+      await playBuffer(buffer);
     } else {
       const rawApiKey = (await invoke<string>("get_config_value", { key: "tts_api_key" }) || await invoke<string>("get_config_value", { key: "openai_api_key" }));
       const rawBaseUrl = (await invoke<string>("get_config_value", { key: "tts_base_url" }) || await invoke<string>("get_config_value", { key: "base_url" })) || "https://api.openai.com/v1";
       const rawModel = (await invoke<string>("get_config_value", { key: "tts_model_name" }) || await invoke<string>("get_config_value", { key: "tts_model" }))?.trim();
-      const voice = (await invoke<string>("get_config_value", { key: "tts_voice" }))?.trim();
 
       const response = await fetch(`${rawBaseUrl?.trim().replace(/\/+$/, "")}/audio/speech`, {
         method: "POST",
@@ -158,8 +167,6 @@ export async function speak(text: string) {
       } else {
         const blob = await response.blob();
         const buffer = Array.from(new Uint8Array(await blob.arrayBuffer()));
-        // Note: Manual save to cache for binary response could be added here if needed, 
-        // but online-audio often comes as URLs in your case.
         await playBuffer(buffer);
       }
     }
