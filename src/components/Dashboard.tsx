@@ -109,7 +109,7 @@ export default function Dashboard() {
 
   const handleExport = async () => {
     try {
-        const res = await invoke<string>("export_data");
+        await invoke<string>("export_data");
         setStatus("导出成功");
         setTimeout(() => setStatus(""), 3000);
     } catch (e) {
