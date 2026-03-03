@@ -87,16 +87,51 @@ export default function Dashboard() {
     });
 
     const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
-        setStatus(`Error: ${event.payload}`);
+        setStatus(`错误: ${event.payload}`);
+        setTimeout(() => setStatus(""), 5000);
+    });
+
+    const unlistenConfigImport = listen("config-updated", () => {
+        loadConfig();
+        loadWordbook();
+        refreshStats();
+        setStatus(t.importSuccess);
         setTimeout(() => setStatus(""), 5000);
     });
 
     return () => { 
         unlistenWordbook.then(f => f()); 
         unlistenShortcutError.then(f => f());
+        unlistenConfigImport.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
-  }, [webdavEnabled]);
+  }, [webdavEnabled, lang]); // Added lang to deps to refresh UI when lang changes
+
+  const handleExport = async () => {
+    try {
+        const res = await invoke<string>("export_data");
+        setStatus("导出成功");
+        setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+        if (e !== "User cancelled") {
+            setStatus(`导出失败: ${e}`);
+            setTimeout(() => setStatus(""), 5000);
+        }
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+        await invoke("import_data");
+        // Reload entirely for a clean state
+        setTimeout(() => window.location.reload(), 500);
+    } catch (e) {
+        if (e !== "User cancelled") {
+            setStatus(`导入失败: ${e}`);
+            setTimeout(() => setStatus(""), 5000);
+        }
+    }
+  };
 
   // Shortcut Recording Logic
   useEffect(() => {
@@ -203,7 +238,9 @@ export default function Dashboard() {
       setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
       setShortcutW(await getVal("shortcut_w") || "Alt+W");
 
-      setLang(await getVal("language") as Lang || "zh");
+      const savedLang = await getVal("language") as Lang;
+      if (savedLang) setLang(savedLang);
+      
       setTargetLang(await getVal("target_lang") || "Chinese");
       setAutoCopy((await getVal("auto_copy")) === "true");
       setTheme(await getVal("theme") || "system");
@@ -222,17 +259,43 @@ export default function Dashboard() {
       setWebdavPass(await getVal("webdav_pass") || "");
       setLastSyncTime(await getVal("last_sync_time") || "");
 
-      setAutoLaunch(await isEnabled());
+      const enabled = await isEnabled();
+      setAutoLaunch(enabled);
     } catch (e) { console.error(e); }
   };
 
   const toggleAutoLaunch = async () => {
+    const prevState = autoLaunch;
     try {
-        const next = !autoLaunch;
-        if (next) await enable();
-        else await disable();
-        setAutoLaunch(next);
-    } catch (e) { console.error(e); }
+        const current = await isEnabled();
+        if (current) {
+            await disable();
+        } else {
+            await enable();
+        }
+        
+        // Registry changes can take a moment, wait briefly before checking
+        await new Promise(r => setTimeout(r, 500));
+        
+        const nowEnabled = await isEnabled();
+        setAutoLaunch(nowEnabled);
+        
+        if (nowEnabled === prevState) {
+            // If it didn't change, it might be blocked by system or antivirus
+            setStatus("Permission Denied: System blocked auto-launch change.");
+            setTimeout(() => setStatus(""), 5000);
+        } else {
+            setStatus(t.success);
+            setTimeout(() => setStatus(""), 2000);
+        }
+    } catch (e) {
+        console.error("Toggle autostart failed:", e);
+        // Sync UI with reality
+        const realState = await isEnabled();
+        setAutoLaunch(realState);
+        setStatus("Auto-launch change failed. Try running as Admin.");
+        setTimeout(() => setStatus(""), 5000);
+    }
   };
 
   const loadWordbook = async () => {
@@ -582,6 +645,13 @@ export default function Dashboard() {
                                     <div className="flex items-center gap-4">
                                         <span className="text-[11px] font-black text-zinc-500">{cacheSize}</span>
                                         <button onClick={handleClearCache} className="px-4 py-1.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.clearCache}</button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                    <div><label className="text-[0.9em] font-black block">{t.backupRestore}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{t.backupDesc}</span></div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={handleExport} className="px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 border border-blue-600/20 text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase">{t.exportData}</button>
+                                        <button onClick={handleImport} className="px-4 py-1.5 rounded-full bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white border border-black/5 dark:border-white/10 text-[10px] font-black hover:bg-zinc-900 dark:hover:bg-white hover:text-white dark:hover:text-zinc-900 transition-all uppercase">{t.importData}</button>
                                     </div>
                                 </div>
                             </div>

@@ -13,8 +13,10 @@ use std::fs;
 use std::path::PathBuf;
 use sha2::{Sha256, Digest};
 use rusqlite::OptionalExtension;
-
 use std::sync::Mutex;
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+
+const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 
 struct AppState {
     shortcuts_paused: Mutex<bool>,
@@ -76,7 +78,6 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     
-    // 1. Unregister old shortcut definitively
     let old_shortcut_str = db::get_config(&conn, &format!("shortcut_{}", name)).unwrap_or_default();
     if !old_shortcut_str.is_empty() {
         if let Ok(old_s) = parse_shortcut(&old_shortcut_str) {
@@ -84,11 +85,9 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
         }
     }
 
-    // 2. Register new
     let new_s = parse_shortcut(&shortcut_str).map_err(|e| e)?;
     let name_for_closure = name.clone();
     app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
-        // Skip if shortcuts are paused
         let state = app.state::<AppState>();
         let paused = state.shortcuts_paused.lock().unwrap();
         if *paused { return; }
@@ -105,9 +104,135 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
         }
     }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
 
-    // 3. Save to DB
     db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn export_data(app: AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+
+    let mut config_data = std::collections::HashMap::new();
+    let mut stmt = conn.prepare("SELECT key, value FROM config").map_err(|e| e.to_string())?;
+    let config_rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for row in config_rows {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        config_data.insert(k, v);
+    }
+
+    let mut wordbook_data = Vec::new();
+    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
+    let word_rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "uuid": row.get::<_, String>(0)?,
+            "word": row.get::<_, String>(1)?,
+            "phonetic": row.get::<_, String>(2)?,
+            "meaning": row.get::<_, String>(3)?,
+            "analysis": row.get::<_, String>(4)?,
+            "is_deleted": row.get::<_, i64>(5)?,
+            "updated_at": row.get::<_, String>(6)?,
+        }))
+    }).map_err(|e| e.to_string())?;
+    for row in word_rows {
+        wordbook_data.push(row.map_err(|e| e.to_string())?);
+    }
+
+    let full_json = serde_json::json!({
+        "config": config_data,
+        "wordbook": wordbook_data,
+        "export_version": "1.0",
+        "export_time": chrono::Local::now().to_rfc3339()
+    });
+    let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
+
+    let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+    let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+    let ciphertext = cipher.encrypt(nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
+
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app.dialog().file().set_title("导出胧翻译备份").add_filter("胧翻译备份 (*.TLong)", &["TLong"]).set_file_name("胧翻译备份.TLong").blocking_save_file();
+    
+    if let Some(path) = file_path {
+        let actual_path = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
+            _ => return Err("Unsupported path type".to_string()),
+        };
+        std::fs::write(actual_path, ciphertext).map_err(|e| e.to_string())?;
+        return Ok("Export successful".to_string());
+    }
+    
+    Err("User cancelled".to_string())
+}
+
+#[tauri::command]
+async fn import_data(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app.dialog().file().set_title("导入胧翻译备份").add_filter("胧翻译备份 (*.TLong)", &["TLong"]).blocking_pick_file();
+
+    if let Some(path) = file_path {
+        let actual_path = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
+            _ => return Err("Unsupported path type".to_string()),
+        };
+        let ciphertext = std::fs::read(actual_path).map_err(|e| e.to_string())?;
+
+        let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+        let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| "Decryption failed: invalid file or key".to_string())?;
+        let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
+
+        let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        
+        let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+        {
+            let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+            // 1. Clear existing data for complete override
+            tx.execute("DELETE FROM config", []).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM wordbook", []).map_err(|e| e.to_string())?;
+
+            // 2. Import Config
+            if let Some(configs) = full_json["config"].as_object() {
+                for (k, v) in configs {
+                    tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, v.as_str().unwrap_or_default()]).map_err(|e| e.to_string())?;
+                }
+            }
+
+            // 3. Import Wordbook
+            if let Some(words) = full_json["wordbook"].as_array() {
+                for item in words {
+                    let uuid = item["uuid"].as_str().unwrap_or_default();
+                    let updated_at = item["updated_at"].as_str().unwrap_or_default();
+                    let is_deleted = item["is_deleted"].as_i64().unwrap_or(0);
+
+                    tx.execute(
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        (
+                            uuid,
+                            item["word"].as_str().unwrap_or_default(),
+                            item["phonetic"].as_str().unwrap_or_default(),
+                            item["meaning"].as_str().unwrap_or_default(),
+                            item["analysis"].as_str().unwrap_or_default(),
+                            is_deleted,
+                            updated_at
+                        )
+                    ).map_err(|e| e.to_string())?;
+                }
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+
+        app.emit("wordbook-updated", "import").unwrap();
+        app.emit("config-updated", "import").unwrap();
+        return Ok(());
+    }
+
+    Err("User cancelled".to_string())
 }
 
 #[tauri::command]
@@ -151,7 +276,6 @@ fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meani
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
 
-    // Check if word already exists and not deleted
     let existing_uuid: Option<String> = conn.query_row(
         "SELECT uuid FROM wordbook WHERE word = ?1 AND is_deleted = 0",
         [&word],
@@ -159,7 +283,7 @@ fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meani
     ).optional().map_err(|e| e.to_string())?;
 
     if existing_uuid.is_some() {
-        return Ok(()); // Already exists
+        return Ok(());
     }
 
     let uuid = uuid::Uuid::new_v4().to_string();
@@ -353,7 +477,6 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
 async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     
-    // 1. Get WebDAV Config (scoped to drop conn before await)
     let (url, user, pass, is_enabled) = {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
         let url = db::get_config(&conn, "webdav_url").unwrap_or_default();
@@ -368,7 +491,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
     let client = reqwest::Client::new();
     let sync_file_url = format!("{}/wordbook_sync.json", url.trim_end_matches('/'));
 
-    // 2. Download remote data
     let mut remote_data: Vec<serde_json::Value> = Vec::new();
     let resp = client.get(&sync_file_url)
         .basic_auth(&user, Some(&pass))
@@ -383,12 +505,10 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // 3. Merge and Fetch Local (scoped to drop conn and stmt before await)
     let local_items: Vec<serde_json::Value> = {
         let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-        // Merge Cloud to Local
         for item in remote_data {
             let uuid = item["uuid"].as_str().unwrap_or_default();
             let updated_at = item["updated_at"].as_str().unwrap_or_default();
@@ -434,7 +554,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
         tx.commit().map_err(|e| e.to_string())?;
 
-        // Fetch all for upload
         let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
         let items = stmt.query_map([], |row| {
             Ok(serde_json::json!({
@@ -450,7 +569,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         items
     };
 
-    // 4. Export to cloud
     let upload_resp = client.put(&sync_file_url)
         .basic_auth(&user, Some(&pass))
         .json(&local_items)
@@ -468,7 +586,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         return Err(format!("同步失败 (HTTP {}): {}", upload_resp.status(), sync_file_url));
     }
 
-    // Save sync time
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
@@ -494,13 +611,10 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     
-    // 1. Wordbook count
     let word_count: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |row| row.get(0)).map_err(|e| e.to_string())?;
     
-    // 2. Translated count
     let trans_count: i32 = db::get_config(&conn, "translated_count").unwrap_or_default().parse().unwrap_or(0);
     
-    // 3. Days active
     let install_date_str = db::get_config(&conn, "install_date").unwrap_or_default();
     let days = if !install_date_str.is_empty() {
         let install_date = chrono::NaiveDate::parse_from_str(&install_date_str, "%Y-%m-%d").unwrap_or_else(|_| chrono::Local::now().date_naive());
@@ -525,6 +639,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
@@ -540,7 +655,6 @@ pub fn run() {
                 }
             });
 
-            // Load shortcuts from DB
             let q_shortcut_str = db::get_config(&conn, "shortcut_q").unwrap_or_else(|_| "Alt+Q".to_string());
             let w_shortcut_str = db::get_config(&conn, "shortcut_w").unwrap_or_else(|_| "Alt+W".to_string());
             
@@ -549,7 +663,6 @@ pub fn run() {
 
             let global_shortcut = app.global_shortcut();
             
-            // Register Q
             if let Ok(s) = parse_shortcut(&q_shortcut_str) {
                 if let Err(e) = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
                     if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
@@ -562,7 +675,6 @@ pub fn run() {
                 }
             }
 
-            // Register W
             if let Ok(s) = parse_shortcut(&w_shortcut_str) {
                 if let Err(e) = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
                     if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
@@ -585,7 +697,7 @@ pub fn run() {
             hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
-            update_shortcut, set_shortcuts_paused
+            update_shortcut, set_shortcuts_paused, export_data, import_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
