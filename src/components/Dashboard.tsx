@@ -28,6 +28,11 @@ export default function Dashboard() {
   const [webdavUser, setWebdavUser] = useState("");
   const [webdavPass, setWebdavPass] = useState("");
 
+  // Shortcuts
+  const [shortcutQ, setShortcutQ] = useState("Alt+Q");
+  const [shortcutW, setShortcutW] = useState("Alt+W");
+  const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
+
   // Translation Model Config
   const [transApiKey, setTransApiKey] = useState("");
   const [transBaseUrl, setTransBaseUrl] = useState("");
@@ -69,7 +74,7 @@ export default function Dashboard() {
     refreshCacheSize();
     refreshStats();
     
-    const unlisten = listen<string>("wordbook-updated", (event) => {
+    const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
         loadWordbook();
         refreshStats();
         // 1-minute auto sync logic - only for local changes
@@ -81,11 +86,75 @@ export default function Dashboard() {
         }
     });
 
+    const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
+        setStatus(`Error: ${event.payload}`);
+        setTimeout(() => setStatus(""), 5000);
+    });
+
     return () => { 
-        unlisten.then(f => f()); 
+        unlistenWordbook.then(f => f()); 
+        unlistenShortcutError.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, [webdavEnabled]);
+
+  // Shortcut Recording Logic
+  useEffect(() => {
+    if (!recordingKey) {
+        invoke("set_shortcuts_paused", { paused: false });
+        return;
+    }
+
+    invoke("set_shortcuts_paused", { paused: true });
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Only track if there's at least one modifier or it's a function key
+      const hasModifier = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
+      
+      // Skip pure modifier keys alone
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+
+      const parts = [];
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      if (e.metaKey) parts.push('Win');
+      
+      let key = e.key.toUpperCase();
+      if (key === ' ') key = 'Space';
+      
+      // We accept modifier+key OR Function keys (F1-F12)
+      if (hasModifier || key.startsWith('F')) {
+        if (key.length === 1 || key.startsWith('F')) {
+            parts.push(key);
+            const newShortcut = parts.join('+');
+            handleUpdateShortcut(recordingKey, newShortcut);
+            setRecordingKey(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [recordingKey]);
+
+  const handleUpdateShortcut = async (name: "q" | "w", shortcut: string) => {
+    try {
+        await invoke("update_shortcut", { name, shortcutStr: shortcut });
+        if (name === 'q') setShortcutQ(shortcut);
+        else setShortcutW(shortcut);
+        setStatus("Shortcut Updated");
+        setTimeout(() => setStatus(""), 2000);
+    } catch (e) {
+        setStatus(`Failed to set shortcut: ${e}`);
+        setTimeout(() => setStatus(""), 5000);
+    }
+  };
 
   const refreshCacheSize = async () => {
     try {
@@ -130,6 +199,9 @@ export default function Dashboard() {
       setTransApiKey(await getVal("trans_api_key") || await getVal("openai_api_key") || "");
       setTransBaseUrl(await getVal("trans_base_url") || await getVal("base_url") || "");
       setTransModelName(await getVal("trans_model_name") || await getVal("model_name") || "");
+
+      setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
+      setShortcutW(await getVal("shortcut_w") || "Alt+W");
 
       setLang(await getVal("language") as Lang || "zh");
       setTargetLang(await getVal("target_lang") || "Chinese");
@@ -431,6 +503,31 @@ export default function Dashboard() {
                                     <div key={idx} className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5 transition-all hover:bg-white/40 dark:hover:bg-white/10">
                                         <div><label className="text-[0.9em] font-black block">{item.label}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{item.desc}</span></div>
                                         {item.component}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
+                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Shortcuts</h3>
+                                {[
+                                    { label: "快速翻译", desc: "自动抓取并翻译选中文本", value: shortcutQ, id: 'q' as const },
+                                    { label: "截图识别", desc: "唤起截图区域识别并翻译", value: shortcutW, id: 'w' as const }
+                                ].map((item) => (
+                                    <div key={item.id} className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                        <div>
+                                            <label className="text-[0.9em] font-black block">{item.label}</label>
+                                            <span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{item.desc}</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setRecordingKey(recordingKey === item.id ? null : item.id)}
+                                            className={`min-w-[120px] px-4 py-2.5 rounded-2xl font-black text-[11px] border transition-all ${
+                                                recordingKey === item.id 
+                                                ? 'bg-blue-600 text-white border-blue-500 animate-pulse' 
+                                                : 'bg-white/60 dark:bg-white/10 border-black/5 dark:border-white/10 hover:border-blue-500/50'
+                                            }`}
+                                        >
+                                            {recordingKey === item.id ? "请按下组合键..." : item.value}
+                                        </button>
                                     </div>
                                 ))}
                             </div>

@@ -3,7 +3,7 @@ mod ocr;
 mod tray;
 
 use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use base64::{Engine as _, engine::general_purpose};
 use enigo::{Enigo, Key, Keyboard, Settings, Direction};
@@ -12,10 +12,102 @@ use std::time::Duration;
 use std::fs;
 use std::path::PathBuf;
 use sha2::{Sha256, Digest};
+use rusqlite::OptionalExtension;
+
+use std::sync::Mutex;
+
+struct AppState {
+    shortcuts_paused: Mutex<bool>,
+}
+
+#[tauri::command]
+fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
+    let mut p = state.shortcuts_paused.lock().unwrap();
+    *p = paused;
+}
 
 #[tauri::command]
 fn hide_floating_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("floating") { let _ = win.hide(); }
+}
+
+fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
+    let parts: Vec<&str> = shortcut_str.split('+').collect();
+    let mut mods = Modifiers::empty();
+    let mut key_code = None;
+
+    for part in parts {
+        match part.to_uppercase().as_str() {
+            "CTRL" | "CONTROL" => mods.insert(Modifiers::CONTROL),
+            "ALT" => mods.insert(Modifiers::ALT),
+            "SHIFT" => mods.insert(Modifiers::SHIFT),
+            "SUPER" | "COMMAND" | "WIN" => mods.insert(Modifiers::SUPER),
+            key => {
+                let code = match key {
+                    "A" => Code::KeyA, "B" => Code::KeyB, "C" => Code::KeyC, "D" => Code::KeyD,
+                    "E" => Code::KeyE, "F" => Code::KeyF, "G" => Code::KeyG, "H" => Code::KeyH,
+                    "I" => Code::KeyI, "J" => Code::KeyJ, "K" => Code::KeyK, "L" => Code::KeyL,
+                    "M" => Code::KeyM, "N" => Code::KeyN, "O" => Code::KeyO, "P" => Code::KeyP,
+                    "Q" => Code::KeyQ, "R" => Code::KeyR, "S" => Code::KeyS, "T" => Code::KeyT,
+                    "U" => Code::KeyU, "V" => Code::KeyV, "W" => Code::KeyW, "X" => Code::KeyX,
+                    "Y" => Code::KeyY, "Z" => Code::KeyZ,
+                    "0" => Code::Digit0, "1" => Code::Digit1, "2" => Code::Digit2, "3" => Code::Digit3,
+                    "4" => Code::Digit4, "5" => Code::Digit5, "6" => Code::Digit6, "7" => Code::Digit7,
+                    "8" => Code::Digit8, "9" => Code::Digit9,
+                    "F1" => Code::F1, "F2" => Code::F2, "F3" => Code::F3, "F4" => Code::F4,
+                    "F5" => Code::F5, "F6" => Code::F6, "F7" => Code::F7, "F8" => Code::F8,
+                    "F9" => Code::F9, "F10" => Code::F10, "F11" => Code::F11, "F12" => Code::F12,
+                    _ => return Err(format!("Unsupported key: {}", key)),
+                };
+                key_code = Some(code);
+            }
+        }
+    }
+
+    if let Some(code) = key_code {
+        Ok(Shortcut::new(Some(mods), code))
+    } else {
+        Err("No key specified".to_string())
+    }
+}
+
+#[tauri::command]
+fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String, shortcut_str: String) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    
+    // 1. Unregister old shortcut definitively
+    let old_shortcut_str = db::get_config(&conn, &format!("shortcut_{}", name)).unwrap_or_default();
+    if !old_shortcut_str.is_empty() {
+        if let Ok(old_s) = parse_shortcut(&old_shortcut_str) {
+            let _ = app.global_shortcut().unregister(old_s);
+        }
+    }
+
+    // 2. Register new
+    let new_s = parse_shortcut(&shortcut_str).map_err(|e| e)?;
+    let name_for_closure = name.clone();
+    app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
+        // Skip if shortcuts are paused
+        let state = app.state::<AppState>();
+        let paused = state.shortcuts_paused.lock().unwrap();
+        if *paused { return; }
+
+        if event.state() == ShortcutState::Pressed {
+            if name_for_closure == "q" {
+                handle_translate_request(app);
+            } else {
+                if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+                    let _ = overlay.show();
+                    let _ = overlay.set_focus();
+                }
+            }
+        }
+    }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
+
+    // 3. Save to DB
+    db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -423,11 +515,10 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-use rusqlite::OptionalExtension;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState { shortcuts_paused: Mutex::new(false) })
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -438,7 +529,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-            let _conn = db::init_db(app_dir).expect("Failed to initialize database");
+            let conn = db::init_db(app_dir).expect("Failed to initialize database");
             
             let main_win = app.get_webview_window("main").unwrap();
             let main_win_clone = main_win.clone();
@@ -449,23 +540,43 @@ pub fn run() {
                 }
             });
 
-            let global_shortcut = app.global_shortcut();
-            let q_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyQ);
-            global_shortcut.on_shortcut(q_shortcut, move |app, _shortcut, event| {
-                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    handle_translate_request(app);
-                }
-            }).unwrap();
+            // Load shortcuts from DB
+            let q_shortcut_str = db::get_config(&conn, "shortcut_q").unwrap_or_else(|_| "Alt+Q".to_string());
+            let w_shortcut_str = db::get_config(&conn, "shortcut_w").unwrap_or_else(|_| "Alt+W".to_string());
+            
+            let q_shortcut_str = if q_shortcut_str.is_empty() { "Alt+Q".to_string() } else { q_shortcut_str };
+            let w_shortcut_str = if w_shortcut_str.is_empty() { "Alt+W".to_string() } else { w_shortcut_str };
 
-            let w_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyW);
-            global_shortcut.on_shortcut(w_shortcut, move |app, _shortcut, event| {
-                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-                        let _ = overlay.show();
-                        let _ = overlay.set_focus();
+            let global_shortcut = app.global_shortcut();
+            
+            // Register Q
+            if let Ok(s) = parse_shortcut(&q_shortcut_str) {
+                if let Err(e) = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
+                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    if event.state() == ShortcutState::Pressed {
+                        handle_translate_request(app);
                     }
+                }) {
+                    log::error!("Failed to register {}: {}", q_shortcut_str, e);
+                    let _ = app.emit("shortcut-error", format!("快速翻译快捷键 ({}) 被占用", q_shortcut_str));
                 }
-            }).unwrap();
+            }
+
+            // Register W
+            if let Ok(s) = parse_shortcut(&w_shortcut_str) {
+                if let Err(e) = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
+                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    if event.state() == ShortcutState::Pressed {
+                        if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+                            let _ = overlay.show();
+                            let _ = overlay.set_focus();
+                        }
+                    }
+                }) {
+                    log::error!("Failed to register {}: {}", w_shortcut_str, e);
+                    let _ = app.emit("shortcut-error", format!("截图识别快捷键 ({}) 被占用", w_shortcut_str));
+                }
+            }
 
             Ok(())
         })
@@ -473,7 +584,8 @@ pub fn run() {
             run_ocr, capture_and_ocr, get_clipboard_text, set_config_value, get_config_value,
             hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
-            clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats
+            clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
+            update_shortcut, set_shortcuts_paused
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
