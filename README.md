@@ -1,53 +1,74 @@
 # 胧翻译 (Long Translate) - AI 智能助手
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Logo">
+  <img src="public/logo.png" width="160" height="160" alt="Long Translate Logo">
 </p>
 
 <p align="center">
-  <strong>一款基于 AI 的 Windows 系统级翻译与 OCR 工具</strong>
+  <strong>一款基于 AI 的 Windows 系统级翻译与 OCR 智能工具</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/Longyuyeee/long_TranslateSoftware?style=flat-square&color=3b82f6" alt="Release">
+  <img src="https://img.shields.io/badge/Platform-Windows-blue?style=flat-square&logo=windows" alt="Platform">
+  <img src="https://img.shields.io/badge/Powered%20by-Tauri--Rust-orange?style=flat-square&logo=tauri" alt="Tauri">
+  <img src="https://img.shields.io/badge/Built%20with-React--TS-61DAFB?style=flat-square&logo=react" alt="React">
+  <img src="https://img.shields.io/github/license/Longyuyeee/long_TranslateSoftware?style=flat-square" alt="License">
 </p>
 
 ---
 
-## ✨ 核心特性
+## 🌟 核心特性
 
-- 🚀 **AI 流式翻译**：支持 OpenAI / DeepSeek 兼容接口，提供毫秒级流式响应。
-- 🔍 **系统级 OCR**：调用 Windows 原生 Media OCR 引擎，本地识别，隐私无忧。
-- ⌨️ **动态快捷键**：
-  - 支持 `Alt + Q` (选中文本翻译)、`Alt + W` (截图识别)。
-  - **新特性**：支持在设置中实时录制并修改组合键，具备冲突检测与静默录制机制。
-- 💾 **加密备份还原**：
-  - **新特性**：支持导出 `.TLong` 加密备份文件，一键迁移所有设置与生词本。
-- 📚 **智能生词本**：AI 深度分析单词词源、例句、近义词，支持 WebDAV 云端同步。
-- 🎙️ **智能语音 (TTS)**：支持系统本地语音及 OpenAI 在线高音质音色。
-- 🎨 **极简视觉**：采用 Apple Style 设计语言，支持深色模式与全局 UI 缩放。
+- 🚀 **AI 流式翻译**
+  - 支持 OpenAI / DeepSeek 兼容接口，毫秒级流式响应。
+  - 自定义翻译角色与目标语言。
+- 🔍 **系统级 OCR 识别**
+  - 调用 Windows 原生 Media OCR 引擎，本地识别，隐私无忧。
+  - 支持全屏截图、区域划选，一键提取并翻译。
+- ⌨️ **动态快捷键体系**
+  - 默认 `Alt + Q` (选中文本翻译)、`Alt + W` (截图识别)。
+  - **新特性**：支持设置中实时录制组合键，自动处理冲突，静默捕获。
+- 💾 **加密备份与迁移**
+  - 导出 `.TLong` 加密备份文件，跨设备一键迁移所有配置与数据。
+- 📚 **智能 AI 生词本**
+  - AI 深度解析：词源分析、多场景例句、近义词对比。
+  - 支持 **WebDAV** 云端同步，让学习数据永不丢失。
+- 🎙️ **多引擎 TTS (语音合成)**
+  - 支持 Youdao 本地引擎、Microsoft Edge Neural Voices (高保真) 及 OpenAI 在线引擎。
+- 🎨 **极简 Apple Style 视觉**
+  - 精心调教的毛玻璃背景，支持深色模式、全局 UI 缩放。
 
-## 📥 下载与安装
+## 📥 下载与安装 (v0.2.1)
 
-> **⚠️ 推荐下载：** 建议优先下载并使用 **`.exe` (NSIS)** 安装包，它具有更好的兼容性和权限处理能力。
+> **💡 提示：** 推荐优先使用 **`.exe` (NSIS)** 安装包，它具备更优秀的系统权限处理和更好的安装体验。
 
-- **[推荐] [EXE 安装包 (v0.1.0)](releases/LongTranslate_0.1.0_x64_Setup.exe)**
-- **[MSI 安装程序 (v0.1.0)](releases/LongTranslate_0.1.0_x64_zh-CN.msi)**
+| 平台 | 文件类型 | 下载链接 |
+| :--- | :--- | :--- |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | **[立即下载 v0.2.1 .exe](releases/LongTranslate_0.2.1_x64_Setup.exe)** |
+| **Windows (x64)** | **MSI 安装包** | **[立即下载 v0.2.1 .msi](releases/LongTranslate_0.2.1_x64_zh-CN.msi)** |
 
-## 🛠️ 开发与构建
+## 🛠️ 技术栈与构建
 
-项目采用 **Tauri 2.0 + React 19 + Rust** 构建。
+本项目基于 **Tauri 2.0** 架构开发。
 
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
 - [Node.js](https://nodejs.org/) (v18+)
-- [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (Windows 10/11 已内置)
+- [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (Windows 10/11 已预装)
 
-### 构建指令
+### 快速开始
 ```bash
-# 安装依赖
+# 1. 克隆项目
+git clone https://github.com/Longyuyeee/long_TranslateSoftware.git
+
+# 2. 安装依赖
 npm install
 
-# 开发模式运行
+# 3. 运行开发模式
 npm run tauri dev
 
-# 生产环境打包
+# 4. 构建生产安装包
 npm run tauri build
 ```
 
@@ -56,4 +77,6 @@ npm run tauri build
 本项目采用 [MIT License](LICENSE) 协议。
 
 ---
-*Developed with ❤️ by [Longyuyeee](https://github.com/Longyuyeee)*
+<p align="center">
+  <i>Developed with ❤️ by <a href="https://github.com/Longyuyeee">Longyuyeee</a></i>
+</p>
