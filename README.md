@@ -48,6 +48,19 @@
 | **Windows (x64)** | **[推荐] NSIS 安装程序** | **[立即下载 v0.2.2 .exe](releases/LongTranslate_0.2.2_x64_Setup.exe)** |
 | **Windows (x64)** | **MSI 安装包** | **[立即下载 v0.2.2 .msi](releases/LongTranslate_0.2.2_x64_zh-CN.msi)** |
 
+## 🛡️ 安全与权限说明
+
+由于本项目尚未购买昂贵的 Windows 数字签名证书（Code Signing Certificate），在安装过程中，您可能会遇到 **Microsoft Defender SmartScreen** 的警告提示。
+
+### 如何正常安装？
+1. 在弹出的“Windows 已保护你的电脑”窗口中，点击 **“更多信息” (More info)**。
+2. 点击右下角出现的 **“仍要运行” (Run anyway)** 按钮即可开始安装。
+
+> **💡 为什么会有这个提示？**
+> 这是 Windows 对所有“未知发布者”软件的常规保护机制。由于本项目是开源的，您可以随时在 GitHub 查阅所有[源代码](https://github.com/Longyuyeee/long_TranslateSoftware)，确保其安全无毒。
+
+---
+
 ## 🛠️ 技术栈与构建
 
 本项目基于 **Tauri 2.0** 架构开发。
