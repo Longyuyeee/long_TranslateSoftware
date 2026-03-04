@@ -1,8 +1,8 @@
 [package]
 name = "long-trans"
-version = "0.2.1"
+version = "0.2.2"
 description = "胧翻译 · 智能助手"
-authors = ["you"]
+authors = ["longyuye"]
 edition = "2021"
 
 [lib]
