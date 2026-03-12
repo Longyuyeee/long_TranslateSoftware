@@ -1,4 +1,4 @@
-# 胧翻译 · 智能助手 开发与打包指南
+# Long翻译 · 智能助手 开发与打包指南
 
 本手册包含如何更换软件图标、配置系统自启、以及在 Windows 平台上进行正式版本打包的详细步骤。
 
@@ -53,14 +53,14 @@ npm run tauri build
 
 ### 第三步：获取安装包
 编译完成后，安装程序将位于：
-`src-tauri	argetelease\bundle\msi\胧翻译_0.1.0_x64_zh-CN.msi`
+`src-tauri	argetelease\bundle\msi\Long翻译_0.1.0_x64_zh-CN.msi`
 
 ---
 
 ## 4. 常见问题处理 (Troubleshooting)
 
 ### Q1: 打包时 `light.exe` 报错 (Linker Error)
-**原因**: 软件名称包含中文（胧翻译），而 WiX 默认语言为 `en-US`。
+**原因**: 软件名称包含中文（Long翻译），而 WiX 默认语言为 `en-US`。
 **解决**: 我们已在 `tauri.conf.json` 中配置了 `"language": ["zh-CN"]`。如果依然报错，请确保运行了 `cargo clean` 后重试。
 
 ### Q2: WebDAV 同步报 404 错误
@@ -77,5 +77,5 @@ npm run tauri build
 
 ## 5. 项目配置说明
 - **Identifier**: `com.ai.trans.assistant` (请勿轻易修改，否则会导致用户单词本数据路径丢失)。
-- **ProductName**: `胧翻译`
-- **Window Title**: `胧翻译 · 智能助手`
+- **ProductName**: `Long翻译`
+- **Window Title**: `Long翻译 · 智能助手`

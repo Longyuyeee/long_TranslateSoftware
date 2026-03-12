@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    ai_trans_assistant_lib::run()
+    long_translate_lib::run()
 }

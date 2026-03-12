@@ -1,4 +1,4 @@
-# 胧翻译 (Long Translate)
+# Long翻译 (Long Translate)
 
 <p align="center">
   <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Logo">
@@ -14,7 +14,7 @@
 
 ---
 
-**胧翻译** 是一款专为 Windows 用户打造的极速 AI 翻译与 OCR 工具。它结合了现代 AI 模型的理解能力与系统原生的 OCR 性能，旨在为您提供最顺滑的跨屏、跨软件阅读体验。
+**Long翻译** 是一款专为 Windows 用户打造的极速 AI 翻译与 OCR 工具。它结合了现代 AI 模型的理解能力与系统原生的 OCR 性能，旨在为您提供最顺滑的跨屏、跨软件阅读体验。
 
 ## 📥 下载安装
 

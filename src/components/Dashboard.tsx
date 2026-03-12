@@ -354,7 +354,7 @@ export default function Dashboard() {
                     <span className="w-1 h-1 rounded-full bg-blue-500/40" />
                     <span className="text-[10px] font-black text-blue-600/60 dark:text-blue-400/60 tracking-widest uppercase italic">LONG AI</span>
                 </div>
-                <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">胧翻译 · 智能助手</p>
+                <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">Long翻译 · 智能助手</p>
             </div>
             <div className="flex items-center gap-4">
                 <AnimatePresence>

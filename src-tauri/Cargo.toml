@@ -1,12 +1,12 @@
 [package]
-name = "long-trans"
-version = "0.1.0"
-description = "胧翻译 · 智能助手"
+name = "long-translate"
+version = "0.2.3"
+description = "Long翻译 · 智能助手"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "ai_trans_assistant_lib"
+name = "long_translate_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

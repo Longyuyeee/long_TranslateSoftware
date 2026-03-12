@@ -425,6 +425,64 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
 
 use rusqlite::OptionalExtension;
 
+fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let new_data_dir = app.path().app_data_dir()?;
+    let old_identifier = "com.ai.trans.assistant";
+    
+    // 构造旧路径：将新路径最后的标识符部分替换为旧标识符
+    let old_data_dir = if let Some(parent) = new_data_dir.parent() {
+        parent.join(old_identifier)
+    } else {
+        return Ok(());
+    };
+
+    // 关键修复：数据库文件名为 words.db，而不是 app.db
+    let new_db_path = new_data_dir.join("words.db");
+    let old_db_path = old_data_dir.join("words.db");
+
+    println!("[Migration] New Dir: {:?}", new_data_dir);
+    println!("[Migration] Old Dir: {:?}", old_data_dir);
+
+    // 如果新目录已存在有效数据库文件，说明不需要迁移
+    if new_db_path.exists() && fs::metadata(&new_db_path)?.len() > 0 {
+        println!("[Migration] New database already exists, skipping migration.");
+        return Ok(());
+    }
+
+    // 如果旧目录存在且包含数据库，则执行迁移
+    if old_data_dir.exists() && old_db_path.exists() {
+        println!("[Migration] Found old data. Starting migration...");
+        if !new_data_dir.exists() {
+            fs::create_dir_all(&new_data_dir)?;
+        }
+        
+        // 递归复制所有内容
+        if let Err(e) = copy_dir_all(&old_data_dir, &new_data_dir) {
+            println!("[Migration] Error during copying: {:?}", e);
+        } else {
+            println!("[Migration] Successfully migrated data to new directory.");
+        }
+    } else {
+        println!("[Migration] Old data not found at {:?}. Skipping.", old_db_path);
+    }
+
+    Ok(())
+}
+
+fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -435,6 +493,9 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // 执行数据迁移
+            let _ = migrate_old_data(app);
+
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");

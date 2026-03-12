@@ -2907,8 +2907,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "long-trans"
-version = "0.1.0"
+name = "long-translate"
+version = "0.2.3"
 dependencies = [
  "arboard",
  "base64 0.22.1",

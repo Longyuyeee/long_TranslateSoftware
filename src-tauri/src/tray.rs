@@ -10,7 +10,7 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show_dashboard, &quit])?;
 
     let _ = TrayIconBuilder::with_id("tray")
-        .tooltip("AI 翻译助手")
+        .tooltip("Long翻译 · 智能助手")
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .on_menu_event(move |app: &AppHandle<R>, event| match event.id.as_ref() {
