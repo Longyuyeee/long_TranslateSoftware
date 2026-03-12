@@ -1,6 +1,7 @@
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
 use uuid::Uuid;
+use chrono;
 
 pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     if !app_dir.exists() {
@@ -74,7 +75,10 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
 
     // Add updated_at if not exists
     if !pragma_info.contains(&"updated_at".to_string()) {
-        conn.execute("ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP", [])?;
+        // SQLite doesn't allow CURRENT_TIMESTAMP as default for ALTER TABLE.
+        // Use a fixed string instead, then update existing rows if needed.
+        conn.execute("ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT '2024-01-01 00:00:00'", [])?;
+        conn.execute("UPDATE wordbook SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '2024-01-01 00:00:00'", [])?;
     }
 
     Ok(())

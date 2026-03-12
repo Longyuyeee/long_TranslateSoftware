@@ -28,6 +28,11 @@ export default function Dashboard() {
   const [webdavUser, setWebdavUser] = useState("");
   const [webdavPass, setWebdavPass] = useState("");
 
+  // Shortcuts
+  const [shortcutQ, setShortcutQ] = useState("Alt+Q");
+  const [shortcutW, setShortcutW] = useState("Alt+W");
+  const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
+
   // Translation Model Config
   const [transApiKey, setTransApiKey] = useState("");
   const [transBaseUrl, setTransBaseUrl] = useState("");
@@ -69,7 +74,7 @@ export default function Dashboard() {
     refreshCacheSize();
     refreshStats();
     
-    const unlisten = listen<string>("wordbook-updated", (event) => {
+    const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
         loadWordbook();
         refreshStats();
         // 1-minute auto sync logic - only for local changes
@@ -81,11 +86,110 @@ export default function Dashboard() {
         }
     });
 
+    const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
+        setStatus(`错误: ${event.payload}`);
+        setTimeout(() => setStatus(""), 5000);
+    });
+
+    const unlistenConfigImport = listen("config-updated", () => {
+        loadConfig();
+        loadWordbook();
+        refreshStats();
+        setStatus(t.importSuccess);
+        setTimeout(() => setStatus(""), 5000);
+    });
+
     return () => { 
-        unlisten.then(f => f()); 
+        unlistenWordbook.then(f => f()); 
+        unlistenShortcutError.then(f => f());
+        unlistenConfigImport.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
-  }, [webdavEnabled]);
+  }, [webdavEnabled, lang]); // Added lang to deps to refresh UI when lang changes
+
+  const handleExport = async () => {
+    try {
+        await invoke<string>("export_data");
+        setStatus("导出成功");
+        setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+        if (e !== "User cancelled") {
+            setStatus(`导出失败: ${e}`);
+            setTimeout(() => setStatus(""), 5000);
+        }
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+        await invoke("import_data");
+        // Reload entirely for a clean state
+        setTimeout(() => window.location.reload(), 500);
+    } catch (e) {
+        if (e !== "User cancelled") {
+            setStatus(`导入失败: ${e}`);
+            setTimeout(() => setStatus(""), 5000);
+        }
+    }
+  };
+
+  // Shortcut Recording Logic
+  useEffect(() => {
+    if (!recordingKey) {
+        invoke("set_shortcuts_paused", { paused: false });
+        return;
+    }
+
+    invoke("set_shortcuts_paused", { paused: true });
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Only track if there's at least one modifier or it's a function key
+      const hasModifier = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
+      
+      // Skip pure modifier keys alone
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+
+      const parts = [];
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      if (e.metaKey) parts.push('Win');
+      
+      let key = e.key.toUpperCase();
+      if (key === ' ') key = 'Space';
+      
+      // We accept modifier+key OR Function keys (F1-F12)
+      if (hasModifier || key.startsWith('F')) {
+        if (key.length === 1 || key.startsWith('F')) {
+            parts.push(key);
+            const newShortcut = parts.join('+');
+            handleUpdateShortcut(recordingKey, newShortcut);
+            setRecordingKey(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [recordingKey]);
+
+  const handleUpdateShortcut = async (name: "q" | "w", shortcut: string) => {
+    try {
+        await invoke("update_shortcut", { name, shortcutStr: shortcut });
+        if (name === 'q') setShortcutQ(shortcut);
+        else setShortcutW(shortcut);
+        setStatus("Shortcut Updated");
+        setTimeout(() => setStatus(""), 2000);
+    } catch (e) {
+        setStatus(`Failed to set shortcut: ${e}`);
+        setTimeout(() => setStatus(""), 5000);
+    }
+  };
 
   const refreshCacheSize = async () => {
     try {
@@ -131,7 +235,12 @@ export default function Dashboard() {
       setTransBaseUrl(await getVal("trans_base_url") || await getVal("base_url") || "");
       setTransModelName(await getVal("trans_model_name") || await getVal("model_name") || "");
 
-      setLang(await getVal("language") as Lang || "zh");
+      setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
+      setShortcutW(await getVal("shortcut_w") || "Alt+W");
+
+      const savedLang = await getVal("language") as Lang;
+      if (savedLang) setLang(savedLang);
+      
       setTargetLang(await getVal("target_lang") || "Chinese");
       setAutoCopy((await getVal("auto_copy")) === "true");
       setTheme(await getVal("theme") || "system");
@@ -150,17 +259,43 @@ export default function Dashboard() {
       setWebdavPass(await getVal("webdav_pass") || "");
       setLastSyncTime(await getVal("last_sync_time") || "");
 
-      setAutoLaunch(await isEnabled());
+      const enabled = await isEnabled();
+      setAutoLaunch(enabled);
     } catch (e) { console.error(e); }
   };
 
   const toggleAutoLaunch = async () => {
+    const prevState = autoLaunch;
     try {
-        const next = !autoLaunch;
-        if (next) await enable();
-        else await disable();
-        setAutoLaunch(next);
-    } catch (e) { console.error(e); }
+        const current = await isEnabled();
+        if (current) {
+            await disable();
+        } else {
+            await enable();
+        }
+        
+        // Registry changes can take a moment, wait briefly before checking
+        await new Promise(r => setTimeout(r, 500));
+        
+        const nowEnabled = await isEnabled();
+        setAutoLaunch(nowEnabled);
+        
+        if (nowEnabled === prevState) {
+            // If it didn't change, it might be blocked by system or antivirus
+            setStatus("Permission Denied: System blocked auto-launch change.");
+            setTimeout(() => setStatus(""), 5000);
+        } else {
+            setStatus(t.success);
+            setTimeout(() => setStatus(""), 2000);
+        }
+    } catch (e) {
+        console.error("Toggle autostart failed:", e);
+        // Sync UI with reality
+        const realState = await isEnabled();
+        setAutoLaunch(realState);
+        setStatus("Auto-launch change failed. Try running as Admin.");
+        setTimeout(() => setStatus(""), 5000);
+    }
   };
 
   const loadWordbook = async () => {
@@ -436,6 +571,31 @@ export default function Dashboard() {
                             </div>
 
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
+                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Shortcuts</h3>
+                                {[
+                                    { label: "快速翻译", desc: "自动抓取并翻译选中文本", value: shortcutQ, id: 'q' as const },
+                                    { label: "截图识别", desc: "唤起截图区域识别并翻译", value: shortcutW, id: 'w' as const }
+                                ].map((item) => (
+                                    <div key={item.id} className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                        <div>
+                                            <label className="text-[0.9em] font-black block">{item.label}</label>
+                                            <span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{item.desc}</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => setRecordingKey(recordingKey === item.id ? null : item.id)}
+                                            className={`min-w-[120px] px-4 py-2.5 rounded-2xl font-black text-[11px] border transition-all ${
+                                                recordingKey === item.id 
+                                                ? 'bg-blue-600 text-white border-blue-500 animate-pulse' 
+                                                : 'bg-white/60 dark:bg-white/10 border-black/5 dark:border-white/10 hover:border-blue-500/50'
+                                            }`}
+                                        >
+                                            {recordingKey === item.id ? "请按下组合键..." : item.value}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex flex-col">
                                         <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.cloudSync}</h3>
@@ -485,6 +645,13 @@ export default function Dashboard() {
                                     <div className="flex items-center gap-4">
                                         <span className="text-[11px] font-black text-zinc-500">{cacheSize}</span>
                                         <button onClick={handleClearCache} className="px-4 py-1.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.clearCache}</button>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                    <div><label className="text-[0.9em] font-black block">{t.backupRestore}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{t.backupDesc}</span></div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={handleExport} className="px-4 py-1.5 rounded-full bg-blue-600/10 text-blue-600 border border-blue-600/20 text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all uppercase">{t.exportData}</button>
+                                        <button onClick={handleImport} className="px-4 py-1.5 rounded-full bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white border border-black/5 dark:border-white/10 text-[10px] font-black hover:bg-zinc-900 dark:hover:bg-white hover:text-white dark:hover:text-zinc-900 transition-all uppercase">{t.importData}</button>
                                     </div>
                                 </div>
                             </div>
@@ -547,12 +714,51 @@ export default function Dashboard() {
                                 </div>
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                        <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">{ttsEngine === "local" ? t.ttsLocal : t.ttsOnline}</span></div>
+                                        <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">
+                                            {ttsEngine === "local" ? t.ttsLocal : ttsEngine === "edge" ? "Edge (Free)" : t.ttsOnline}
+                                        </span></div>
                                         <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
                                             <button onClick={() => setTtsEngine("local")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "local" ? "bg-white dark:bg-zinc-800 shadow-md text-blue-600" : "text-zinc-400"}`}>{t.ttsLocal}</button>
+                                            <button onClick={() => setTtsEngine("edge")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "edge" ? "bg-white dark:bg-zinc-800 shadow-md text-red-600" : "text-zinc-400"}`}>Edge (不可用)</button>
                                             <button onClick={() => setTtsEngine("online")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "online" ? "bg-white dark:bg-zinc-800 shadow-md text-blue-600" : "text-zinc-400"}`}>{t.ttsOnline}</button>
                                         </div>
                                     </div>
+                                    {ttsEngine === "edge" && (
+                                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5">
+                                            <div className="bg-red-500/10 border border-red-500/20 rounded-[18px] p-4 mb-4">
+                                                <p className="text-[10px] text-red-500 font-black uppercase tracking-widest text-center">
+                                                    ⚠️ Edge 语音目前不可用 (403 Forbidden)
+                                                </p>
+                                                <p className="text-[10px] text-red-500/70 font-bold mt-1 text-center">
+                                                    微软近期加强了反爬机制，正在排查修复中，请先使用本地或在线引擎。
+                                                </p>
+                                            </div>
+                                            <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">Microsoft Edge Neural Voices</label>
+                                                <div className="relative">
+                                                    <div className="mt-2 flex flex-wrap gap-2 px-2">
+                                                        {[
+                                                            { id: 'zh-CN-XiaoxiaoNeural', label: '晓晓 (女)' },
+                                                            { id: 'zh-CN-YunxiNeural', label: '云希 (男)' },
+                                                            { id: 'zh-CN-YunjianNeural', label: '云健 (男)' },
+                                                            { id: 'zh-CN-XiaoyiNeural', label: '晓依 (女)' },
+                                                            { id: 'en-US-AvaNeural', label: 'Ava (EN)' },
+                                                            { id: 'en-US-AndrewNeural', label: 'Andrew (EN)' },
+                                                            { id: 'en-US-EmmaNeural', label: 'Emma (EN)' },
+                                                            { id: 'ja-JP-NanamiNeural', label: 'Nanami (JP)' }
+                                                        ].map(v => (
+                                                            <button 
+                                                                key={v.id} 
+                                                                onClick={() => setTtsVoice(v.id)} 
+                                                                className={`text-[9px] px-3 py-1.5 rounded-xl border transition-all ${ttsVoice === v.id ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/20' : 'bg-black/5 dark:bg-white/5 border-transparent text-zinc-500 hover:bg-black/10'}`}
+                                                            >
+                                                                {v.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    )}
                                     {ttsEngine === "online" && (
                                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5">
                                             {[

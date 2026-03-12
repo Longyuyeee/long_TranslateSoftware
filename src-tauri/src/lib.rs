@@ -3,7 +3,7 @@ mod ocr;
 mod tray;
 
 use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use base64::{Engine as _, engine::general_purpose};
 use enigo::{Enigo, Key, Keyboard, Settings, Direction};
@@ -12,10 +12,234 @@ use std::time::Duration;
 use std::fs;
 use std::path::PathBuf;
 use sha2::{Sha256, Digest};
+use rusqlite::OptionalExtension;
+use std::sync::Mutex;
+use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+use futures_util::{StreamExt, SinkExt};
+use tokio_tungstenite::{
+    connect_async, 
+    tungstenite::{
+        protocol::Message,
+        client::IntoClientRequest
+    }
+};
+use url::Url;
+
+const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
+
+struct AppState {
+    shortcuts_paused: Mutex<bool>,
+}
+
+#[tauri::command]
+fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
+    let mut p = state.shortcuts_paused.lock().unwrap();
+    *p = paused;
+}
 
 #[tauri::command]
 fn hide_floating_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("floating") { let _ = win.hide(); }
+}
+
+fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
+    let parts: Vec<&str> = shortcut_str.split('+').collect();
+    let mut mods = Modifiers::empty();
+    let mut key_code = None;
+
+    for part in parts {
+        match part.to_uppercase().as_str() {
+            "CTRL" | "CONTROL" => mods.insert(Modifiers::CONTROL),
+            "ALT" => mods.insert(Modifiers::ALT),
+            "SHIFT" => mods.insert(Modifiers::SHIFT),
+            "SUPER" | "COMMAND" | "WIN" => mods.insert(Modifiers::SUPER),
+            key => {
+                let code = match key {
+                    "A" => Code::KeyA, "B" => Code::KeyB, "C" => Code::KeyC, "D" => Code::KeyD,
+                    "E" => Code::KeyE, "F" => Code::KeyF, "G" => Code::KeyG, "H" => Code::KeyH,
+                    "I" => Code::KeyI, "J" => Code::KeyJ, "K" => Code::KeyK, "L" => Code::KeyL,
+                    "M" => Code::KeyM, "N" => Code::KeyN, "O" => Code::KeyO, "P" => Code::KeyP,
+                    "Q" => Code::KeyQ, "R" => Code::KeyR, "S" => Code::KeyS, "T" => Code::KeyT,
+                    "U" => Code::KeyU, "V" => Code::KeyV, "W" => Code::KeyW, "X" => Code::KeyX,
+                    "Y" => Code::KeyY, "Z" => Code::KeyZ,
+                    "0" => Code::Digit0, "1" => Code::Digit1, "2" => Code::Digit2, "3" => Code::Digit3,
+                    "4" => Code::Digit4, "5" => Code::Digit5, "6" => Code::Digit6, "7" => Code::Digit7,
+                    "8" => Code::Digit8, "9" => Code::Digit9,
+                    "F1" => Code::F1, "F2" => Code::F2, "F3" => Code::F3, "F4" => Code::F4,
+                    "F5" => Code::F5, "F6" => Code::F6, "F7" => Code::F7, "F8" => Code::F8,
+                    "F9" => Code::F9, "F10" => Code::F10, "F11" => Code::F11, "F12" => Code::F12,
+                    _ => return Err(format!("Unsupported key: {}", key)),
+                };
+                key_code = Some(code);
+            }
+        }
+    }
+
+    if let Some(code) = key_code {
+        Ok(Shortcut::new(Some(mods), code))
+    } else {
+        Err("No key specified".to_string())
+    }
+}
+
+#[tauri::command]
+fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String, shortcut_str: String) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    
+    let old_shortcut_str = db::get_config(&conn, &format!("shortcut_{}", name)).unwrap_or_default();
+    if !old_shortcut_str.is_empty() {
+        if let Ok(old_s) = parse_shortcut(&old_shortcut_str) {
+            let _ = app.global_shortcut().unregister(old_s);
+        }
+    }
+
+    let new_s = parse_shortcut(&shortcut_str).map_err(|e| e)?;
+    let name_for_closure = name.clone();
+    app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
+        let state = app.state::<AppState>();
+        let paused = state.shortcuts_paused.lock().unwrap();
+        if *paused { return; }
+
+        if event.state() == ShortcutState::Pressed {
+            if name_for_closure == "q" {
+                handle_translate_request(app);
+            } else {
+                if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+                    let _ = overlay.show();
+                    let _ = overlay.set_focus();
+                }
+            }
+        }
+    }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
+
+    db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_data(app: AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+
+    let mut config_data = std::collections::HashMap::new();
+    let mut stmt = conn.prepare("SELECT key, value FROM config").map_err(|e| e.to_string())?;
+    let config_rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for row in config_rows {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        config_data.insert(k, v);
+    }
+
+    let mut wordbook_data = Vec::new();
+    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
+    let word_rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "uuid": row.get::<_, String>(0)?,
+            "word": row.get::<_, String>(1)?,
+            "phonetic": row.get::<_, String>(2)?,
+            "meaning": row.get::<_, String>(3)?,
+            "analysis": row.get::<_, String>(4)?,
+            "is_deleted": row.get::<_, i64>(5)?,
+            "updated_at": row.get::<_, String>(6)?,
+        }))
+    }).map_err(|e| e.to_string())?;
+    for row in word_rows {
+        wordbook_data.push(row.map_err(|e| e.to_string())?);
+    }
+
+    let full_json = serde_json::json!({
+        "config": config_data,
+        "wordbook": wordbook_data,
+        "export_version": "1.0",
+        "export_time": chrono::Local::now().to_rfc3339()
+    });
+    let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
+
+    let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+    let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+    let ciphertext = cipher.encrypt(nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
+
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app.dialog().file().set_title("导出Long翻译备份").add_filter("Long翻译备份 (*.TLong)", &["TLong"]).set_file_name("Long翻译备份.TLong").blocking_save_file();
+    
+    if let Some(path) = file_path {
+        let actual_path = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
+        };
+        std::fs::write(actual_path, ciphertext).map_err(|e| e.to_string())?;
+        return Ok("Export successful".to_string());
+    }
+    
+    Err("User cancelled".to_string())
+}
+
+#[tauri::command]
+async fn import_data(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app.dialog().file().set_title("导入Long翻译备份").add_filter("Long翻译备份 (*.TLong)", &["TLong"]).blocking_pick_file();
+
+    if let Some(path) = file_path {
+        let actual_path = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
+        };
+        let ciphertext = std::fs::read(actual_path).map_err(|e| e.to_string())?;
+
+        let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+        let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| "Decryption failed: invalid file or key".to_string())?;
+        let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
+
+        let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        
+        let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+        {
+            let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+            // 1. Clear existing data for complete override
+            tx.execute("DELETE FROM config", []).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM wordbook", []).map_err(|e| e.to_string())?;
+
+            // 2. Import Config
+            if let Some(configs) = full_json["config"].as_object() {
+                for (k, v) in configs {
+                    tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, v.as_str().unwrap_or_default()]).map_err(|e| e.to_string())?;
+                }
+            }
+
+            // 3. Import Wordbook
+            if let Some(words) = full_json["wordbook"].as_array() {
+                for item in words {
+                    let uuid = item["uuid"].as_str().unwrap_or_default();
+                    let updated_at = item["updated_at"].as_str().unwrap_or_default();
+                    let is_deleted = item["is_deleted"].as_i64().unwrap_or(0);
+
+                    tx.execute(
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        (
+                            uuid,
+                            item["word"].as_str().unwrap_or_default(),
+                            item["phonetic"].as_str().unwrap_or_default(),
+                            item["meaning"].as_str().unwrap_or_default(),
+                            item["analysis"].as_str().unwrap_or_default(),
+                            is_deleted,
+                            updated_at
+                        )
+                    ).map_err(|e| e.to_string())?;
+                }
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+
+        app.emit("wordbook-updated", "import").unwrap();
+        app.emit("config-updated", "import").unwrap();
+        return Ok(());
+    }
+
+    Err("User cancelled".to_string())
 }
 
 #[tauri::command]
@@ -59,7 +283,6 @@ fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meani
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
 
-    // Check if word already exists and not deleted
     let existing_uuid: Option<String> = conn.query_row(
         "SELECT uuid FROM wordbook WHERE word = ?1 AND is_deleted = 0",
         [&word],
@@ -67,7 +290,7 @@ fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meani
     ).optional().map_err(|e| e.to_string())?;
 
     if existing_uuid.is_some() {
-        return Ok(()); // Already exists
+        return Ok(());
     }
 
     let uuid = uuid::Uuid::new_v4().to_string();
@@ -160,8 +383,72 @@ fn check_audio_cache(app: AppHandle, cache_key: String) -> Result<bool, String> 
     Ok(cache_path.exists())
 }
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn generate_sec_ms_gec_token() -> String {
+    let ticks = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time flew backwards").as_secs();
+    let rounded_ticks = ticks / 3000 * 3000;
+    let str_to_hash = format!("{}6A5AA1D4EAFF4E9FB37E23D68491D6F4", rounded_ticks);
+    let mut hasher = Sha256::new();
+    hasher.update(str_to_hash.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> {
+    let token = generate_sec_ms_gec_token();
+    let connection_id = uuid::Uuid::new_v4().simple().to_string();
+    let edge_ua_version = "131.0.2903.86";
+    let version = format!("1-{}", edge_ua_version);
+    
+    let url = format!(
+        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC={}&Sec-MS-GEC-Version={}&ConnectionId={}",
+        token, version, connection_id
+    );
+    
+    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
+    {
+        let headers = request.headers_mut();
+        headers.insert("Host", "speech.platform.bing.com".parse().unwrap());
+        headers.insert("Origin", "https://www.bing.com".parse().unwrap());
+        headers.insert("User-Agent", format!("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36 Edg/{}", edge_ua_version.split('.').next().unwrap(), edge_ua_version).parse().unwrap());
+        headers.insert("Pragma", "no-cache".parse().unwrap());
+        headers.insert("Cache-Control", "no-cache".parse().unwrap());
+    }
+    
+    let (ws_stream, _) = connect_async(request).await.map_err(|e| e.to_string())?;
+    let (mut write, mut read) = ws_stream.split();
+
+    let config = format!(r#"{{"context":{{"system":{{"name":"Edge","version":"{}","build":"{}","lang":"en-US"}}}}}}"#, edge_ua_version, edge_ua_version);
+    let config_msg = format!("Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{}", config);
+    write.send(Message::Text(config_msg.into())).await.map_err(|e| e.to_string())?;
+
+    let request_id = uuid::Uuid::new_v4().simple().to_string();
+    let escaped_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    let ssml = format!(
+        r#"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='{}'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>{}</prosody></voice></speak>"#,
+        voice, escaped_text
+    );
+    let ssml_msg = format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n{}", request_id, ssml);
+    write.send(Message::Text(ssml_msg.into())).await.map_err(|e| e.to_string())?;
+
+    let mut audio_data = Vec::new();
+    while let Some(msg) = read.next().await {
+        match msg.map_err(|e| e.to_string())? {
+            Message::Binary(data) => {
+                let data_vec = data.to_vec();
+                if let Some(pos) = data_vec.windows(12).position(|w| w == b"Path:audio\r\n") {
+                    audio_data.extend_from_slice(&data_vec[pos + 12..]);
+                }
+            },
+            Message::Text(t) if t.contains("Path:turn.end") => break,
+            _ => {}
+        }
+    }
+    Ok(audio_data)
+}
+
 #[tauri::command]
-async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>) -> Result<Vec<u8>, String> {
+async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>, engine: Option<String>, voice: Option<String>) -> Result<Vec<u8>, String> {
     let cache_dir = get_audio_cache_dir(&app);
     let key_to_hash = cache_key.clone().unwrap_or_else(|| url.clone());
     let mut hasher = Sha256::new();
@@ -175,16 +462,19 @@ async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String
         }
     }
 
-    if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
+    let bytes = if engine.as_deref() == Some("edge") {
+        fetch_edge_tts(url, voice.unwrap_or_else(|| "zh-CN-XiaoxiaoNeural".to_string())).await?
+    } else {
+        if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
+        let client = reqwest::Client::new();
+        let response = client.get(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        response.bytes().await.map_err(|e| e.to_string())?.to_vec()
+    };
 
-    let client = reqwest::Client::new();
-    let response = client.get(url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?.to_vec();
     if bytes.len() > 100 { let _ = fs::write(&cache_path, &bytes); }
     Ok(bytes)
 }
@@ -261,7 +551,6 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
 async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     
-    // 1. Get WebDAV Config (scoped to drop conn before await)
     let (url, user, pass, is_enabled) = {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
         let url = db::get_config(&conn, "webdav_url").unwrap_or_default();
@@ -276,7 +565,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
     let client = reqwest::Client::new();
     let sync_file_url = format!("{}/wordbook_sync.json", url.trim_end_matches('/'));
 
-    // 2. Download remote data
     let mut remote_data: Vec<serde_json::Value> = Vec::new();
     let resp = client.get(&sync_file_url)
         .basic_auth(&user, Some(&pass))
@@ -291,12 +579,10 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // 3. Merge and Fetch Local (scoped to drop conn and stmt before await)
     let local_items: Vec<serde_json::Value> = {
         let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-        // Merge Cloud to Local
         for item in remote_data {
             let uuid = item["uuid"].as_str().unwrap_or_default();
             let updated_at = item["updated_at"].as_str().unwrap_or_default();
@@ -342,7 +628,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
         tx.commit().map_err(|e| e.to_string())?;
 
-        // Fetch all for upload
         let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
         let items = stmt.query_map([], |row| {
             Ok(serde_json::json!({
@@ -358,7 +643,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         items
     };
 
-    // 4. Export to cloud
     let upload_resp = client.put(&sync_file_url)
         .basic_auth(&user, Some(&pass))
         .json(&local_items)
@@ -376,7 +660,6 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         return Err(format!("同步失败 (HTTP {}): {}", upload_resp.status(), sync_file_url));
     }
 
-    // Save sync time
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
@@ -402,13 +685,10 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     
-    // 1. Wordbook count
     let word_count: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |row| row.get(0)).map_err(|e| e.to_string())?;
     
-    // 2. Translated count
     let trans_count: i32 = db::get_config(&conn, "translated_count").unwrap_or_default().parse().unwrap_or(0);
     
-    // 3. Days active
     let install_date_str = db::get_config(&conn, "install_date").unwrap_or_default();
     let days = if !install_date_str.is_empty() {
         let install_date = chrono::NaiveDate::parse_from_str(&install_date_str, "%Y-%m-%d").unwrap_or_else(|_| chrono::Local::now().date_naive());
@@ -423,47 +703,28 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-use rusqlite::OptionalExtension;
-
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
     let old_identifier = "com.ai.trans.assistant";
     
-    // 构造旧路径：将新路径最后的标识符部分替换为旧标识符
     let old_data_dir = if let Some(parent) = new_data_dir.parent() {
         parent.join(old_identifier)
     } else {
         return Ok(());
     };
 
-    // 关键修复：数据库文件名为 words.db，而不是 app.db
     let new_db_path = new_data_dir.join("words.db");
     let old_db_path = old_data_dir.join("words.db");
 
-    println!("[Migration] New Dir: {:?}", new_data_dir);
-    println!("[Migration] Old Dir: {:?}", old_data_dir);
-
-    // 如果新目录已存在有效数据库文件，说明不需要迁移
     if new_db_path.exists() && fs::metadata(&new_db_path)?.len() > 0 {
-        println!("[Migration] New database already exists, skipping migration.");
         return Ok(());
     }
 
-    // 如果旧目录存在且包含数据库，则执行迁移
     if old_data_dir.exists() && old_db_path.exists() {
-        println!("[Migration] Found old data. Starting migration...");
         if !new_data_dir.exists() {
             fs::create_dir_all(&new_data_dir)?;
         }
-        
-        // 递归复制所有内容
-        if let Err(e) = copy_dir_all(&old_data_dir, &new_data_dir) {
-            println!("[Migration] Error during copying: {:?}", e);
-        } else {
-            println!("[Migration] Successfully migrated data to new directory.");
-        }
-    } else {
-        println!("[Migration] Old data not found at {:?}. Skipping.", old_db_path);
+        let _ = copy_dir_all(&old_data_dir, &new_data_dir);
     }
 
     Ok(())
@@ -486,20 +747,21 @@ fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Pat
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState { shortcuts_paused: Mutex::new(false) })
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // 执行数据迁移
             let _ = migrate_old_data(app);
 
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-            let _conn = db::init_db(app_dir).expect("Failed to initialize database");
+            let conn = db::init_db(app_dir).expect("Failed to initialize database");
             
             let main_win = app.get_webview_window("main").unwrap();
             let main_win_clone = main_win.clone();
@@ -510,23 +772,34 @@ pub fn run() {
                 }
             });
 
-            let global_shortcut = app.global_shortcut();
-            let q_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyQ);
-            global_shortcut.on_shortcut(q_shortcut, move |app, _shortcut, event| {
-                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    handle_translate_request(app);
-                }
-            }).unwrap();
+            let q_shortcut_str = db::get_config(&conn, "shortcut_q").unwrap_or_else(|_| "Alt+Q".to_string());
+            let w_shortcut_str = db::get_config(&conn, "shortcut_w").unwrap_or_else(|_| "Alt+W".to_string());
+            
+            let q_shortcut_str = if q_shortcut_str.is_empty() { "Alt+Q".to_string() } else { q_shortcut_str };
+            let w_shortcut_str = if w_shortcut_str.is_empty() { "Alt+W".to_string() } else { w_shortcut_str };
 
-            let w_shortcut = Shortcut::new(Some(Modifiers::ALT), Code::KeyW);
-            global_shortcut.on_shortcut(w_shortcut, move |app, _shortcut, event| {
-                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-                        let _ = overlay.show();
-                        let _ = overlay.set_focus();
+            let global_shortcut = app.global_shortcut();
+            
+            if let Ok(s) = parse_shortcut(&q_shortcut_str) {
+                let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
+                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    if event.state() == ShortcutState::Pressed {
+                        handle_translate_request(app);
                     }
-                }
-            }).unwrap();
+                });
+            }
+
+            if let Ok(s) = parse_shortcut(&w_shortcut_str) {
+                let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
+                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    if event.state() == ShortcutState::Pressed {
+                        if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+                            let _ = overlay.show();
+                            let _ = overlay.set_focus();
+                        }
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -534,7 +807,8 @@ pub fn run() {
             run_ocr, capture_and_ocr, get_clipboard_text, set_config_value, get_config_value,
             hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
-            clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats
+            clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
+            update_shortcut, set_shortcuts_paused, export_data, import_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
