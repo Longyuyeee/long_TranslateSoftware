@@ -66,6 +66,18 @@ export default function Dashboard() {
   const syncTimerRef = useRef<any>(null);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
 
+  // Keyboard shortcuts for tab switching (Ctrl+1..5)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      const tabMap: Record<string, string> = { '1': 'general', '2': 'batch', '3': 'model', '4': 'appearance', '5': 'wordbook', '6': 'history' };
+      const tab = tabMap[e.key];
+      if (tab) { e.preventDefault(); setActiveTab(tab); }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const refreshStats = async () => {
     try {
         const stats = await invoke<any>("get_app_stats");

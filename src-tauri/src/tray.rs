@@ -5,8 +5,8 @@ use tauri::{
 };
 
 pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let show_dashboard = MenuItem::with_id(app, "show_dashboard", "显示设置 (Reload)", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
+    let show_dashboard = MenuItem::with_id(app, "show_dashboard", "Show Settings / 显示设置", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit / 退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_dashboard, &quit])?;
 
     let _ = TrayIconBuilder::with_id("tray")
