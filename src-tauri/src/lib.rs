@@ -825,7 +825,7 @@ pub fn run() {
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
             let conn = db::init_db(app_dir).expect("Failed to initialize database");
-            
+
             let main_win = app.get_webview_window("main").unwrap();
             let main_win_clone = main_win.clone();
             main_win.on_window_event(move |event| {

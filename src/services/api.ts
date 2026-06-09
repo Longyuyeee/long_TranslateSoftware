@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
+const FETCH_TIMEOUT_MS = 60000; // 60 seconds
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
+
 export async function translateStreaming(
   text: string,
   onChunk: (chunk: string) => void,
@@ -24,7 +32,7 @@ export async function translateStreaming(
       return;
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -148,7 +156,7 @@ export async function speak(text: string) {
       const rawBaseUrl = (await invoke<string>("get_config_value", { key: "tts_base_url" }) || await invoke<string>("get_config_value", { key: "base_url" })) || "https://api.openai.com/v1";
       const rawModel = (await invoke<string>("get_config_value", { key: "tts_model_name" }) || await invoke<string>("get_config_value", { key: "tts_model" }))?.trim();
 
-      const response = await fetch(`${rawBaseUrl?.trim().replace(/\/+$/, "")}/audio/speech`, {
+      const response = await fetchWithTimeout(`${rawBaseUrl?.trim().replace(/\/+$/, "")}/audio/speech`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

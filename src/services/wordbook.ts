@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
+const FETCH_TIMEOUT_MS = 60000;
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
+
 export interface WordAnalysis {
   phonetic: string;
   meaning: string;
@@ -50,7 +58,7 @@ export async function analyzeAndSaveWord(text: string): Promise<boolean> {
       注意：所有解释性文字 (meaning, etymology, examples 中的 zh) 必须使用中文。
     `;
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
