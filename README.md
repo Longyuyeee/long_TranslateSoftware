@@ -41,14 +41,14 @@
 - 🎨 **极简 Apple Style 视觉**
   - 精心调教的毛玻璃背景，支持深色模式、全局 UI 缩放。
 
-## 📥 下载与安装 (v0.2.4)
+## 📥 下载与安装 (v0.3.0)
 
 > **💡 提示：** 推荐优先使用 **`.exe` (NSIS)** 安装包，它具备更优秀的系统权限处理和更好的安装体验。
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | **[立即下载 v0.2.4 .exe](releases/LongTranslate_0.2.4_x64_Setup.exe)** |
-| **Windows (x64)** | **MSI 安装包** | **[立即下载 v0.2.4 .msi](releases/LongTranslate_0.2.4_x64_zh-CN.msi)** |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | **[立即下载 v0.3.0 .exe](releases/LongTranslate_0.3.0_x64_Setup.exe)** |
+| **Windows (x64)** | **MSI 安装包** | **[立即下载 v0.3.0 .msi](releases/LongTranslate_0.3.0_x64_zh-CN.msi)** |
 
 ## 🛡️ 安全与权限说明
 

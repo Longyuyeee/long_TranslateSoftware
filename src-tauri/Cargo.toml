@@ -1,6 +1,6 @@
 [package]
 name = "long-translate"
-version = "0.2.4"
+version = "0.3.0"
 description = "Long翻译 · 智能助手"
 authors = ["longyuye"]
 edition = "2021"
