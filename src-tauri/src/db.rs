@@ -39,6 +39,21 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         [],
     )?;
 
+    // Create translation history table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS translation_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_text TEXT NOT NULL,
+            translated_text TEXT NOT NULL,
+            source_lang TEXT DEFAULT '',
+            target_lang TEXT DEFAULT '',
+            model TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)", [])?;
+
     // Create indexes for common query patterns
     conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_word ON wordbook(word)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_is_deleted ON wordbook(is_deleted)", [])?;

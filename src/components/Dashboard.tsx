@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2 } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -49,6 +49,9 @@ export default function Dashboard() {
   const [words, setWords] = useState<any[]>([]);
   const [selectedWord, setSelectedWord] = useState<any>(null);
 
+  // Translation History state
+  const [history, setHistory] = useState<any[]>([]);
+
   // Batch Translator state
   const [batchInput, setBatchInput] = useState("");
   const [batchOutput, setBatchOutput] = useState("");
@@ -71,9 +74,12 @@ export default function Dashboard() {
   useEffect(() => {
     loadConfig();
     loadWordbook();
+    loadHistory();
     refreshCacheSize();
     refreshStats();
-    
+
+    const unlistenHistory = listen("history-updated", () => { loadHistory(); });
+
     const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
         loadWordbook();
         refreshStats();
@@ -99,8 +105,9 @@ export default function Dashboard() {
         setTimeout(() => setStatus(""), 5000);
     });
 
-    return () => { 
-        unlistenWordbook.then(f => f()); 
+    return () => {
+        unlistenHistory.then(f => f());
+        unlistenWordbook.then(f => f());
         unlistenShortcutError.then(f => f());
         unlistenConfigImport.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
@@ -309,6 +316,13 @@ export default function Dashboard() {
     } catch (e) { console.error(e); }
   };
 
+  const loadHistory = async () => {
+    try {
+      const data = await invoke<any[]>("get_translation_history", { limit: 100, offset: 0 });
+      setHistory(data);
+    } catch (e) { console.error(e); }
+  };
+
   const handleSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
@@ -376,12 +390,25 @@ export default function Dashboard() {
     if (!batchInput || isTranslating) return;
     setBatchOutput("");
     setIsTranslating(true);
+    let fullText = "";
     await translateStreaming(
       batchInput,
-      (chunk) => setBatchOutput(prev => prev + chunk),
+      (chunk) => {
+        fullText += chunk;
+        setBatchOutput(prev => prev + chunk);
+      },
       () => {
         setIsTranslating(false);
         refreshStats();
+        if (fullText.trim()) {
+          invoke("save_translation", {
+            sourceText: batchInput,
+            translatedText: fullText.trim(),
+            sourceLang: "",
+            targetLang: targetLang,
+            model: "",
+          }).catch(console.error);
+        }
       }
     );
   };
@@ -413,6 +440,7 @@ export default function Dashboard() {
     { id: "model", label: t.modelConfig, icon: Cpu },
     { id: "appearance", label: t.appearance, icon: Palette },
     { id: "wordbook", label: t.wordbook, icon: Book },
+    { id: "history", label: "History", icon: Clock },
   ];
 
   return (
@@ -898,6 +926,69 @@ export default function Dashboard() {
                                         <div className="flex-1 flex flex-col items-center justify-center text-zinc-200 dark:text-zinc-800 opacity-20"><Book size={80} className="mb-4" /><p className="font-black uppercase tracking-[0.6em] text-[10px]">Awaiting Selection</p></div>
                                     )}
                                 </AnimatePresence>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === "history" && (
+                        <div className="flex flex-col h-full gap-4 overflow-hidden">
+                            <div className="flex items-center justify-between shrink-0">
+                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{history.length} translations</span>
+                                {history.length > 0 && (
+                                    <button
+                                        onClick={async () => { await invoke("clear_translation_history"); setHistory([]); }}
+                                        className="px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all"
+                                    >
+                                        CLEAR ALL
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
+                                {history.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-zinc-300 dark:text-zinc-700 opacity-40 gap-3">
+                                        <Clock size={48} />
+                                        <p className="font-black uppercase tracking-[0.4em] text-[10px]">No history yet</p>
+                                    </div>
+                                ) : (
+                                    history.map((h: any) => (
+                                        <motion.div
+                                            key={h.id}
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="glass-card rounded-2xl p-5 border border-black/5 dark:border-white/5 group hover:border-blue-500/20 transition-all"
+                                        >
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="flex-1 min-w-0 space-y-3">
+                                                    <p className="text-[11px] text-zinc-500 font-medium italic line-clamp-2 break-words">{h.source_text}</p>
+                                                    <p className="text-[13px] text-zinc-800 dark:text-zinc-100 font-bold break-words">{h.translated_text}</p>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider">{h.created_at?.split(" ")[0]}</span>
+                                                        {h.target_lang && <span className="text-[8px] text-blue-500/60 font-black uppercase">{h.target_lang}</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-1 shrink-0">
+                                                    <button
+                                                        onClick={() => navigator.clipboard.writeText(h.translated_text)}
+                                                        className="p-2 text-zinc-300 hover:text-blue-500 rounded-lg hover:bg-blue-500/10 transition-all"
+                                                        title="Copy translation"
+                                                    >
+                                                        <Copy size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={async () => {
+                                                            await invoke("delete_translation", { id: h.id });
+                                                            loadHistory();
+                                                        }}
+                                                        className="p-2 text-zinc-300 hover:text-red-500 rounded-lg hover:bg-red-500/10 transition-all"
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    ))
+                                )}
                             </div>
                         </div>
                     )}

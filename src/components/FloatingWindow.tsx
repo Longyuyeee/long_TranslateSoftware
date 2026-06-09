@@ -67,10 +67,26 @@ export default function FloatingWindow() {
     if (!sourceText) return;
     setIsStreaming(true);
     setTranslation("");
+    let fullText = "";
     await translateStreaming(
         sourceText,
-        (chunk) => setTranslation(prev => prev + chunk),
-        () => setIsStreaming(false)
+        (chunk) => {
+            fullText += chunk;
+            setTranslation(prev => prev + chunk);
+        },
+        () => {
+            setIsStreaming(false);
+            // Auto-save to translation history
+            if (fullText.trim()) {
+                invoke("save_translation", {
+                    sourceText,
+                    translatedText: fullText.trim(),
+                    sourceLang: "",
+                    targetLang: "",
+                    model: "",
+                }).catch(console.error);
+            }
+        }
     );
   };
 
