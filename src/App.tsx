@@ -17,7 +17,7 @@ function App() {
     if (windowLabel === "main") return <Dashboard />;
     if (windowLabel === "ocr-overlay") return <OcrOverlay />;
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-screen bg-white dark:bg-[#1c1c1e]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
       </div>
     );

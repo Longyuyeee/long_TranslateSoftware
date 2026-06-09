@@ -557,7 +557,7 @@ export default function Dashboard() {
                         />
                     )}
                     <span className="relative z-10 flex items-center gap-2.5 font-bold">
-                        <tab.icon size={15} className={activeTab === tab.id ? "text-white" : "text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors"} /> 
+                        <tab.icon size={15} className={activeTab === tab.id ? "text-white" : "text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors"} />
                         <span className="truncate">{tab.label}</span>
                     </span>
                     </button>
@@ -775,10 +775,10 @@ export default function Dashboard() {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 gap-3">
-                                                <input value={webdavUrl} onChange={(e) => setWebdavUrl(e.target.value)} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none" />
+                                                <input value={webdavUrl} onChange={(e) => setWebdavUrl(e.target.value)} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 <div className="grid grid-cols-2 gap-3">
-                                                    <input value={webdavUser} onChange={(e) => setWebdavUser(e.target.value)} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none" />
-                                                    <input type="password" value={webdavPass} onChange={(e) => setWebdavPass(e.target.value)} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none" />
+                                                    <input value={webdavUser} onChange={(e) => setWebdavUser(e.target.value)} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                    <input type="password" value={webdavPass} onChange={(e) => setWebdavPass(e.target.value)} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 </div>
                                             </div>
                                             <button 
@@ -820,7 +820,7 @@ export default function Dashboard() {
                                 <div className="flex flex-col gap-4">
                                     <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] pl-4">Input Text</h3>
                                     <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative">
-                                        <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed" />
+                                        <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                         <div className="absolute bottom-6 right-6">
                                             <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={startBatchTranslation} disabled={isTranslating || !batchInput} className={`px-6 py-2.5 rounded-full font-black text-[11px] shadow-xl flex items-center gap-2 transition-all ${isTranslating || !batchInput ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400' : 'bg-blue-600 text-white shadow-blue-500/20'}`}>
                                                 {isTranslating ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Languages size={14} />} {t.translate}
@@ -858,7 +858,7 @@ export default function Dashboard() {
                                         { label: t.modelName, val: transModelName, set: setTransModelName, placeholder: "deepseek-chat", icon: Sparkles, type: "text" }
                                     ].map((f, i) => (
                                         <div key={i}><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{f.label}</label>
-                                            <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
+                                            <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
                                         </div>
                                     ))}
                                 </div>
@@ -869,7 +869,7 @@ export default function Dashboard() {
                                         value={customPrompt}
                                         onChange={(e) => setCustomPrompt(e.target.value)}
                                         placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text."
-                                        className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar"
+                                        className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
                                     />
                                     <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
                                 </div>
@@ -912,11 +912,11 @@ export default function Dashboard() {
                                                 { label: t.ttsModel, val: ttsModelName, set: setTtsModelName, placeholder: "tts-1", icon: Sparkles, type: "text" }
                                             ].map((f, i) => (
                                                 <div key={i}><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{f.label}</label>
-                                                    <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
+                                                    <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
                                                 </div>
                                             ))}
                                             <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsVoice}</label>
-                                                <div className="relative"><input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] font-bold outline-none" placeholder="alloy / Cherry..." />
+                                                <div className="relative"><input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500" placeholder="alloy / Cherry..." />
                                                     <div className="mt-2 flex flex-wrap gap-2 px-2">{['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'Cherry', 'Serena'].map(v => (<button key={v} onClick={() => setTtsVoice(v)} className="text-[9px] px-2 py-1 rounded-md bg-black/5 dark:bg-white/5 hover:bg-blue-500 hover:text-white transition-all">{v}</button>))}</div>
                                                 </div>
                                             </div>
@@ -966,7 +966,7 @@ export default function Dashboard() {
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
                                     <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-blue-600/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="Enter word..." className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
+                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="Enter word..." className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
                                 {displayedWords.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-blue-600 border-blue-600 shadow-2xl' : 'glass-card border-transparent hover:border-blue-500/30 hover:bg-white/80'}`}>
@@ -995,7 +995,7 @@ export default function Dashboard() {
                                             </div>
                                             <div className="text-center">
                                                 <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 text-zinc-400">Neural Sync</p>
-                                                <p className="text-[10px] text-zinc-300 font-bold uppercase tracking-widest animate-pulse">Processing...</p>
+                                                <p className="text-[10px] text-zinc-300 dark:text-zinc-500 font-bold uppercase tracking-widest animate-pulse">Processing...</p>
                                             </div>
                                             <div className="pt-4">
                                                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => deleteWord(selectedWord.id)} className="px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">ABORT & DELETE</motion.button>

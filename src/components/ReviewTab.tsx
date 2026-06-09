@@ -135,7 +135,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
     return (
       <div className="flex flex-col h-full gap-4">
         <div className="flex items-center justify-between shrink-0">
-          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
+          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
             <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.flashcardMode}</button>
             <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.quizMode}</button>
           </div>
@@ -215,7 +215,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
     return (
       <div className="flex flex-col h-full gap-4">
         <div className="flex items-center justify-between shrink-0">
-          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
+          <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
             <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.flashcardMode}</button>
             <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.quizMode}</button>
           </div>
@@ -265,7 +265,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   return (
     <div className="flex flex-col h-full gap-4">
       <div className="flex items-center justify-between shrink-0">
-        <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
+        <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
           <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.flashcardMode}</button>
           <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.quizMode}</button>
         </div>

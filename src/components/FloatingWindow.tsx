@@ -103,7 +103,7 @@ export default function FloatingWindow() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-white/80 dark:bg-[#1c1c1e]/80 glass border border-white/20 dark:border-white/10 shadow-2xl overflow-hidden select-none transition-colors duration-500 rounded-[24px]">
+    <div className="h-screen w-screen flex flex-col bg-white/80 dark:bg-[#1c1c1e]/80 glass border border-white/20 dark:border-white/10 shadow-2xl overflow-hidden select-none transition-colors duration-500 rounded-[24px] text-zinc-800 dark:text-zinc-100">
       {/* Apple Style Toolbar */}
       <div 
         onMouseDown={() => invoke("start_window_drag")}
@@ -161,7 +161,7 @@ export default function FloatingWindow() {
                     </div>
                 </motion.div>
             ) : (
-                <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20">
+                <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-zinc-900 dark:text-white">
                     <Sparkles size={32} />
                     <span className="text-[10px] font-black uppercase tracking-[0.3em]">{lang === "zh" ? "准备就绪" : "Ready to assist"}</span>
                 </div>
