@@ -8,13 +8,67 @@ function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_T
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
+async function doTranslate(
+  text: string,
+  apiKey: string,
+  baseUrl: string,
+  modelName: string,
+  targetLang: string,
+  customPrompt: string,
+  onChunk: (chunk: string) => void
+): Promise<boolean> {
+  const defaultPrompt = `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.`;
+  const systemPrompt = customPrompt.trim()
+    ? customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text)
+    : defaultPrompt;
+
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelName,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ],
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`API ${response.status}`);
+  const reader = response.body?.getReader();
+  if (!reader) return false;
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    const lines = chunk.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === "data: [DONE]") continue;
+      if (trimmed.startsWith("data: ")) {
+        try {
+          const data = JSON.parse(trimmed.slice(6));
+          const content = data.choices[0].delta?.content;
+          if (content) onChunk(content);
+        } catch (e) { /* skip parse errors */ }
+      }
+    }
+  }
+  return true;
+}
+
 export async function translateStreaming(
   text: string,
   onChunk: (chunk: string) => void,
   onFinish: () => void
 ) {
   try {
-    // Increment translate stats
     invoke("increment_translate_count").catch(console.error);
 
     const rawApiKey = await invoke<string>("get_config_value", { key: "trans_api_key" }) || await invoke<string>("get_config_value", { key: "openai_api_key" });
@@ -23,67 +77,37 @@ export async function translateStreaming(
     const targetLang = await invoke<string>("get_config_value", { key: "target_lang" }) || "Chinese";
     const customPrompt = await invoke<string>("get_config_value", { key: "custom_prompt" }) || "";
 
-    const apiKey = rawApiKey?.trim();
-    const baseUrl = rawBaseUrl?.trim().replace(/\/+$/, "");
-    const modelName = rawModelName?.trim();
+    const primaryKey = rawApiKey?.trim();
+    const primaryUrl = rawBaseUrl?.trim().replace(/\/+$/, "");
+    const primaryModel = rawModelName?.trim();
 
-    if (!apiKey) {
+    if (!primaryKey) {
       onChunk("Error: API Key is missing. Please set it in the Model Config.");
       onFinish();
       return;
     }
 
-    const defaultPrompt = `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.`;
-    const systemPrompt = customPrompt.trim()
-      ? customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text)
-      : defaultPrompt;
+    // Try primary model
+    try {
+      await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, customPrompt, onChunk);
+    } catch (primaryError) {
+      console.warn("Primary model failed, trying backup...", primaryError);
+      // Try backup model
+      const backupKey = (await invoke<string>("get_config_value", { key: "backup_api_key" })).trim();
+      const backupUrl = (await invoke<string>("get_config_value", { key: "backup_base_url" })).trim().replace(/\/+$/, "");
+      const backupModel = (await invoke<string>("get_config_value", { key: "backup_model" })).trim();
 
-    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: text },
-        ],
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) throw new Error(`API Request Failed: ${response.status}`);
-
-    const reader = response.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split("\n");
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
-        if (trimmed.startsWith("data: ")) {
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-            const content = data.choices[0].delta?.content;
-            if (content) onChunk(content);
-          } catch (e) {
-            console.error("Error parsing stream chunk", e);
-          }
+      if (backupKey && backupUrl && backupModel) {
+        onChunk(`[Fallback to backup model: ${backupModel}]\n`);
+        try {
+          await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, customPrompt, onChunk);
+        } catch (backupError) {
+          onChunk(`\n\n[Error: Both primary and backup models failed]`);
         }
+      } else {
+        onChunk(`\n\n[Error: ${primaryError instanceof Error ? primaryError.message : "Unknown Error"}]`);
       }
     }
-  } catch (error) {
-    console.error("Translation error:", error);
-    onChunk(`\n\n[Error: ${error instanceof Error ? error.message : "Unknown Error"}]`);
   } finally {
     onFinish();
   }

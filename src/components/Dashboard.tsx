@@ -39,6 +39,10 @@ export default function Dashboard() {
   const [transBaseUrl, setTransBaseUrl] = useState("");
   const [transModelName, setTransModelName] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
+  // Backup model config
+  const [backupApiKey, setBackupApiKey] = useState("");
+  const [backupBaseUrl, setBackupBaseUrl] = useState("");
+  const [backupModelName, setBackupModelName] = useState("");
 
   // Audio (TTS) Model Config
   const [ttsEngine, setTtsEngine] = useState("local");
@@ -264,6 +268,9 @@ export default function Dashboard() {
       setTransBaseUrl(await getVal("trans_base_url") || await getVal("base_url") || "");
       setTransModelName(await getVal("trans_model_name") || await getVal("model_name") || "");
       setCustomPrompt(await getVal("custom_prompt") || "");
+      setBackupApiKey(await getVal("backup_api_key") || "");
+      setBackupBaseUrl(await getVal("backup_base_url") || "");
+      setBackupModelName(await getVal("backup_model") || "");
 
       setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
       setShortcutW(await getVal("shortcut_w") || "Alt+W");
@@ -410,6 +417,9 @@ export default function Dashboard() {
         setVal("tts_voice", ttsVoice),
         setVal("tts_speed", ttsSpeed),
         setVal("custom_prompt", customPrompt),
+        setVal("backup_api_key", backupApiKey),
+        setVal("backup_base_url", backupBaseUrl),
+        setVal("backup_model", backupModelName),
         setVal("webdav_enabled", webdavEnabled ? "true" : "false"),
         setVal("webdav_url", webdavUrl),
         setVal("webdav_user", webdavUser),
@@ -787,6 +797,21 @@ export default function Dashboard() {
                                         className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar"
                                     />
                                     <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">Use {'{{targetLang}}'} and {'{{text}}'} placeholders. Leave blank for default.</p>
+                                </div>
+                                {/* Backup Model */}
+                                <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
+                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">Backup Model (Failover)</label>
+                                    <div className="space-y-4">
+                                        {[
+                                            { label: t.baseUrl, val: backupBaseUrl, set: setBackupBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
+                                            { label: t.apiKey, val: backupApiKey, set: setBackupApiKey, placeholder: "sk-...", icon: Save, type: "password" },
+                                            { label: t.modelName, val: backupModelName, set: setBackupModelName, placeholder: "gpt-3.5-turbo", icon: Sparkles, type: "text" }
+                                        ].map((f, i) => (
+                                            <div key={i}><label className="block text-[9px] font-black uppercase text-zinc-400 mb-1.5 tracking-[0.15em] ml-2">{f.label}</label>
+                                                <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-3.5 bg-white/40 dark:bg-black/20 rounded-[18px] border border-black/5 dark:border-white/10 text-[0.8em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={18} /></div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                             <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
