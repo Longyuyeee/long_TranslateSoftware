@@ -845,7 +845,7 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "model" && (
-                        <div className="space-y-8 max-w-2xl pb-20">
+                        <div className="space-y-8 max-w-3xl mx-auto w-full pb-20">
                             <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
                                 <div className="flex items-center gap-5 mb-4">
                                     <div className="w-14 h-14 bg-zinc-200 dark:bg-white/10 rounded-[20px] flex items-center justify-center text-zinc-600 dark:text-zinc-300 shadow-inner"><Cpu size={28} /></div>
