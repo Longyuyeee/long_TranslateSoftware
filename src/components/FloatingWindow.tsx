@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { Copy, Star, Volume2, X, RotateCcw, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { translateStreaming, speak } from "../services/api";
 import { analyzeAndSaveWord, checkWordExists } from "../services/wordbook";
-import { Lang } from "../i18n";
+import { translations, Lang } from "../i18n";
 
 export default function FloatingWindow() {
   const [text, setText] = useState("");
@@ -13,6 +13,7 @@ export default function FloatingWindow() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [lang, setLang] = useState<Lang>("zh");
+  const t = useMemo(() => translations[lang] || translations.zh, [lang]);
 
   useEffect(() => {
     const applyTheme = (savedTheme: string) => {
@@ -123,15 +124,15 @@ export default function FloatingWindow() {
           </div>
           <div className="flex flex-col">
             <span className="text-[11px] font-black text-zinc-800 dark:text-zinc-200 uppercase tracking-widest leading-none">Long AI</span>
-            <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-tighter">{lang === "zh" ? "智能翻译" : "AI Translation"}</span>
+            <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-tighter">{t.aiTranslation}</span>
           </div>
         </div>
         
         <div className="flex items-center gap-1.5">
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => startTranslation(text)} className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full text-zinc-500 transition-colors" title={lang === "zh" ? "重新翻译" : "Retranslate"}>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => startTranslation(text)} className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full text-zinc-500 transition-colors" title={t.retranslate}>
                 <RotateCcw size={16} />
             </motion.button>
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => invoke("hide_floating_window")} className="group flex items-center justify-center w-8 h-8 bg-black/5 dark:bg-white/10 hover:bg-red-500 hover:text-white rounded-full transition-all" title={lang === "zh" ? "关闭" : "Close"}>
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => invoke("hide_floating_window")} className="group flex items-center justify-center w-8 h-8 bg-black/5 dark:bg-white/10 hover:bg-red-500 hover:text-white rounded-full transition-all" title={t.close}>
                 <X size={16} className="text-zinc-600 dark:text-zinc-400 group-hover:text-white" />
             </motion.button>
         </div>
@@ -163,7 +164,7 @@ export default function FloatingWindow() {
             ) : (
                 <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-zinc-900 dark:text-white">
                     <Sparkles size={32} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.3em]">{lang === "zh" ? "准备就绪" : "Ready to assist"}</span>
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em]">{t.readyToAssist}</span>
                 </div>
             )}
         </AnimatePresence>
@@ -177,7 +178,7 @@ export default function FloatingWindow() {
             whileTap={{ scale: 0.95 }}
             onClick={() => navigator.clipboard.writeText(translation)}
             className="p-3 text-zinc-500 hover:text-blue-500 rounded-2xl transition-all"
-            title={lang === "zh" ? "复制翻译" : "Copy translation"}
+            title={t.copyTranslation}
           >
             <Copy size={18} />
           </motion.button>
@@ -186,7 +187,7 @@ export default function FloatingWindow() {
             whileTap={{ scale: 0.95 }}
             onClick={() => speak(text)}
             className="p-3 text-zinc-500 hover:text-blue-500 rounded-2xl transition-all"
-            title={lang === "zh" ? "朗读" : "Read aloud"}
+            title={t.readAloud}
           >
             <Volume2 size={18} />
           </motion.button>
@@ -195,14 +196,14 @@ export default function FloatingWindow() {
             whileTap={{ scale: 0.9 }}
             onClick={handleSaveToWordbook}
             className={`p-3 rounded-2xl transition-all ${isSaved ? 'text-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10' : 'text-zinc-500 hover:bg-blue-500/10 hover:text-blue-500'}`}
-            title={isSaved ? (lang === "zh" ? "已保存" : "Already saved") : (lang === "zh" ? "添加到生词本" : "Save to wordbook")}
+            title={isSaved ? (t.alreadySaved) : (t.saveToWordbook)}
           >
             <Star size={18} fill={isSaved ? "currentColor" : "none"} />
           </motion.button>
         </div>
         
         <div className="px-3 py-1 bg-black/5 dark:bg-white/5 rounded-full border border-white/10">
-            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-tighter italic">{lang === "zh" ? "AI 翻译" : "AI TRANSLATION"}</span>
+            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-tighter italic">{t.aiTranslation}</span>
         </div>
       </div>
     </div>

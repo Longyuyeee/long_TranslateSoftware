@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { translations, Lang } from "../i18n";
 
 export default function OcrOverlay() {
   const [isDrawing, setIsDrawing] = useState(false);
@@ -8,6 +9,12 @@ export default function OcrOverlay() {
   const [rect, setRect] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [isProcessing, setIsProcessing] = useState(false);
   const [screenBounds, setScreenBounds] = useState({ physical_x: 0, physical_y: 0, factor: 1.0, count: 1 });
+  const [lang, setLang] = useState<Lang>("zh");
+  const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+
+  useEffect(() => {
+    invoke<string>("get_config_value", { key: "language" }).then(l => { if (l) setLang(l as Lang); }).catch(()=>{});
+  }, []);
 
   useEffect(() => {
     // Get virtual screen bounds for multi-monitor coordinate calculation
@@ -131,7 +138,7 @@ export default function OcrOverlay() {
 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-white/10 dark:bg-black/40 backdrop-blur-2xl text-white px-8 py-3 rounded-2xl text-[11px] font-black tracking-[0.2em] border border-white/20 shadow-2xl pointer-events-none flex items-center gap-3">
         <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-{screenBounds.count > 1 ? `MULTI-MONITOR (${screenBounds.count}) · DRAG TO SELECT · ESC TO CANCEL` : 'DRAG TO SELECT · ESC TO CANCEL'}
+{screenBounds.count > 1 ? t.ocrMultiHint.replace('{count}', String(screenBounds.count)) : t.ocrDragHint}
       </div>
     </div>
   );

@@ -966,7 +966,7 @@ export default function Dashboard() {
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
                                     <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-blue-600/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="Enter word..." className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
+                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="{t.enterWord}" className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
                                 {displayedWords.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-blue-600 border-blue-600 shadow-2xl' : 'glass-card border-transparent hover:border-blue-500/30 hover:bg-white/80'}`}>
@@ -974,7 +974,7 @@ export default function Dashboard() {
                                             <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
                                             <button onClick={(e) => { e.stopPropagation(); speak(w.word).then(refreshCacheSize); }} className={`p-1 rounded-lg transition-all ${selectedWord?.id === w.id ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-zinc-300 hover:text-blue-600 hover:bg-blue-500/10'}`}><Volume2 size={13}/></button>
                                         </div>
-                                        <p className={`text-[0.7em] font-bold truncate opacity-80 ${selectedWord?.id === w.id ? 'text-white/70' : 'text-zinc-400'}`}>{w.meaning || "Analyzing..."}</p>
+                                        <p className={`text-[0.7em] font-bold truncate opacity-80 ${selectedWord?.id === w.id ? 'text-white/70' : 'text-zinc-400'}`}>{w.meaning || "{t.analyzing}"}</p>
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
@@ -998,7 +998,7 @@ export default function Dashboard() {
                                                 <p className="text-[10px] text-zinc-300 dark:text-zinc-500 font-bold uppercase tracking-widest animate-pulse">Processing...</p>
                                             </div>
                                             <div className="pt-4">
-                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => deleteWord(selectedWord.id)} className="px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">ABORT & DELETE</motion.button>
+                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => deleteWord(selectedWord.id)} className="px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.abortDelete}</motion.button>
                                             </div>
                                         </motion.div>
                                     ) : (() => {
@@ -1010,7 +1010,7 @@ export default function Dashboard() {
                                                 <motion.div key="failed" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center p-10 space-y-6">
                                                     <div className="w-16 h-16 bg-red-500/10 rounded-3xl flex items-center justify-center text-red-500 shadow-inner"><Info size={32} /></div>
                                                     <div className="text-center max-w-sm">
-                                                        <h3 className="text-lg font-black tracking-tight mb-2">Analysis Failed</h3>
+                                                        <h3 className="text-lg font-black tracking-tight mb-2">{t.analysisFailed}</h3>
                                                         <p className="text-[11px] text-zinc-400 font-bold leading-relaxed">{analysis.error_msg || "Unknown AI error. Please check your model configuration and internet connection."}</p>
                                                     </div>
                                                     <div className="flex gap-3">
@@ -1024,9 +1024,9 @@ export default function Dashboard() {
                                                             }} 
                                                             className="px-8 py-3 bg-blue-600 text-white rounded-2xl text-[11px] font-black shadow-lg shadow-blue-500/20 flex items-center gap-2"
                                                         >
-                                                            <RotateCcw size={14} /> RETRY ANALYSIS
+                                                            <RotateCcw size={14} /> {t.retryAnalysis}
                                                         </button>
-                                                        <button onClick={() => deleteWord(selectedWord.id)} className="px-8 py-3 bg-white dark:bg-white/10 border border-black/5 dark:border-white/5 rounded-2xl text-[11px] font-black hover:bg-red-500 hover:text-white transition-all">DELETE</button>
+                                                        <button onClick={() => deleteWord(selectedWord.id)} className="px-8 py-3 bg-white dark:bg-white/10 border border-black/5 dark:border-white/5 rounded-2xl text-[11px] font-black hover:bg-red-500 hover:text-white transition-all">{t.delete}</button>
                                                     </div>
                                                 </motion.div>
                                             );

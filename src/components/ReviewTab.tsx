@@ -149,7 +149,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
             <Brain size={64} className="opacity-30" />
             <p className="font-black text-sm opacity-40">{t.allCaughtUp}</p>
             <button onClick={loadData} className="px-6 py-2 bg-blue-600/10 text-blue-600 rounded-full text-[10px] font-black hover:bg-blue-600/20 transition-all">
-              <RotateCcw size={12} className="inline mr-1" />Refresh
+              <RotateCcw size={12} className="inline mr-1" />{t.refresh}
             </button>
           </div>
         ) : (
@@ -230,7 +230,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
             <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-4">{t.score}</p>
             <h2 className="text-2xl font-black text-zinc-800 dark:text-zinc-100 mb-2">{qWord?.word || "?"}</h2>
             {qWord?.phonetic && <p className="text-sm text-zinc-400 mb-6">{qWord.phonetic}</p>}
-            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.2em]">Choose the correct meaning</p>
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-[0.2em]">{t.quizChoose}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 w-full max-w-md">
@@ -253,7 +253,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
 
           {quizAnswered && (
             <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={handleQuizNext} className="px-6 py-2.5 bg-blue-600 text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-blue-700 transition-all">
-              {quizQuestion + 1 < quizScore.total ? <>Next <ChevronRight size={14} /></> : "Finish"}
+              {quizQuestion + 1 < quizScore.total ? <>Next <ChevronRight size={14} /></> : t.quizFinish}
             </motion.button>
           )}
         </div>
@@ -287,15 +287,15 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
         ) : dueWords.length < 4 ? (
           <>
             <Brain size={64} className="opacity-30 text-zinc-300" />
-            <p className="font-bold text-sm text-zinc-400">Need at least 4 words for quiz mode</p>
-            <button onClick={loadData} className="px-4 py-2 bg-blue-600/10 text-blue-600 rounded-full text-[10px] font-black">Refresh</button>
+            <p className="font-bold text-sm text-zinc-400">{t.quizNeedMore}</p>
+            <button onClick={loadData} className="px-4 py-2 bg-blue-600/10 text-blue-600 rounded-full text-[10px] font-black">{t.refresh}</button>
           </>
         ) : (
           <>
             <Brain size={64} className="opacity-30 text-zinc-300" />
-            <p className="font-bold text-sm text-zinc-400">Test your vocabulary</p>
+            <p className="font-bold text-sm text-zinc-400">{t.quizStartDesc}</p>
             <button onClick={startQuiz} className="px-8 py-3 bg-blue-600 text-white rounded-full font-black text-[12px] hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20">
-              Start Quiz
+              {t.quizStart}
             </button>
           </>
         )}
