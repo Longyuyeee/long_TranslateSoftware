@@ -87,20 +87,28 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.3 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [v0.3.3 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.4 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [v0.3.4 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.3.3 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_zh-CN.msi) |
 | v0.3.2 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_zh-CN.msi) |
 | v0.3.1 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.1/LongTranslate_0.3.1_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.1/LongTranslate_0.3.1_x64_zh-CN.msi) |
 | v0.3.0 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.0/LongTranslate_0.3.0_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.0/LongTranslate_0.3.0_x64_zh-CN.msi) |
 </details>
 
 ### 更新日志
+
+<details>
+<summary>v0.3.4 — Fullscreen Layout Fix</summary>
+
+- 修复全屏时通用设置/模型配置/外观显示内容靠左、右侧大量空白的问题
+- 内容区域从 max-w-2xl (672px) 改为 max-w-3xl mx-auto (768px 居中)
+</details>
 
 <details>
 <summary>v0.3.3 — Dark Mode & i18n Polish</summary>
