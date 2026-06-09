@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
@@ -26,6 +26,14 @@ export default function Dashboard() {
   const [theme, setTheme] = useState("system");
   const [fontSize, setFontSize] = useState(14);
   const [status, setStatus] = useState("");
+  const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
+
+  const addNotification = (msg: string) => {
+    if (!msg) return;
+    const time = new Date().toLocaleTimeString();
+    setNotifications(prev => [{msg, time}, ...prev].slice(0, 10));
+    setStatus(msg);
+  };
   const [isSyncing, setIsSyncing] = useState(false);
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState("");
@@ -353,7 +361,7 @@ export default function Dashboard() {
             setStatus("Permission Denied: System blocked auto-launch change.");
             setTimeout(() => setStatus(""), 5000);
         } else {
-            setStatus(t.success);
+            addNotification(t.success);
             setTimeout(() => setStatus(""), 2000);
         }
     } catch (e) {
@@ -390,7 +398,7 @@ export default function Dashboard() {
     setStatus(t.syncing);
     try {
       await invoke("sync_wordbook");
-      setStatus(t.syncSuccess);
+      addNotification(t.syncSuccess);
       const time = await invoke<string>("get_config_value", { key: "last_sync_time" });
       setLastSyncTime(time);
       await loadWordbook();
@@ -441,7 +449,7 @@ export default function Dashboard() {
         setVal("webdav_user", webdavUser),
         setVal("webdav_pass", webdavPass)
       ]);
-      setStatus(t.success);
+      addNotification(t.success);
       emit("settings-changed", { theme, fontSize }).catch(console.error);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) { setStatus(t.error); }
@@ -589,6 +597,31 @@ export default function Dashboard() {
                 <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">Long翻译 · 智能助手</p>
             </div>
             <div className="flex items-center gap-4">
+                {/* Notification Bell */}
+                <div className="relative group">
+                    <button className="relative p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+                        <Bell size={16} className="text-zinc-400" />
+                        {notifications.length > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-600 rounded-full text-[8px] text-white font-black flex items-center justify-center">{notifications.length}</span>
+                        )}
+                    </button>
+                    {notifications.length > 0 && (
+                        <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-black/5 dark:border-white/10 z-50 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                            <div className="p-2 border-b border-black/5 dark:border-white/5">
+                                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider px-2">Recent Notifications</span>
+                            </div>
+                            <div className="max-h-48 overflow-y-auto">
+                                {notifications.map((n, i) => (
+                                    <div key={i} className="px-3 py-2 text-[10px] text-zinc-600 dark:text-zinc-300 font-medium hover:bg-black/5 dark:hover:bg-white/5 flex items-start gap-2">
+                                        <CheckCircle size={10} className="mt-0.5 text-green-500 shrink-0" />
+                                        <span className="flex-1">{n.msg}</span>
+                                        <span className="text-[8px] text-zinc-400 shrink-0">{n.time}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
                 <AnimatePresence>
                     {status && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex items-center gap-2 px-4 py-2 bg-green-500/10 text-green-600 border border-green-500/20 rounded-full text-[10px] font-black">
