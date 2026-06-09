@@ -37,12 +37,16 @@
       {
         "label": "ocr-overlay",
         "title": "OCR Selection",
-        "fullscreen": true,
+        "fullscreen": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "visible": false,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080
       }
     ],
     "security": {

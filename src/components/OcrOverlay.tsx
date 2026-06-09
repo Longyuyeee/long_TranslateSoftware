@@ -7,10 +7,15 @@ export default function OcrOverlay() {
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [rect, setRect] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [screenBounds, setScreenBounds] = useState({ physical_x: 0, physical_y: 0, factor: 1.0, count: 1 });
 
   useEffect(() => {
+    // Get virtual screen bounds for multi-monitor coordinate calculation
+    invoke<{physical_x: number; physical_y: number; factor: number; count: number}>("get_screen_bounds")
+      .then(setScreenBounds)
+      .catch(console.error);
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // 无论是否正在处理，ESC 必须能关闭窗口
       if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -62,10 +67,11 @@ export default function OcrOverlay() {
     setIsProcessing(true);
     try {
       const win = getCurrentWebviewWindow();
-      const factor = await win.scaleFactor();
+      const factor = screenBounds.factor || await win.scaleFactor();
       const outerPos = await win.outerPosition();
-      
-      // outerPosition() returns physical pixels, rect.x/y are logical pixels
+
+      // outerPosition() returns physical pixels (virtual screen origin for multi-monitor)
+      // rect.x/y are logical pixels relative to the overlay window
       const physicalX = outerPos.x + Math.round(rect.x * factor);
       const physicalY = outerPos.y + Math.round(rect.y * factor);
       const physicalW = Math.round(rect.w * factor);
@@ -125,7 +131,7 @@ export default function OcrOverlay() {
 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-white/10 dark:bg-black/40 backdrop-blur-2xl text-white px-8 py-3 rounded-2xl text-[11px] font-black tracking-[0.2em] border border-white/20 shadow-2xl pointer-events-none flex items-center gap-3">
         <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-        DRAG TO SELECT · ESC TO CANCEL
+{screenBounds.count > 1 ? `MULTI-MONITOR (${screenBounds.count}) · DRAG TO SELECT · ESC TO CANCEL` : 'DRAG TO SELECT · ESC TO CANCEL'}
       </div>
     </div>
   );

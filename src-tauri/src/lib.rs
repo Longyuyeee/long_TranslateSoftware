@@ -85,6 +85,36 @@ fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
 }
 
 #[tauri::command]
+fn get_screen_bounds(app: AppHandle) -> Result<serde_json::Value, String> {
+    let screens = screenshots::Screen::all().map_err(|e| e.to_string())?;
+    let mut min_x = 0i32; let mut min_y = 0i32;
+    let mut max_x = 0i32; let mut max_y = 0i32;
+    for s in &screens {
+        let d = &s.display_info;
+        if d.x < min_x { min_x = d.x; }
+        if d.y < min_y { min_y = d.y; }
+        let right = d.x + d.width as i32;
+        let bottom = d.y + d.height as i32;
+        if right > max_x { max_x = right; }
+        if bottom > max_y { max_y = bottom; }
+    }
+    // Get scale factor from primary screen
+    let factor = if let Some(win) = app.get_webview_window("ocr-overlay") {
+        win.scale_factor().unwrap_or(1.0)
+    } else { 1.0 };
+    Ok(serde_json::json!({
+        "x": min_x, "y": min_y,
+        "width": (max_x - min_x) as f64 / factor,
+        "height": (max_y - min_y) as f64 / factor,
+        "physical_x": min_x, "physical_y": min_y,
+        "physical_width": max_x - min_x,
+        "physical_height": max_y - min_y,
+        "factor": factor,
+        "count": screens.len()
+    }))
+}
+
+#[tauri::command]
 fn hide_floating_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("floating") { let _ = win.hide(); }
 }
@@ -152,10 +182,7 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
             if name_for_closure == "q" {
                 handle_translate_request(app);
             } else {
-                if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-                    let _ = overlay.show();
-                    let _ = overlay.set_focus();
-                }
+                show_ocr_overlay(app);
             }
         }
     }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
@@ -720,6 +747,33 @@ fn get_clipboard_text(app: AppHandle) -> Result<String, String> {
     clipboard.read_text().map_err(|e| e.to_string())
 }
 
+fn show_ocr_overlay(app: &AppHandle) {
+    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+        // Span all monitors for dual/multi-monitor support
+        if let Ok(screens) = screenshots::Screen::all() {
+            let mut min_x = 0i32; let mut min_y = 0i32;
+            let mut max_x = 0i32; let mut max_y = 0i32;
+            for s in &screens {
+                let d = &s.display_info;
+                if d.x < min_x { min_x = d.x; }
+                if d.y < min_y { min_y = d.y; }
+                let right = d.x + d.width as i32;
+                let bottom = d.y + d.height as i32;
+                if right > max_x { max_x = right; }
+                if bottom > max_y { max_y = bottom; }
+            }
+            let factor = overlay.scale_factor().unwrap_or(1.0);
+            let _ = overlay.set_position(tauri::PhysicalPosition::new(min_x, min_y));
+            let _ = overlay.set_size(tauri::PhysicalSize::new(
+                ((max_x - min_x) as f64 / factor) as u32,
+                ((max_y - min_y) as f64 / factor) as u32,
+            ));
+        }
+        let _ = overlay.show();
+        let _ = overlay.set_focus();
+    }
+}
+
 fn get_audio_cache_dir(app: &AppHandle) -> PathBuf {
     let mut path = app.path().app_cache_dir().expect("Failed to get cache dir");
     path.push("audio_cache");
@@ -1256,7 +1310,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr, capture_and_ocr, get_clipboard_text, set_config_value, get_config_value,
+            run_ocr, capture_and_ocr, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
             hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
