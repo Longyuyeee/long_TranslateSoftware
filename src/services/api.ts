@@ -12,7 +12,8 @@ export async function translateStreaming(
     const rawApiKey = await invoke<string>("get_config_value", { key: "trans_api_key" }) || await invoke<string>("get_config_value", { key: "openai_api_key" });
     const rawBaseUrl = (await invoke<string>("get_config_value", { key: "trans_base_url" })) || (await invoke<string>("get_config_value", { key: "base_url" })) || "https://api.openai.com/v1";
     const rawModelName = (await invoke<string>("get_config_value", { key: "trans_model_name" })) || (await invoke<string>("get_config_value", { key: "model_name" })) || "deepseek-chat";
-    
+    const targetLang = await invoke<string>("get_config_value", { key: "target_lang" }) || "Chinese";
+
     const apiKey = rawApiKey?.trim();
     const baseUrl = rawBaseUrl?.trim().replace(/\/+$/, "");
     const modelName = rawModelName?.trim();
@@ -32,7 +33,7 @@ export async function translateStreaming(
       body: JSON.stringify({
         model: modelName,
         messages: [
-          { role: "system", content: "You are a professional translator. Translate the following text to Chinese. Return only the translated text." },
+          { role: "system", content: `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.` },
           { role: "user", content: text },
         ],
         stream: true,
