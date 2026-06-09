@@ -85,3 +85,9 @@ html, body {
 .dark .apple-gradient-bg {
   background: linear-gradient(145deg, #1c1c1e 0%, #000000 100%);
 }
+
+/* Flashcard 3D flip utilities */
+.perspective-1000 { perspective: 1000px; }
+.preserve-3d { transform-style: preserve-3d; }
+.backface-hidden { backface-visibility: hidden; }
+.rotate-y-180 { transform: rotateY(180deg); }

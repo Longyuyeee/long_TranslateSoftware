@@ -416,6 +416,102 @@ fn get_wordbook(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
 }
 
 #[tauri::command]
+fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json::Value>, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut stmt = conn.prepare(
+        "SELECT id, word, phonetic, meaning, analysis_json, ease_factor, interval_days, repetitions, next_review FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1) ORDER BY next_review ASC LIMIT ?2"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([&now, &limit.unwrap_or(50).to_string()], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, i32>(0)?,
+            "word": row.get::<_, String>(1)?,
+            "phonetic": row.get::<_, String>(2)?,
+            "meaning": row.get::<_, String>(3)?,
+            "analysis": row.get::<_, String>(4)?,
+            "ease_factor": row.get::<_, f64>(5)?,
+            "interval_days": row.get::<_, i32>(6)?,
+            "repetitions": row.get::<_, i32>(7)?,
+            "next_review": row.get::<_, Option<String>>(8)?,
+        }))
+    }).map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+    for row in rows { items.push(row.map_err(|e| e.to_string())?); }
+    Ok(items)
+}
+
+#[tauri::command]
+fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_json::Value, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Read current SM-2 state
+    let (ease, interval, reps): (f64, i32, i32) = conn.query_row(
+        "SELECT ease_factor, interval_days, repetitions FROM wordbook WHERE id = ?1",
+        [word_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    ).map_err(|e| e.to_string())?;
+
+    // SM-2 algorithm
+    let (new_interval, new_reps, new_ease) = if quality >= 3 {
+        let interval = match reps {
+            0 => 1,
+            1 => 6,
+            _ => ((interval as f64) * ease).round() as i32,
+        };
+        (interval, reps + 1, ease)
+    } else {
+        (1, 0, ease)
+    };
+
+    let new_ease = (new_ease + (0.1 - (5 - quality) as f64 * (0.08 + (5 - quality) as f64 * 0.02))).max(1.3);
+    let next_review = chrono::Local::now() + chrono::Duration::days(new_interval as i64);
+    let next_str = next_review.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "UPDATE wordbook SET ease_factor = ?1, interval_days = ?2, repetitions = ?3, next_review = ?4, last_reviewed = ?5 WHERE id = ?6",
+        [&new_ease.to_string(), &new_interval.to_string(), &new_reps.to_string(), &next_str, &now, &word_id.to_string()],
+    ).map_err(|e| e.to_string())?;
+
+    app.emit("wordbook-updated", "local").unwrap();
+    Ok(serde_json::json!({
+        "interval": new_interval,
+        "repetitions": new_reps,
+        "ease_factor": new_ease,
+        "next_review": next_str,
+    }))
+}
+
+#[tauri::command]
+fn get_review_stats(app: AppHandle) -> Result<serde_json::Value, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let total: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let reviewed: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND last_reviewed IS NOT NULL", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let mastered: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND repetitions >= 3", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let due: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1)", [&now], |r| r.get(0)).map_err(|e| e.to_string())?;
+
+    // Streak: count consecutive days with reviews
+    let mut stmt = conn.prepare("SELECT DISTINCT DATE(last_reviewed) as d FROM wordbook WHERE last_reviewed IS NOT NULL ORDER BY d DESC LIMIT 30").map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let streak_rows: Vec<String> = rows.filter_map(|r| r.ok()).collect();
+    let mut streak = 0i32;
+    let today = chrono::Local::now().date_naive();
+    for i in 0..30 {
+        let check_date = today - chrono::Duration::days(i);
+        let check_str = check_date.format("%Y-%m-%d").to_string();
+        if streak_rows.contains(&check_str) { streak += 1; }
+        else if i > 0 { break; }
+    }
+
+    Ok(serde_json::json!({ "total": total, "reviewed": reviewed, "mastered": mastered, "due_today": due, "streak": streak }))
+}
+
+#[tauri::command]
 fn delete_word(app: AppHandle, id: i32) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
@@ -1015,6 +1111,9 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     
     let trans_count: i32 = db::get_config(&conn, "translated_count").unwrap_or_default().parse().unwrap_or(0);
     
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let due_count: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1)", [&now_str], |row| row.get(0)).map_err(|e| e.to_string())?;
+
     let install_date_str = db::get_config(&conn, "install_date").unwrap_or_default();
     let days = if !install_date_str.is_empty() {
         let install_date = chrono::NaiveDate::parse_from_str(&install_date_str, "%Y-%m-%d").unwrap_or_else(|_| chrono::Local::now().date_naive());
@@ -1025,7 +1124,8 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "word_count": word_count,
         "trans_count": trans_count,
-        "days_active": days
+        "days_active": days,
+        "due_today": due_count
     }))
 }
 
@@ -1137,7 +1237,8 @@ pub fn run() {
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             save_translation, get_translation_history, delete_translation, clear_translation_history,
-            export_wordbook, lookup_translation_memory, save_translation_memory
+            export_wordbook, lookup_translation_memory, save_translation_memory,
+            get_due_reviews, submit_review, get_review_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

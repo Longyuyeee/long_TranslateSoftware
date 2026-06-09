@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
@@ -8,6 +8,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
 import { translateStreaming, speak } from "../services/api";
+import ReviewTab from "./ReviewTab";
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
@@ -38,7 +39,7 @@ export default function Dashboard() {
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState("");
   const [cacheSize, setCacheSize] = useState("0 B");
-  const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1 });
+  const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
 
   // WebDAV Config
   const [webdavEnabled, setWebdavEnabled] = useState(false);
@@ -98,7 +99,7 @@ export default function Dashboard() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
-      const tabMap: Record<string, string> = { '1': 'general', '2': 'batch', '3': 'model', '4': 'appearance', '5': 'wordbook', '6': 'history' };
+      const tabMap: Record<string, string> = { '1': 'general', '2': 'batch', '3': 'model', '4': 'appearance', '5': 'wordbook', '6': 'review', '7': 'history' };
       const tab = tabMap[e.key];
       if (tab) { e.preventDefault(); setActiveTab(tab); }
     };
@@ -515,6 +516,7 @@ export default function Dashboard() {
     { id: "model", label: t.modelConfig, icon: Cpu },
     { id: "appearance", label: t.appearance, icon: Palette },
     { id: "wordbook", label: t.wordbook, icon: Book },
+    { id: "review", label: t.review, icon: Brain },
     { id: "history", label: t.history, icon: Clock },
   ];
 
@@ -573,6 +575,10 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Languages size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Trans</span></div>
                     <span className="text-[10px] font-black text-blue-600">{appStats.trans_count}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-zinc-400"><Brain size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Due</span></div>
+                    <span className="text-[10px] font-black text-amber-500">{appStats.due_today || 0}</span>
                 </div>
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
@@ -1053,6 +1059,10 @@ export default function Dashboard() {
                                 </AnimatePresence>
                             </div>
                         </div>
+                    )}
+
+                    {activeTab === "review" && (
+                        <ReviewTab lang={lang} onRefreshStats={refreshStats} />
                     )}
 
                     {activeTab === "history" && (

@@ -116,6 +116,31 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         set_schema_version(&conn, 3)?;
     }
 
+    if current_version < 4 {
+        // Add SM-2 spaced repetition columns for vocabulary learning
+        let pragma_info: Vec<String> = conn
+            .prepare("PRAGMA table_info(wordbook)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if !pragma_info.contains(&"ease_factor".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN ease_factor REAL DEFAULT 2.5", [])?;
+        }
+        if !pragma_info.contains(&"interval_days".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN interval_days INTEGER DEFAULT 0", [])?;
+        }
+        if !pragma_info.contains(&"repetitions".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN repetitions INTEGER DEFAULT 0", [])?;
+        }
+        if !pragma_info.contains(&"next_review".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN next_review DATETIME", [])?;
+        }
+        if !pragma_info.contains(&"last_reviewed".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN last_reviewed DATETIME", [])?;
+        }
+        set_schema_version(&conn, 4)?;
+    }
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {
