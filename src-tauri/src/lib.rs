@@ -408,6 +408,76 @@ fn delete_translation(app: AppHandle, id: i32) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT word, phonetic, meaning, analysis_json FROM wordbook WHERE is_deleted = 0 ORDER BY created_at DESC"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+    let items: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+
+    let content = match format.as_str() {
+        "csv" => {
+            let mut csv = String::from("word,phonetic,meaning,examples,synonyms\n");
+            for (word, phonetic, meaning, analysis) in &items {
+                let examples = serde_json::from_str::<serde_json::Value>(analysis)
+                    .ok().and_then(|a| a["examples"].as_array().cloned())
+                    .map(|ex| ex.iter().filter_map(|e| e["en"].as_str()).collect::<Vec<_>>().join(" | "))
+                    .unwrap_or_default();
+                let synonyms = serde_json::from_str::<serde_json::Value>(analysis)
+                    .ok().and_then(|a| a["synonyms"].as_array().cloned())
+                    .map(|s| s.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(" | "))
+                    .unwrap_or_default();
+                csv.push_str(&format!("\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"\n",
+                    word.replace("\"", "\"\""),
+                    phonetic.replace("\"", "\"\""),
+                    meaning.replace("\"", "\"\""),
+                    examples.replace("\"", "\"\""),
+                    synonyms.replace("\"", "\"\""),
+                ));
+            }
+            csv
+        },
+        "json" => {
+            let json_items: Vec<serde_json::Value> = items.iter().map(|(w, p, m, a)| {
+                let analysis: serde_json::Value = serde_json::from_str(a).unwrap_or_default();
+                serde_json::json!({"word": w, "phonetic": p, "meaning": m, "analysis": analysis})
+            }).collect();
+            serde_json::to_string_pretty(&json_items).map_err(|e| e.to_string())?
+        },
+        _ => return Err("Unsupported format".to_string()),
+    };
+
+    use tauri_plugin_dialog::DialogExt;
+    let ext = if format == "csv" { "csv" } else { "json" };
+    let filter_name = if format == "csv" { "CSV Files" } else { "JSON Files" };
+    let file_path = app.dialog().file()
+        .set_title("Export Wordbook")
+        .add_filter(filter_name, &[ext])
+        .set_file_name(&format!("wordbook_export.{}", ext))
+        .blocking_save_file();
+
+    if let Some(path) = file_path {
+        let actual_path = match path {
+            tauri_plugin_dialog::FilePath::Path(p) => p,
+            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
+        };
+        std::fs::write(actual_path, &content).map_err(|e| e.to_string())?;
+        Ok("Export successful".to_string())
+    } else {
+        Err("User cancelled".to_string())
+    }
+}
+
+#[tauri::command]
 fn clear_translation_history(app: AppHandle) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
@@ -924,7 +994,8 @@ pub fn run() {
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
-            save_translation, get_translation_history, delete_translation, clear_translation_history
+            save_translation, get_translation_history, delete_translation, clear_translation_history,
+            export_wordbook
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
