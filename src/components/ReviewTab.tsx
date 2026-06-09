@@ -34,6 +34,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   const [isFlipped, setIsFlipped] = useState(false);
 
   // Quiz state
+  const [quizWords, setQuizWords] = useState<ReviewWord[]>([]);
   const [quizQuestion, setQuizQuestion] = useState(0);
   const [quizOptions, setQuizOptions] = useState<string[]>([]);
   const [quizCorrectAnswer, setQuizCorrectAnswer] = useState("");
@@ -62,11 +63,11 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
     try {
       await invoke("submit_review", { wordId: word.id, quality });
       setIsFlipped(false);
+      onRefreshStats();
       if (currentIdx < dueWords.length - 1) {
         setCurrentIdx(i => i + 1);
       } else {
         await loadData();
-        onRefreshStats();
       }
     } catch (e) { console.error(e); }
   };
@@ -82,9 +83,10 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   const startQuiz = () => {
     if (dueWords.length < 4) return;
     const shuffled = [...dueWords].sort(() => Math.random() - 0.5);
-    const qWords = shuffled.slice(0, Math.min(10, shuffled.length));
-    setQuizScore({ correct: 0, total: qWords.length });
-    nextQuizQuestion(qWords, 0);
+    const words = shuffled.slice(0, Math.min(10, shuffled.length));
+    setQuizWords(words);
+    setQuizScore({ correct: 0, total: words.length });
+    nextQuizQuestion(words, 0);
   };
 
   const nextQuizQuestion = (words: ReviewWord[], idx: number) => {
@@ -108,9 +110,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   };
 
   const handleQuizNext = () => {
-    const shuffled = [...dueWords].sort(() => Math.random() - 0.5);
-    const qWords = shuffled.slice(0, Math.min(10, shuffled.length));
-    nextQuizQuestion(qWords, quizQuestion + 1);
+    nextQuizQuestion(quizWords, quizQuestion + 1);
   };
 
   // Stats bar

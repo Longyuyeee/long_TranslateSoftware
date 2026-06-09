@@ -181,7 +181,7 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
     }
 
     let mut wordbook_data = Vec::new();
-    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed FROM wordbook").map_err(|e| e.to_string())?;
     let word_rows = stmt.query_map([], |row| {
         Ok(serde_json::json!({
             "uuid": row.get::<_, String>(0)?,
@@ -191,6 +191,11 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
             "analysis": row.get::<_, String>(4)?,
             "is_deleted": row.get::<_, i64>(5)?,
             "updated_at": row.get::<_, String>(6)?,
+            "ease_factor": row.get::<_, f64>(7)?,
+            "interval_days": row.get::<_, i32>(8)?,
+            "repetitions": row.get::<_, i32>(9)?,
+            "next_review": row.get::<_, Option<String>>(10)?,
+            "last_reviewed": row.get::<_, Option<String>>(11)?,
         }))
     }).map_err(|e| e.to_string())?;
     for row in word_rows {
@@ -292,7 +297,7 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
             if let Some(words) = full_json["wordbook"].as_array() {
                 for item in words {
                     tx.execute(
-                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         (
                             item["uuid"].as_str().unwrap_or_default(),
                             item["word"].as_str().unwrap_or_default(),
@@ -301,6 +306,11 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
                             item["analysis"].as_str().unwrap_or_default(),
                             item["is_deleted"].as_i64().unwrap_or(0),
                             item["updated_at"].as_str().unwrap_or_default(),
+                            item["ease_factor"].as_f64().unwrap_or(2.5),
+                            item["interval_days"].as_i64().unwrap_or(0),
+                            item["repetitions"].as_i64().unwrap_or(0),
+                            item["next_review"].as_str().unwrap_or(""),
+                            item["last_reviewed"].as_str().unwrap_or(""),
                         )
                     ).map_err(|e| e.to_string())?;
                 }
@@ -998,7 +1008,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
             match local_updated_at {
                 Some(local_time) if updated_at > local_time.as_str() => {
                     tx.execute(
-                        "UPDATE wordbook SET word = ?1, phonetic = ?2, meaning = ?3, analysis_json = ?4, is_deleted = ?5, updated_at = ?6 WHERE uuid = ?7",
+                        "UPDATE wordbook SET word = ?1, phonetic = ?2, meaning = ?3, analysis_json = ?4, is_deleted = ?5, updated_at = ?6, ease_factor = ?7, interval_days = ?8, repetitions = ?9, next_review = ?10, last_reviewed = ?11 WHERE uuid = ?12",
                         (
                             item["word"].as_str().unwrap_or_default(),
                             item["phonetic"].as_str().unwrap_or_default(),
@@ -1006,13 +1016,18 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                             item["analysis"].as_str().unwrap_or_default(),
                             is_deleted,
                             updated_at,
+                            item["ease_factor"].as_f64().unwrap_or(2.5),
+                            item["interval_days"].as_i64().unwrap_or(0),
+                            item["repetitions"].as_i64().unwrap_or(0),
+                            item["next_review"].as_str().unwrap_or(""),
+                            item["last_reviewed"].as_str().unwrap_or(""),
                             uuid
                         )
                     ).map_err(|e| e.to_string())?;
                 },
                 None => {
                     tx.execute(
-                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         (
                             uuid,
                             item["word"].as_str().unwrap_or_default(),
@@ -1020,7 +1035,12 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                             item["meaning"].as_str().unwrap_or_default(),
                             item["analysis"].as_str().unwrap_or_default(),
                             is_deleted,
-                            updated_at
+                            updated_at,
+                            item["ease_factor"].as_f64().unwrap_or(2.5),
+                            item["interval_days"].as_i64().unwrap_or(0),
+                            item["repetitions"].as_i64().unwrap_or(0),
+                            item["next_review"].as_str().unwrap_or(""),
+                            item["last_reviewed"].as_str().unwrap_or(""),
                         )
                     ).map_err(|e| e.to_string())?;
                 },
@@ -1029,7 +1049,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
         tx.commit().map_err(|e| e.to_string())?;
 
-        let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at FROM wordbook").map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed FROM wordbook").map_err(|e| e.to_string())?;
         let items = stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "uuid": row.get::<_, String>(0)?,
@@ -1039,6 +1059,11 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                 "analysis": row.get::<_, String>(4)?,
                 "is_deleted": row.get::<_, i64>(5)?,
                 "updated_at": row.get::<_, String>(6)?,
+                "ease_factor": row.get::<_, f64>(7)?,
+                "interval_days": row.get::<_, i32>(8)?,
+                "repetitions": row.get::<_, i32>(9)?,
+                "next_review": row.get::<_, Option<String>>(10)?,
+                "last_reviewed": row.get::<_, Option<String>>(11)?,
             }))
         }).map_err(|e| e.to_string())?.map(|r| r.unwrap()).collect();
         items
