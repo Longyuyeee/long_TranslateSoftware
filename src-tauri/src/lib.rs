@@ -293,7 +293,7 @@ async fn capture_and_ocr(
 fn check_word_exists(app: AppHandle, word: String) -> Result<bool, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare("SELECT 1 FROM wordbook WHERE word = ?1").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT 1 FROM wordbook WHERE word = ?1 AND is_deleted = 0").map_err(|e| e.to_string())?;
     Ok(stmt.exists([word]).map_err(|e| e.to_string())?)
 }
 
