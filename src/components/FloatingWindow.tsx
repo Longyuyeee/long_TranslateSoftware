@@ -13,13 +13,7 @@ export default function FloatingWindow() {
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
-
-    const loadConfig = async () => {
-      const savedLang = await invoke<string>("get_config_value", { key: "language" });
-      // We still load the lang to ensure config exists, but don't store it if unused
-      console.log("Current language:", savedLang);
-      
-      const savedTheme = await invoke<string>("get_config_value", { key: "theme" }) || "system";
+    const applyTheme = (savedTheme: string) => {
       const root = document.documentElement;
       if (savedTheme === "dark") root.classList.add("dark");
       else if (savedTheme === "light") root.classList.remove("dark");
@@ -27,9 +21,17 @@ export default function FloatingWindow() {
         if (window.matchMedia("(prefers-color-scheme: dark)").matches) root.classList.add("dark");
         else root.classList.remove("dark");
       }
+    };
+
+    const loadConfig = async () => {
+      const savedLang = await invoke<string>("get_config_value", { key: "language" });
+      console.log("Current language:", savedLang);
+
+      const savedTheme = await invoke<string>("get_config_value", { key: "theme" }) || "system";
+      applyTheme(savedTheme);
 
       const savedFontSize = await invoke<string>("get_config_value", { key: "font_size" });
-      if (savedFontSize) root.style.fontSize = `${savedFontSize}px`;
+      if (savedFontSize) document.documentElement.style.fontSize = `${savedFontSize}px`;
     };
     loadConfig();
 
@@ -47,9 +49,17 @@ export default function FloatingWindow() {
       startTranslation(event.payload);
     });
 
+    // Listen for settings changes from Dashboard
+    interface SettingsChange { theme: string; fontSize: number }
+    const unlistenSettings = listen<SettingsChange>("settings-changed", (event) => {
+      applyTheme(event.payload.theme);
+      document.documentElement.style.fontSize = `${event.payload.fontSize}px`;
+    });
+
     return () => {
       unlistenShortcut.then(f => f());
       unlistenOcr.then(f => f());
+      unlistenSettings.then(f => f());
     };
   }, []);
 

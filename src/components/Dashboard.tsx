@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
@@ -361,6 +361,7 @@ export default function Dashboard() {
         setVal("webdav_pass", webdavPass)
       ]);
       setStatus(t.success);
+      emit("settings-changed", { theme, fontSize }).catch(console.error);
       setTimeout(() => setStatus(""), 3000);
     } catch (e) { setStatus(t.error); }
   };
