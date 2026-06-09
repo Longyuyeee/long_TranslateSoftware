@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
@@ -273,6 +274,23 @@ export default function Dashboard() {
     } catch (e) { console.error(e); }
   };
 
+  const checkUpdate = async () => {
+    try {
+      const update = await check();
+      if (update) {
+        setStatus(`New version ${update.version} available! Downloading...`);
+        await update.downloadAndInstall();
+        await update.install();
+      } else {
+        setStatus("You are up to date!");
+        setTimeout(() => setStatus(""), 3000);
+      }
+    } catch (e) {
+      setStatus(`Update check failed: ${e}`);
+      setTimeout(() => setStatus(""), 5000);
+    }
+  };
+
   const toggleAutoLaunch = async () => {
     const prevState = autoLaunch;
     try {
@@ -506,6 +524,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
                     <span className="text-[10px] font-black text-blue-600">{appStats.days_active}d</span>
                 </div>
+                <button onClick={checkUpdate} className="w-full py-2 rounded-xl bg-blue-600/10 text-blue-600 border border-blue-600/20 text-[9px] font-black hover:bg-blue-600/20 transition-all mt-1">CHECK UPDATE</button>
             </div>
         </div>
       </div>
