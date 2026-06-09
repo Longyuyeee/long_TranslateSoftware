@@ -25,6 +25,16 @@ use tokio_tungstenite::{
 };
 const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 
+fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    hasher.update(salt);
+    let result = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result[..32]);
+    key
+}
+
 struct AppState {
     shortcuts_paused: Mutex<bool>,
     clipboard_lock: Mutex<bool>,
@@ -117,7 +127,9 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
 }
 
 #[tauri::command]
-async fn export_data(app: AppHandle) -> Result<String, String> {
+async fn export_data(app: AppHandle, password: String) -> Result<String, String> {
+    if password.is_empty() { return Err("Password cannot be empty".to_string()); }
+
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
 
@@ -150,21 +162,26 @@ async fn export_data(app: AppHandle) -> Result<String, String> {
     let full_json = serde_json::json!({
         "config": config_data,
         "wordbook": wordbook_data,
-        "export_version": "1.0",
+        "export_version": "2.0",
         "export_time": chrono::Local::now().to_rfc3339()
     });
     let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
 
-    let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+    // Generate random salt via UUID v4 (16 bytes), derive key via SHA-256
+    let salt = uuid::Uuid::new_v4();
+    let key = derive_key(&password, salt.as_bytes());
+
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
     let mut rng = OsRng;
     let nonce = Aes256Gcm::generate_nonce(&mut rng);
     let mut ciphertext = cipher.encrypt(&nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
-    // Prepend nonce to ciphertext (12 bytes)
-    let mut output = nonce.to_vec();
+    // Output format: salt (16) + nonce (12) + ciphertext
+    let mut output = salt.as_bytes().to_vec();
+    output.extend_from_slice(&nonce);
     output.append(&mut ciphertext);
 
     use tauri_plugin_dialog::DialogExt;
-    let file_path = app.dialog().file().set_title("导出Long翻译备份").add_filter("Long翻译备份 (*.TLong)", &["TLong"]).set_file_name("Long翻译备份.TLong").blocking_save_file();
+    let file_path = app.dialog().file().set_title("Export LongTranslate Backup").add_filter("LongTranslate Backup (*.TLong)", &["TLong"]).set_file_name("LongTranslate_Backup.TLong").blocking_save_file();
 
     if let Some(path) = file_path {
         let actual_path = match path {
@@ -179,9 +196,9 @@ async fn export_data(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn import_data(app: AppHandle) -> Result<(), String> {
+async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
-    let file_path = app.dialog().file().set_title("导入Long翻译备份").add_filter("Long翻译备份 (*.TLong)", &["TLong"]).blocking_pick_file();
+    let file_path = app.dialog().file().set_title("Import LongTranslate Backup").add_filter("LongTranslate Backup (*.TLong)", &["TLong"]).blocking_pick_file();
 
     if let Some(path) = file_path {
         let actual_path = match path {
@@ -190,63 +207,62 @@ async fn import_data(app: AppHandle) -> Result<(), String> {
         };
         let file_data = std::fs::read(actual_path).map_err(|e| e.to_string())?;
 
-        let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
-
-        // Try new format first (12-byte random nonce prepended to ciphertext)
-        // Fall back to old format (fixed nonce) for backward compatibility
-        let plaintext = if file_data.len() >= 12 {
-            let (nonce_bytes, ct) = file_data.split_at(12);
-            cipher.decrypt(Nonce::from_slice(nonce_bytes), ct)
-        } else {
-            Err(aes_gcm::Error)
-        };
+        // Detect format: v2.0 has salt(16) + nonce(12), v1.x has nonce(12) only, v0.x has no nonce
+        let plaintext = if file_data.len() >= 28 {
+            // Try v2.x: salt(16) + nonce(12) + ciphertext
+            let salt = &file_data[..16];
+            let (nonce_bytes, ct) = file_data[16..].split_at(12);
+            let key = derive_key(&password, salt);
+            let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+            cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).ok()
+        } else { None };
 
         let plaintext = match plaintext {
-            Ok(pt) => pt,
-            Err(_) => {
-                // Fallback: try old format with fixed nonce
-                let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
-                cipher.decrypt(nonce, file_data.as_ref())
-                    .map_err(|_| "Decryption failed: invalid file or key".to_string())?
+            Some(pt) => pt,
+            None => {
+                // Fallback: try v1.x (hardcoded key + nonce prefix) or v0.x (hardcoded key + fixed nonce)
+                let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+                if file_data.len() >= 12 {
+                    let (nonce_bytes, ct) = file_data.split_at(12);
+                    cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).ok()
+                } else { None }
+                .or_else(|| {
+                    let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+                    cipher.decrypt(nonce, file_data.as_ref()).ok()
+                })
+                .ok_or("Decryption failed: invalid password or file format".to_string())?
             }
         };
         let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
 
         let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
-        
+
         let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
         {
             let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
             let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-            // 1. Clear existing data for complete override
             tx.execute("DELETE FROM config", []).map_err(|e| e.to_string())?;
             tx.execute("DELETE FROM wordbook", []).map_err(|e| e.to_string())?;
 
-            // 2. Import Config
             if let Some(configs) = full_json["config"].as_object() {
                 for (k, v) in configs {
                     tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, v.as_str().unwrap_or_default()]).map_err(|e| e.to_string())?;
                 }
             }
 
-            // 3. Import Wordbook
             if let Some(words) = full_json["wordbook"].as_array() {
                 for item in words {
-                    let uuid = item["uuid"].as_str().unwrap_or_default();
-                    let updated_at = item["updated_at"].as_str().unwrap_or_default();
-                    let is_deleted = item["is_deleted"].as_i64().unwrap_or(0);
-
                     tx.execute(
                         "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                         (
-                            uuid,
+                            item["uuid"].as_str().unwrap_or_default(),
                             item["word"].as_str().unwrap_or_default(),
                             item["phonetic"].as_str().unwrap_or_default(),
                             item["meaning"].as_str().unwrap_or_default(),
                             item["analysis"].as_str().unwrap_or_default(),
-                            is_deleted,
-                            updated_at
+                            item["is_deleted"].as_i64().unwrap_or(0),
+                            item["updated_at"].as_str().unwrap_or_default(),
                         )
                     ).map_err(|e| e.to_string())?;
                 }

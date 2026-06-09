@@ -130,12 +130,15 @@ export default function Dashboard() {
 
   const handleExport = async () => {
     try {
-        await invoke<string>("export_data");
-        setStatus("导出成功");
+        const pw = window.prompt("Enter a password to encrypt the backup:");
+        if (pw === null) return; // User cancelled
+        if (!pw.trim()) { setStatus("Password cannot be empty"); setTimeout(() => setStatus(""), 3000); return; }
+        await invoke<string>("export_data", { password: pw });
+        setStatus("Backup exported successfully");
         setTimeout(() => setStatus(""), 3000);
-    } catch (e) {
+    } catch (e: any) {
         if (e !== "User cancelled") {
-            setStatus(`导出失败: ${e}`);
+            setStatus(`Export failed: ${e}`);
             setTimeout(() => setStatus(""), 5000);
         }
     }
@@ -143,12 +146,13 @@ export default function Dashboard() {
 
   const handleImport = async () => {
     try {
-        await invoke("import_data");
-        // Reload entirely for a clean state
+        const pw = window.prompt("Enter the backup password:");
+        if (pw === null) return;
+        await invoke("import_data", { password: pw || "" });
         setTimeout(() => window.location.reload(), 500);
-    } catch (e) {
+    } catch (e: any) {
         if (e !== "User cancelled") {
-            setStatus(`导入失败: ${e}`);
+            setStatus(`Import failed: ${e}`);
             setTimeout(() => setStatus(""), 5000);
         }
     }
