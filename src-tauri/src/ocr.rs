@@ -4,9 +4,16 @@ use windows::Graphics::Imaging::BitmapDecoder;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
 use windows::Storage::Streams::InMemoryRandomAccessStream;
+use windows::Globalization::Language;
 
-pub async fn run_ocr(image_bytes: Vec<u8>) -> Result<String, Box<dyn std::error::Error>> {
-    let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| format!("Failed to create OcrEngine: {}", e))?;
+pub async fn run_ocr(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let engine = if lang.is_empty() || lang == "auto" {
+        OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| format!("Failed to create OcrEngine: {}", e))?
+    } else {
+        let lang_hstr = windows::core::HSTRING::from(lang);
+        let lang_obj = Language::CreateLanguage(&lang_hstr).map_err(|e| format!("Invalid language: {}", e))?;
+        OcrEngine::TryCreateFromLanguage(&lang_obj).map_err(|e| format!("Failed to create OcrEngine for {}: {}", lang, e))?
+    };
     let stream = InMemoryRandomAccessStream::new().map_err(|e| format!("Failed to create stream: {}", e))?;
     let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| format!("Failed to create writer: {}", e))?;
     writer.WriteBytes(&image_bytes).map_err(|e| format!("Failed to write bytes: {}", e))?;

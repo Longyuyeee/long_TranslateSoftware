@@ -53,6 +53,9 @@ export default function Dashboard() {
   const [backupBaseUrl, setBackupBaseUrl] = useState("");
   const [backupModelName, setBackupModelName] = useState("");
 
+  // OCR language
+  const [ocrLang, setOcrLang] = useState("auto");
+
   // Audio (TTS) Model Config
   const [ttsEngine, setTtsEngine] = useState("local");
   const [ttsApiKey, setTtsApiKey] = useState("");
@@ -280,6 +283,7 @@ export default function Dashboard() {
       setBackupApiKey(await getVal("backup_api_key") || "");
       setBackupBaseUrl(await getVal("backup_base_url") || "");
       setBackupModelName(await getVal("backup_model") || "");
+      setOcrLang(await getVal("ocr_lang") || "auto");
 
       setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
       setShortcutW(await getVal("shortcut_w") || "Alt+W");
@@ -431,6 +435,7 @@ export default function Dashboard() {
         setVal("backup_api_key", backupApiKey),
         setVal("backup_base_url", backupBaseUrl),
         setVal("backup_model", backupModelName),
+        setVal("ocr_lang", ocrLang),
         setVal("webdav_enabled", webdavEnabled ? "true" : "false"),
         setVal("webdav_url", webdavUrl),
         setVal("webdav_user", webdavUser),
@@ -655,6 +660,18 @@ export default function Dashboard() {
                                     { label: t.targetLang, desc: "Translation Output", component: (
                                         <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
                                             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        </select>
+                                    )},
+                                    { label: "OCR Lang", desc: "Recognition Language", component: (
+                                        <select value={ocrLang} onChange={(e) => setOcrLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
+                                            <option value="auto">System Default</option>
+                                            <option value="zh-Hans">中文 (Chinese)</option>
+                                            <option value="en">English</option>
+                                            <option value="ja">日本語</option>
+                                            <option value="ko">한국어</option>
+                                            <option value="fr">Français</option>
+                                            <option value="de">Deutsch</option>
+                                            <option value="es">Español</option>
                                         </select>
                                     )},
                                     { label: t.autoCopy, desc: "Clipboard Integration", component: (

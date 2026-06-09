@@ -284,18 +284,24 @@ fn start_window_drag(window: WebviewWindow) {
 }
 
 #[tauri::command]
-async fn run_ocr(image_base64: String) -> Result<String, String> {
+async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
     let bytes = general_purpose::STANDARD.decode(image_base64).map_err(|e| e.to_string())?;
-    ocr::run_ocr(bytes).await.map_err(|e| e.to_string())
+    ocr::run_ocr(bytes, &ocr_lang).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn capture_and_ocr(
-    app: AppHandle, 
+    app: AppHandle,
     x: i32, y: i32, w: u32, h: u32
 ) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
     let bytes = ocr::capture_rect(x, y, w, h).map_err(|e| e.to_string())?;
-    let text = ocr::run_ocr(bytes).await.map_err(|e| e.to_string())?;
+    let text = ocr::run_ocr(bytes, &ocr_lang).await.map_err(|e| e.to_string())?;
     
     if let Some(overlay) = app.get_webview_window("ocr-overlay") { let _ = overlay.hide(); }
     if let Some(floating) = app.get_webview_window("floating") {
