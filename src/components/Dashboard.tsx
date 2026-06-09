@@ -59,6 +59,10 @@ export default function Dashboard() {
   const [batchOutput, setBatchOutput] = useState("");
   const [isTranslating, setIsTranslating] = useState(false);
 
+  // Wordbook pagination
+  const [wordsLimit, setWordsLimit] = useState(200);
+  const displayedWords = words.slice(0, wordsLimit);
+
   // Manual Add Word state
   const [newWord, setNewWord] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -850,6 +854,9 @@ export default function Dashboard() {
                     {activeTab === "wordbook" && (
                         <div className="flex h-full gap-8 relative overflow-hidden">
                             <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-3 shrink-0" style={{ width: 'min(30%, 260px)', minWidth: '160px' }}>
+                                <div className="flex items-center justify-between px-1 mb-1">
+                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">{words.length} words</span>
+                                </div>
                                 {words.length > 0 && (
                                     <div className="flex gap-2 mb-1">
                                         <button onClick={() => invoke("export_wordbook", { format: "csv" }).then(() => setStatus("Exported as CSV")).catch(e => setStatus(`Export failed: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">EXPORT CSV</button>
@@ -861,7 +868,7 @@ export default function Dashboard() {
                                 ) : (
                                     <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="Enter word..." className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
-                                {words.map(w => (
+                                {displayedWords.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-blue-600 border-blue-600 shadow-2xl' : 'glass-card border-transparent hover:border-blue-500/30 hover:bg-white/80'}`}>
                                         <div className="flex justify-between items-start mb-1.5">
                                             <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
@@ -871,6 +878,12 @@ export default function Dashboard() {
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
+                                {words.length > wordsLimit && (
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] hover:bg-blue-600/20 transition-all">LOAD MORE ({words.length - wordsLimit} remaining)</button>
+                                        <button onClick={() => setWordsLimit(words.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-blue-600 transition-all">ALL</button>
+                                    </div>
+                                )}
                             </div>
                             <div className="flex-1 glass-card rounded-[32px] flex flex-col overflow-hidden relative shadow-2xl border-white/40">
                                 <AnimatePresence mode="wait">
