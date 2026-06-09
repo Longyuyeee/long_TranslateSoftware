@@ -168,6 +168,8 @@ export async function speak(text: string) {
       } else {
         const blob = await response.blob();
         const buffer = Array.from(new Uint8Array(await blob.arrayBuffer()));
+        // Cache the binary audio response
+        invoke("save_audio_cache", { cacheKey, audioData: buffer }).catch(console.error);
         await playBuffer(buffer);
       }
     }

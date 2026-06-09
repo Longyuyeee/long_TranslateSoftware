@@ -379,6 +379,17 @@ fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn save_audio_cache(app: AppHandle, cache_key: String, audio_data: Vec<u8>) -> Result<(), String> {
+    let cache_dir = get_audio_cache_dir(&app);
+    let mut hasher = Sha256::new();
+    hasher.update(cache_key.as_bytes());
+    let hash = hex::encode(hasher.finalize());
+    let cache_path = cache_dir.join(format!("{}.cache", hash));
+    std::fs::write(&cache_path, &audio_data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn get_clipboard_text(app: AppHandle) -> Result<String, String> {
     let clipboard = app.clipboard();
     clipboard.read_text().map_err(|e| e.to_string())
@@ -860,7 +871,7 @@ pub fn run() {
             hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
-            update_shortcut, set_shortcuts_paused, export_data, import_data
+            update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
