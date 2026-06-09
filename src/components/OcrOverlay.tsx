@@ -130,7 +130,7 @@ export default function OcrOverlay() {
         >
             {isProcessing && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white text-[10px] font-black tracking-widest animate-pulse">
-                    PROCESSING...
+                    {t.ocrProcessing}
                 </div>
             )}
         </div>

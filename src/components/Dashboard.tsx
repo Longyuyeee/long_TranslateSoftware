@@ -161,7 +161,7 @@ export default function Dashboard() {
     try {
         const pw = window.prompt("Enter a password to encrypt the backup:");
         if (pw === null) return; // User cancelled
-        if (!pw.trim()) { setStatus("Password cannot be empty"); setTimeout(() => setStatus(""), 3000); return; }
+        if (!pw.trim()) { addNotification(t.passwordEmpty); setTimeout(() => setStatus(""), 3000); return; }
         await invoke<string>("export_data", { password: pw });
         addNotification(t.exportSuccess);
         setTimeout(() => setStatus(""), 3000);
@@ -237,10 +237,10 @@ export default function Dashboard() {
         await invoke("update_shortcut", { name, shortcutStr: shortcut });
         if (name === 'q') setShortcutQ(shortcut);
         else setShortcutW(shortcut);
-        setStatus("Shortcut Updated");
+        addNotification(t.shortcutUpdated);
         setTimeout(() => setStatus(""), 2000);
     } catch (e) {
-        setStatus(`Failed to set shortcut: ${e}`);
+        addNotification(`${t.shortcutFailed}: ${e}`);
         setTimeout(() => setStatus(""), 5000);
     }
   };
@@ -328,7 +328,7 @@ export default function Dashboard() {
     try {
       const update = await check();
       if (update) {
-        setStatus(`New version ${update.version} available! Downloading...`);
+        addNotification(t.versionDownloading.replace("{version}", update.version));
         await update.downloadAndInstall();
         await update.install();
       } else {
@@ -336,7 +336,7 @@ export default function Dashboard() {
         setTimeout(() => setStatus(""), 3000);
       }
     } catch (e) {
-      setStatus(`Update check failed: ${e}`);
+      addNotification(`${t.updateCheckFailed}: ${e}`);
       setTimeout(() => setStatus(""), 5000);
     }
   };
@@ -359,7 +359,7 @@ export default function Dashboard() {
         
         if (nowEnabled === prevState) {
             // If it didn't change, it might be blocked by system or antivirus
-            setStatus("Permission Denied: System blocked auto-launch change.");
+            addNotification(t.autoLaunchDenied);
             setTimeout(() => setStatus(""), 5000);
         } else {
             addNotification(t.success);
@@ -370,7 +370,7 @@ export default function Dashboard() {
         // Sync UI with reality
         const realState = await isEnabled();
         setAutoLaunch(realState);
-        setStatus("Auto-launch change failed. Try running as Admin.");
+        addNotification(t.autoLaunchFailed);
         setTimeout(() => setStatus(""), 5000);
     }
   };

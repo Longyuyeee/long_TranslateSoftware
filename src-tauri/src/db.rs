@@ -23,7 +23,7 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
 
 pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     if !app_dir.exists() {
-        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&app_dir).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     }
     let db_path = app_dir.join("words.db");
     let conn = Connection::open(db_path)?;

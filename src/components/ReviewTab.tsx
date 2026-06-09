@@ -253,7 +253,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
 
           {quizAnswered && (
             <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={handleQuizNext} className="px-6 py-2.5 bg-blue-600 text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-blue-700 transition-all">
-              {quizQuestion + 1 < quizScore.total ? <>Next <ChevronRight size={14} /></> : t.quizFinish}
+              {quizQuestion + 1 < quizScore.total ? <>{t.quizFinish} <ChevronRight size={14} /></> : t.quizFinish}
             </motion.button>
           )}
         </div>
