@@ -691,26 +691,26 @@ export default function Dashboard() {
                                         </div>
                                     )},
                                     { label: t.sourceLang, desc: t.autoDetect, component: (
-                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
-                                            <option value="auto">Auto Detect</option>
-                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
+                                            <option value="auto" className="dark:bg-zinc-800 dark:text-white">Auto Detect</option>
+                                            {LANGUAGES.map(l => <option key={l} value={l} className="dark:bg-zinc-800 dark:text-white">{l}</option>)}
                                         </select>
                                     )},
                                     { label: t.targetLang, desc: "Translation Output", component: (
-                                        <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
-                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
+                                            {LANGUAGES.map(l => <option key={l} value={l} className="dark:bg-zinc-800 dark:text-white">{l}</option>)}
                                         </select>
                                     )},
                                     { label: t.ocrLang, desc: t.ocrLangDesc, component: (
-                                        <select value={ocrLang} onChange={(e) => setOcrLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
-                                            <option value="auto">System Default</option>
-                                            <option value="zh-Hans">中文 (Chinese)</option>
-                                            <option value="en">English</option>
-                                            <option value="ja">日本語</option>
-                                            <option value="ko">한국어</option>
-                                            <option value="fr">Français</option>
-                                            <option value="de">Deutsch</option>
-                                            <option value="es">Español</option>
+                                        <select value={ocrLang} onChange={(e) => setOcrLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
+                                            <option value="auto" className="dark:bg-zinc-800 dark:text-white">System Default</option>
+                                            <option value="zh-Hans" className="dark:bg-zinc-800 dark:text-white">中文 (Chinese)</option>
+                                            <option value="en" className="dark:bg-zinc-800 dark:text-white">English</option>
+                                            <option value="ja" className="dark:bg-zinc-800 dark:text-white">日本語</option>
+                                            <option value="ko" className="dark:bg-zinc-800 dark:text-white">한국어</option>
+                                            <option value="fr" className="dark:bg-zinc-800 dark:text-white">Français</option>
+                                            <option value="de" className="dark:bg-zinc-800 dark:text-white">Deutsch</option>
+                                            <option value="es" className="dark:bg-zinc-800 dark:text-white">Español</option>
                                         </select>
                                     )},
                                     { label: t.autoCopy, desc: "Clipboard Integration", component: (
