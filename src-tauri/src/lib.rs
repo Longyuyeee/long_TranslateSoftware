@@ -853,12 +853,33 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
 
     if !upload_resp.status().is_success() {
         if upload_resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(format!("同步失败：网盘路径不存在。\n请确保文件夹已手动创建。\n请求路径: {}", sync_file_url));
-        }
-        if upload_resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            // Try to auto-create directory hierarchy via MKCOL
+            let base = sync_file_url.trim_end_matches('/');
+            if let Some(last_slash) = base.rfind('/') {
+                let parent_dir = &base[..last_slash];
+                // Try MKCOL on parent directory, ignore errors (might already exist)
+                let _ = client.request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), parent_dir)
+                    .basic_auth(&user, Some(&pass))
+                    .send()
+                    .await;
+                // Retry the PUT
+                let retry = client.put(&sync_file_url)
+                    .basic_auth(&user, Some(&pass))
+                    .json(&local_items)
+                    .send()
+                    .await
+                    .map_err(|e| format!("Upload failed: {}", e))?;
+                if !retry.status().is_success() {
+                    return Err(format!("同步失败：无法创建网盘目录或上传文件 (HTTP {})。\n请求路径: {}", retry.status(), sync_file_url));
+                }
+            } else {
+                return Err(format!("同步失败：网盘路径不存在。\n请确保文件夹已手动创建。\n请求路径: {}", sync_file_url));
+            }
+        } else if upload_resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Err("同步失败：网盘账号或应用密码错误。".to_string());
+        } else {
+            return Err(format!("同步失败 (HTTP {}): {}", upload_resp.status(), sync_file_url));
         }
-        return Err(format!("同步失败 (HTTP {}): {}", upload_resp.status(), sync_file_url));
     }
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
