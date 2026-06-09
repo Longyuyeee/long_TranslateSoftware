@@ -647,7 +647,7 @@ export default function Dashboard() {
             <AnimatePresence mode="wait">
                 <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.3 }} className="h-full flex flex-col">
                     {activeTab === "general" && (
-                        <div className="space-y-6 max-w-2xl">
+                        <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
                                 <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Core</h3>
                                 {[
@@ -929,7 +929,7 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "appearance" && (
-                        <div className="space-y-6 max-w-2xl">
+                        <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-8 shadow-apple border-white/50">
                                 <div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-6 pl-2">Theme Mode</h3>
                                     <div className="grid grid-cols-3 gap-5">
