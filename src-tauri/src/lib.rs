@@ -35,6 +35,44 @@ fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
     key
 }
 
+const SENSITIVE_KEYS: &[&str] = &["trans_api_key", "openai_api_key", "backup_api_key", "tts_api_key", "webdav_pass"];
+
+fn is_sensitive_key(key: &str) -> bool {
+    SENSITIVE_KEYS.contains(&key)
+}
+
+fn get_device_key(app_dir: &std::path::Path) -> [u8; 32] {
+    let path_str = app_dir.to_string_lossy();
+    let mut hasher = Sha256::new();
+    hasher.update(path_str.as_bytes());
+    hasher.update(b"LONG-TRANS-DEVICE-SALT");
+    let result = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result[..32]);
+    key
+}
+
+fn encrypt_value(value: &str, device_key: &[u8; 32]) -> Result<String, String> {
+    let cipher = Aes256Gcm::new_from_slice(device_key).map_err(|e| e.to_string())?;
+    let mut rng = OsRng;
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let ciphertext = cipher.encrypt(&nonce, value.as_bytes()).map_err(|e| format!("encrypt: {}", e))?;
+    let mut output = nonce.to_vec();
+    output.extend_from_slice(&ciphertext);
+    Ok(format!("ENC:{}", general_purpose::STANDARD.encode(&output)))
+}
+
+fn decrypt_value(encrypted: &str, device_key: &[u8; 32]) -> Result<String, String> {
+    let enc_str = encrypted.strip_prefix("ENC:").ok_or("Not an encrypted value")?;
+    let data = general_purpose::STANDARD.decode(enc_str).map_err(|e| e.to_string())?;
+    if data.len() < 12 { return Err("Invalid encrypted data".to_string()); }
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let cipher = Aes256Gcm::new_from_slice(device_key).map_err(|e| e.to_string())?;
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+        .map_err(|_| "Decryption failed".to_string())?;
+    String::from_utf8(plaintext).map_err(|e| e.to_string())
+}
+
 struct AppState {
     shortcuts_paused: Mutex<bool>,
     clipboard_lock: Mutex<bool>,
@@ -536,15 +574,27 @@ fn save_translation_memory(app: AppHandle, source_text: String, translated_text:
 #[tauri::command]
 fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    db::set_config(&conn, &key, &value).map_err(|e| e.to_string())
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    let store_value = if is_sensitive_key(&key) && !value.is_empty() {
+        let device_key = get_device_key(&app_dir);
+        encrypt_value(&value, &device_key)?
+    } else {
+        value
+    };
+    db::set_config(&conn, &key, &store_value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    db::get_config(&conn, &key).map_err(|e| e.to_string())
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    let value = db::get_config(&conn, &key).map_err(|e| e.to_string())?;
+    if is_sensitive_key(&key) && value.starts_with("ENC:") {
+        let device_key = get_device_key(&app_dir);
+        decrypt_value(&value, &device_key)
+    } else {
+        Ok(value)
+    }
 }
 
 #[tauri::command]
