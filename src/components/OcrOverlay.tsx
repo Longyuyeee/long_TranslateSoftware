@@ -65,8 +65,9 @@ export default function OcrOverlay() {
       const factor = await win.scaleFactor();
       const outerPos = await win.outerPosition();
       
-      const physicalX = Math.round((outerPos.x + rect.x) * factor);
-      const physicalY = Math.round((outerPos.y + rect.y) * factor);
+      // outerPosition() returns physical pixels, rect.x/y are logical pixels
+      const physicalX = outerPos.x + Math.round(rect.x * factor);
+      const physicalY = outerPos.y + Math.round(rect.y * factor);
       const physicalW = Math.round(rect.w * factor);
       const physicalH = Math.round(rect.h * factor);
 
