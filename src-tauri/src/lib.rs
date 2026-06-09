@@ -503,6 +503,31 @@ fn clear_translation_history(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn lookup_translation_memory(app: AppHandle, text: String, target_lang: String) -> Result<Option<String>, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+    let result: Option<String> = conn.query_row(
+        "SELECT translated_text FROM translation_memory WHERE source_hash = ?1 AND target_lang = ?2",
+        [&hash, &target_lang],
+        |row| row.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+#[tauri::command]
+fn save_translation_memory(app: AppHandle, source_text: String, translated_text: String, target_lang: String) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let hash = format!("{:x}", Sha256::digest(source_text.as_bytes()));
+    conn.execute(
+        "INSERT OR REPLACE INTO translation_memory (source_hash, target_lang, source_text, translated_text) VALUES (?1, ?2, ?3, ?4)",
+        [&hash, &target_lang, &source_text, &translated_text],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
@@ -645,7 +670,30 @@ async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String
     };
 
     if bytes.len() > 100 { let _ = fs::write(&cache_path, &bytes); }
+    // Evict oldest files if cache exceeds 200 MB
+    evict_cache_if_needed(&cache_dir, 200 * 1024 * 1024);
     Ok(bytes)
+}
+
+fn evict_cache_if_needed(cache_dir: &PathBuf, max_size: u64) {
+    let mut entries: Vec<_> = match fs::read_dir(cache_dir) {
+        Ok(iter) => iter.filter_map(|e| e.ok()).filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            Some((e.path(), meta.len(), meta.modified().ok()?))
+        }).collect(),
+        Err(_) => return,
+    };
+    let total: u64 = entries.iter().map(|(_, s, _)| s).sum();
+    if total <= max_size { return; }
+    // Sort by modification time (oldest first), remove oldest until under limit
+    entries.sort_by_key(|(_, _, mtime)| *mtime);
+    let mut freed = 0u64;
+    let target = max_size.saturating_sub(max_size / 10); // aim for 90% of max
+    for (path, size, _) in &entries {
+        if total.saturating_sub(freed) <= target { break; }
+        let _ = fs::remove_file(path);
+        freed += size;
+    }
 }
 
 #[tauri::command]
@@ -1033,7 +1081,7 @@ pub fn run() {
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             save_translation, get_translation_history, delete_translation, clear_translation_history,
-            export_wordbook
+            export_wordbook, lookup_translation_memory, save_translation_memory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

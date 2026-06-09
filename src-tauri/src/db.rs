@@ -54,6 +54,20 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     )?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)", [])?;
 
+    // Create translation memory table (sentence-level cache)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS translation_memory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_hash TEXT NOT NULL,
+            target_lang TEXT NOT NULL,
+            source_text TEXT NOT NULL,
+            translated_text TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_hash, target_lang)
+        )",
+        [],
+    )?;
+
     // Create indexes for common query patterns
     conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_word ON wordbook(word)", [])?;
     conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_is_deleted ON wordbook(is_deleted)", [])?;

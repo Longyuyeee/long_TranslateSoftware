@@ -90,9 +90,22 @@ export async function translateStreaming(
       return;
     }
 
+    // Check translation memory first
+    const cached = await invoke<string | null>("lookup_translation_memory", { text, targetLang });
+    if (cached) {
+      onChunk(cached);
+      onFinish();
+      return;
+    }
+
+    let translatedResult = "";
+
     // Try primary model
     try {
-      await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, onChunk);
+      await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, (chunk) => {
+        translatedResult += chunk;
+        onChunk(chunk);
+      });
     } catch (primaryError) {
       console.warn("Primary model failed, trying backup...", primaryError);
       // Try backup model
@@ -103,13 +116,22 @@ export async function translateStreaming(
       if (backupKey && backupUrl && backupModel) {
         onChunk(`[Fallback to backup model: ${backupModel}]\n`);
         try {
-          await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, onChunk);
+          translatedResult = ""; // reset for backup attempt
+          await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, (chunk) => {
+            translatedResult += chunk;
+            onChunk(chunk);
+          });
         } catch (backupError) {
           onChunk(`\n\n[Error: Both primary and backup models failed]`);
         }
       } else {
         onChunk(`\n\n[Error: ${primaryError instanceof Error ? primaryError.message : "Unknown Error"}]`);
       }
+    }
+
+    // Save successful translation to memory cache
+    if (translatedResult.trim() && text.length < 500) {
+      invoke("save_translation_memory", { sourceText: text, translatedText: translatedResult.trim(), targetLang }).catch(() => {});
     }
   } finally {
     onFinish();
