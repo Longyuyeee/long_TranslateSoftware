@@ -37,7 +37,7 @@
   - AI 深度解析：词源分析、多场景例句、近义词对比。
   - 支持 **WebDAV** 云端同步，让学习数据永不丢失。
 - 🎙️ **多引擎 TTS (语音合成)**
-  - 支持 Youdao 本地引擎、Microsoft Edge Neural Voices (高保真) 及 OpenAI 在线引擎。
+  - 支持 Youdao 本地引擎及 OpenAI 兼容在线 TTS 引擎。
 - 🎨 **极简 Apple Style 视觉**
   - 精心调教的毛玻璃背景，支持深色模式、全局 UI 缩放。
 
