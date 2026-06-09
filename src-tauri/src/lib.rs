@@ -590,11 +590,21 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         .send()
         .await;
 
-    if let Ok(r) = resp {
-        if r.status().is_success() {
+    match resp {
+        Ok(r) if r.status().is_success() => {
             remote_data = r.json().await.unwrap_or_default();
-        } else if r.status() == reqwest::StatusCode::UNAUTHORIZED {
+        },
+        Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
             return Err("WebDAV Authorization Failed".to_string());
+        },
+        Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => {
+            // File doesn't exist yet (first sync), proceed with upload
+        },
+        Ok(r) => {
+            return Err(format!("WebDAV download failed: HTTP {}", r.status()));
+        },
+        Err(e) => {
+            return Err(format!("WebDAV connection failed: {}", e));
         }
     }
 
