@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use sha2::{Sha256, Digest};
 use rusqlite::OptionalExtension;
 use std::sync::Mutex;
-use aes_gcm::{Aes256Gcm, Nonce, aead::{Aead, KeyInit}};
+use aes_gcm::{Aes256Gcm, AeadCore, Nonce, aead::{Aead, KeyInit, OsRng}};
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{
     connect_async, 
@@ -23,8 +23,6 @@ use tokio_tungstenite::{
         client::IntoClientRequest
     }
 };
-use url::Url;
-
 const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 
 struct AppState {
@@ -157,21 +155,25 @@ async fn export_data(app: AppHandle) -> Result<String, String> {
     let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
 
     let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
-    let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
-    let ciphertext = cipher.encrypt(nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
+    let mut rng = OsRng;
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let mut ciphertext = cipher.encrypt(&nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
+    // Prepend nonce to ciphertext (12 bytes)
+    let mut output = nonce.to_vec();
+    output.append(&mut ciphertext);
 
     use tauri_plugin_dialog::DialogExt;
     let file_path = app.dialog().file().set_title("导出Long翻译备份").add_filter("Long翻译备份 (*.TLong)", &["TLong"]).set_file_name("Long翻译备份.TLong").blocking_save_file();
-    
+
     if let Some(path) = file_path {
         let actual_path = match path {
             tauri_plugin_dialog::FilePath::Path(p) => p,
             tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
         };
-        std::fs::write(actual_path, ciphertext).map_err(|e| e.to_string())?;
+        std::fs::write(actual_path, &output).map_err(|e| e.to_string())?;
         return Ok("Export successful".to_string());
     }
-    
+
     Err("User cancelled".to_string())
 }
 
@@ -185,11 +187,28 @@ async fn import_data(app: AppHandle) -> Result<(), String> {
             tauri_plugin_dialog::FilePath::Path(p) => p,
             tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
         };
-        let ciphertext = std::fs::read(actual_path).map_err(|e| e.to_string())?;
+        let file_data = std::fs::read(actual_path).map_err(|e| e.to_string())?;
 
         let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
-        let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
-        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|_| "Decryption failed: invalid file or key".to_string())?;
+
+        // Try new format first (12-byte random nonce prepended to ciphertext)
+        // Fall back to old format (fixed nonce) for backward compatibility
+        let plaintext = if file_data.len() >= 12 {
+            let (nonce_bytes, ct) = file_data.split_at(12);
+            cipher.decrypt(Nonce::from_slice(nonce_bytes), ct)
+        } else {
+            Err(aes_gcm::Error)
+        };
+
+        let plaintext = match plaintext {
+            Ok(pt) => pt,
+            Err(_) => {
+                // Fallback: try old format with fixed nonce
+                let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+                cipher.decrypt(nonce, file_data.as_ref())
+                    .map_err(|_| "Decryption failed: invalid file or key".to_string())?
+            }
+        };
         let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
 
         let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
