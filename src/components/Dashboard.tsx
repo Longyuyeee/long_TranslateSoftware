@@ -162,11 +162,11 @@ export default function Dashboard() {
         if (pw === null) return; // User cancelled
         if (!pw.trim()) { setStatus("Password cannot be empty"); setTimeout(() => setStatus(""), 3000); return; }
         await invoke<string>("export_data", { password: pw });
-        setStatus("Backup exported successfully");
+        addNotification(t.exportSuccess);
         setTimeout(() => setStatus(""), 3000);
     } catch (e: any) {
         if (e !== "User cancelled") {
-            setStatus(`Export failed: ${e}`);
+            addNotification(`${t.exportFailed}: ${e}`);
             setTimeout(() => setStatus(""), 5000);
         }
     }
@@ -180,7 +180,7 @@ export default function Dashboard() {
         setTimeout(() => window.location.reload(), 500);
     } catch (e: any) {
         if (e !== "User cancelled") {
-            setStatus(`Import failed: ${e}`);
+            addNotification(`${t.importFailed}: ${e}`);
             setTimeout(() => setStatus(""), 5000);
         }
     }
@@ -331,7 +331,7 @@ export default function Dashboard() {
         await update.downloadAndInstall();
         await update.install();
       } else {
-        setStatus("You are up to date!");
+        addNotification(t.upToDate);
         setTimeout(() => setStatus(""), 3000);
       }
     } catch (e) {
@@ -515,7 +515,7 @@ export default function Dashboard() {
     { id: "model", label: t.modelConfig, icon: Cpu },
     { id: "appearance", label: t.appearance, icon: Palette },
     { id: "wordbook", label: t.wordbook, icon: Book },
-    { id: "history", label: "History", icon: Clock },
+    { id: "history", label: t.history, icon: Clock },
   ];
 
   return (
@@ -578,7 +578,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
                     <span className="text-[10px] font-black text-blue-600">{appStats.days_active}d</span>
                 </div>
-                <button onClick={checkUpdate} className="w-full py-2 rounded-xl bg-blue-600/10 text-blue-600 border border-blue-600/20 text-[9px] font-black hover:bg-blue-600/20 transition-all mt-1">CHECK UPDATE</button>
+                <button onClick={checkUpdate} className="w-full py-2 rounded-xl bg-blue-600/10 text-blue-600 border border-blue-600/20 text-[9px] font-black hover:bg-blue-600/20 transition-all mt-1">{t.checkUpdate}</button>
             </div>
         </div>
       </div>
@@ -608,7 +608,7 @@ export default function Dashboard() {
                     {notifications.length > 0 && (
                         <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-black/5 dark:border-white/10 z-50 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
                             <div className="p-2 border-b border-black/5 dark:border-white/5">
-                                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider px-2">Recent Notifications</span>
+                                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider px-2">{t.notifications}</span>
                             </div>
                             <div className="max-h-48 overflow-y-auto">
                                 {notifications.map((n, i) => (
@@ -684,7 +684,7 @@ export default function Dashboard() {
                                             <motion.div animate={{ left: autoLaunch ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
                                         </div>
                                     )},
-                                    { label: "Source", desc: "Input Language", component: (
+                                    { label: t.sourceLang, desc: t.autoDetect, component: (
                                         <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
                                             <option value="auto">Auto Detect</option>
                                             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
@@ -695,7 +695,7 @@ export default function Dashboard() {
                                             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
                                         </select>
                                     )},
-                                    { label: "OCR Lang", desc: "Recognition Language", component: (
+                                    { label: t.ocrLang, desc: t.ocrLangDesc, component: (
                                         <select value={ocrLang} onChange={(e) => setOcrLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
                                             <option value="auto">System Default</option>
                                             <option value="zh-Hans">中文 (Chinese)</option>
@@ -858,18 +858,18 @@ export default function Dashboard() {
                                 </div>
                                 {/* Custom Prompt */}
                                 <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
-                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">Custom System Prompt</label>
+                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.customPrompt}</label>
                                     <textarea
                                         value={customPrompt}
                                         onChange={(e) => setCustomPrompt(e.target.value)}
                                         placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text."
                                         className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar"
                                     />
-                                    <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">Use {'{{targetLang}}'} and {'{{text}}'} placeholders. Leave blank for default.</p>
+                                    <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
                                 </div>
                                 {/* Backup Model */}
                                 <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
-                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">Backup Model (Failover)</label>
+                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">{t.backupModel}</label>
                                     <div className="space-y-4">
                                         {[
                                             { label: t.baseUrl, val: backupBaseUrl, set: setBackupBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
@@ -949,16 +949,16 @@ export default function Dashboard() {
                         <div className="flex h-full gap-8 relative overflow-hidden">
                             <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-3 shrink-0" style={{ width: 'min(30%, 260px)', minWidth: '160px' }}>
                                 <div className="flex items-center justify-between px-1 mb-1">
-                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">{words.length} words</span>
+                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">{words.length} {t.wordCount}</span>
                                 </div>
                                 {words.length > 0 && (
                                     <div className="flex gap-2 mb-1">
-                                        <button onClick={() => invoke("export_wordbook", { format: "csv" }).then(() => setStatus("Exported as CSV")).catch(e => setStatus(`Export failed: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">EXPORT CSV</button>
-                                        <button onClick={() => invoke("export_wordbook", { format: "json" }).then(() => setStatus("Exported as JSON")).catch(e => setStatus(`Export failed: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">EXPORT JSON</button>
+                                        <button onClick={() => invoke("export_wordbook", { format: "csv" }).then(() => addNotification(t.exportSuccess + " (CSV)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">{t.exportCsv}</button>
+                                        <button onClick={() => invoke("export_wordbook", { format: "json" }).then(() => addNotification(t.exportSuccess + " (JSON)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">{t.exportJson}</button>
                                     </div>
                                 )}
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
-                                    <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-blue-600/20 transition-all"><Plus size={14} /> ADD WORD</motion.button>
+                                    <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-blue-600/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
                                     <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="Enter word..." className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-blue-500/50 outline-none text-[11px] font-bold pr-10" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
@@ -1058,13 +1058,13 @@ export default function Dashboard() {
                     {activeTab === "history" && (
                         <div className="flex flex-col h-full gap-4 overflow-hidden">
                             <div className="flex items-center justify-between shrink-0">
-                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{history.length} translations</span>
+                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{history.length} {t.translations}</span>
                                 {history.length > 0 && (
                                     <button
                                         onClick={async () => { await invoke("clear_translation_history"); setHistory([]); }}
                                         className="px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all"
                                     >
-                                        CLEAR ALL
+                                        {t.clearAll}
                                     </button>
                                 )}
                             </div>
@@ -1072,7 +1072,7 @@ export default function Dashboard() {
                                 {history.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-full text-zinc-300 dark:text-zinc-700 opacity-40 gap-3">
                                         <Clock size={48} />
-                                        <p className="font-black uppercase tracking-[0.4em] text-[10px]">No history yet</p>
+                                        <p className="font-black uppercase tracking-[0.4em] text-[10px]">{t.noHistory}</p>
                                     </div>
                                 ) : (
                                     history.map((h: any) => (
