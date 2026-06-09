@@ -14,10 +14,12 @@ async function doTranslate(
   baseUrl: string,
   modelName: string,
   targetLang: string,
+  sourceLang: string,
   customPrompt: string,
   onChunk: (chunk: string) => void
 ): Promise<boolean> {
-  const defaultPrompt = `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.`;
+  const sourceHint = sourceLang !== "auto" ? ` from ${sourceLang}` : "";
+  const defaultPrompt = `You are a professional translator. Translate the following text${sourceHint} to ${targetLang}. Return only the translated text.`;
   const systemPrompt = customPrompt.trim()
     ? customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text)
     : defaultPrompt;
@@ -75,6 +77,7 @@ export async function translateStreaming(
     const rawBaseUrl = (await invoke<string>("get_config_value", { key: "trans_base_url" })) || (await invoke<string>("get_config_value", { key: "base_url" })) || "https://api.openai.com/v1";
     const rawModelName = (await invoke<string>("get_config_value", { key: "trans_model_name" })) || (await invoke<string>("get_config_value", { key: "model_name" })) || "deepseek-chat";
     const targetLang = await invoke<string>("get_config_value", { key: "target_lang" }) || "Chinese";
+    const sourceLang = await invoke<string>("get_config_value", { key: "source_lang" }) || "auto";
     const customPrompt = await invoke<string>("get_config_value", { key: "custom_prompt" }) || "";
 
     const primaryKey = rawApiKey?.trim();
@@ -89,7 +92,7 @@ export async function translateStreaming(
 
     // Try primary model
     try {
-      await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, customPrompt, onChunk);
+      await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, onChunk);
     } catch (primaryError) {
       console.warn("Primary model failed, trying backup...", primaryError);
       // Try backup model
@@ -100,7 +103,7 @@ export async function translateStreaming(
       if (backupKey && backupUrl && backupModel) {
         onChunk(`[Fallback to backup model: ${backupModel}]\n`);
         try {
-          await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, customPrompt, onChunk);
+          await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, onChunk);
         } catch (backupError) {
           onChunk(`\n\n[Error: Both primary and backup models failed]`);
         }

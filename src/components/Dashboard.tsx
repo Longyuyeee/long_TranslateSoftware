@@ -13,6 +13,15 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
   const [lang, setLang] = useState<Lang>("zh");
   const [targetLang, setTargetLang] = useState("Chinese");
+  const [sourceLang, setSourceLang] = useState("auto");
+
+  const LANGUAGES = [
+    "Chinese", "English", "Japanese", "Korean", "French", "German",
+    "Spanish", "Portuguese", "Russian", "Arabic", "Italian", "Dutch",
+    "Thai", "Vietnamese", "Indonesian", "Hindi", "Turkish", "Polish",
+    "Swedish", "Danish", "Norwegian", "Finnish", "Greek", "Czech",
+    "Romanian", "Hungarian", "Hebrew", "Ukrainian", "Catalan", "Slovak",
+  ];
   const [autoCopy, setAutoCopy] = useState(false);
   const [theme, setTheme] = useState("system");
   const [fontSize, setFontSize] = useState(14);
@@ -279,6 +288,7 @@ export default function Dashboard() {
       if (savedLang) setLang(savedLang);
       
       setTargetLang(await getVal("target_lang") || "Chinese");
+      setSourceLang(await getVal("source_lang") || "auto");
       setAutoCopy((await getVal("auto_copy")) === "true");
       setTheme(await getVal("theme") || "system");
       setFontSize(parseInt(await getVal("font_size") || "14"));
@@ -407,6 +417,7 @@ export default function Dashboard() {
         setVal("trans_model_name", transModelName),
         setVal("language", lang),
         setVal("target_lang", targetLang),
+        setVal("source_lang", sourceLang),
         setVal("auto_copy", autoCopy ? "true" : "false"),
         setVal("theme", theme),
         setVal("font_size", fontSize.toString()),
@@ -635,8 +646,16 @@ export default function Dashboard() {
                                             <motion.div animate={{ left: autoLaunch ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
                                         </div>
                                     )},
+                                    { label: "Source", desc: "Input Language", component: (
+                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
+                                            <option value="auto">Auto Detect</option>
+                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        </select>
+                                    )},
                                     { label: t.targetLang, desc: "Translation Output", component: (
-                                        <input value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-6 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[12px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all" />
+                                        <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-4 py-2.5 rounded-2xl border border-black/5 dark:border-white/10 font-black text-[11px] w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all">
+                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        </select>
                                     )},
                                     { label: t.autoCopy, desc: "Clipboard Integration", component: (
                                         <div onClick={() => setAutoCopy(!autoCopy)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoCopy ? 'bg-blue-600 shadow-lg shadow-blue-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
