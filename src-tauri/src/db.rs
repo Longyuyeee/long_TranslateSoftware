@@ -39,6 +39,13 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         [],
     )?;
 
+    // Create indexes for common query patterns
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_word ON wordbook(word)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_is_deleted ON wordbook(is_deleted)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_created_at ON wordbook(created_at)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_updated_at ON wordbook(updated_at)", [])?;
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_uuid ON wordbook(uuid)", [])?;
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {
