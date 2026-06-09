@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [transApiKey, setTransApiKey] = useState("");
   const [transBaseUrl, setTransBaseUrl] = useState("");
   const [transModelName, setTransModelName] = useState("");
+  const [customPrompt, setCustomPrompt] = useState("");
 
   // Audio (TTS) Model Config
   const [ttsEngine, setTtsEngine] = useState("local");
@@ -241,6 +242,7 @@ export default function Dashboard() {
       setTransApiKey(await getVal("trans_api_key") || await getVal("openai_api_key") || "");
       setTransBaseUrl(await getVal("trans_base_url") || await getVal("base_url") || "");
       setTransModelName(await getVal("trans_model_name") || await getVal("model_name") || "");
+      setCustomPrompt(await getVal("custom_prompt") || "");
 
       setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
       setShortcutW(await getVal("shortcut_w") || "Alt+W");
@@ -369,6 +371,7 @@ export default function Dashboard() {
         setVal("tts_model_name", ttsModelName),
         setVal("tts_voice", ttsVoice),
         setVal("tts_speed", ttsSpeed),
+        setVal("custom_prompt", customPrompt),
         setVal("webdav_enabled", webdavEnabled ? "true" : "false"),
         setVal("webdav_url", webdavUrl),
         setVal("webdav_user", webdavUser),
@@ -734,6 +737,17 @@ export default function Dashboard() {
                                             <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
                                         </div>
                                     ))}
+                                </div>
+                                {/* Custom Prompt */}
+                                <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
+                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">Custom System Prompt</label>
+                                    <textarea
+                                        value={customPrompt}
+                                        onChange={(e) => setCustomPrompt(e.target.value)}
+                                        placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text."
+                                        className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar"
+                                    />
+                                    <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">Use {'{{targetLang}}'} and {'{{text}}'} placeholders. Leave blank for default.</p>
                                 </div>
                             </div>
                             <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">

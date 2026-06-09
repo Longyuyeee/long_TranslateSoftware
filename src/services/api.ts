@@ -21,6 +21,7 @@ export async function translateStreaming(
     const rawBaseUrl = (await invoke<string>("get_config_value", { key: "trans_base_url" })) || (await invoke<string>("get_config_value", { key: "base_url" })) || "https://api.openai.com/v1";
     const rawModelName = (await invoke<string>("get_config_value", { key: "trans_model_name" })) || (await invoke<string>("get_config_value", { key: "model_name" })) || "deepseek-chat";
     const targetLang = await invoke<string>("get_config_value", { key: "target_lang" }) || "Chinese";
+    const customPrompt = await invoke<string>("get_config_value", { key: "custom_prompt" }) || "";
 
     const apiKey = rawApiKey?.trim();
     const baseUrl = rawBaseUrl?.trim().replace(/\/+$/, "");
@@ -32,6 +33,11 @@ export async function translateStreaming(
       return;
     }
 
+    const defaultPrompt = `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.`;
+    const systemPrompt = customPrompt.trim()
+      ? customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text)
+      : defaultPrompt;
+
     const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -41,7 +47,7 @@ export async function translateStreaming(
       body: JSON.stringify({
         model: modelName,
         messages: [
-          { role: "system", content: `You are a professional translator. Translate the following text to ${targetLang}. Return only the translated text.` },
+          { role: "system", content: systemPrompt },
           { role: "user", content: text },
         ],
         stream: true,
