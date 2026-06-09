@@ -3,6 +3,24 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use chrono;
 
+fn get_schema_version(conn: &Connection) -> i32 {
+    conn.query_row(
+        "SELECT value FROM schema_meta WHERE key = 'version'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .map(|v| v.parse().unwrap_or(0))
+    .unwrap_or(0)
+}
+
+fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
+        [version.to_string()],
+    )?;
+    Ok(())
+}
+
 pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     if !app_dir.exists() {
         std::fs::create_dir_all(&app_dir).unwrap();
@@ -10,70 +28,93 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     let db_path = app_dir.join("words.db");
     let conn = Connection::open(db_path)?;
 
-    // Create Wordbook table (Updated with uuid and soft delete)
+    // Create schema version table
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS wordbook (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT UNIQUE NOT NULL,
-            word TEXT NOT NULL,
-            phonetic TEXT,
-            meaning TEXT,
-            analysis_json TEXT,
-            source_context TEXT,
-            is_deleted INTEGER DEFAULT 0,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
+        "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         [],
     )?;
 
-    // Run Migrations for existing tables
-    migrate_schema(&conn)?;
+    let current_version = get_schema_version(&conn);
 
-    // Create Config table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )",
-        [],
-    )?;
+    // Run versioned migrations
+    if current_version < 1 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS wordbook (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
+                word TEXT NOT NULL,
+                phonetic TEXT,
+                meaning TEXT,
+                analysis_json TEXT,
+                is_deleted INTEGER DEFAULT 0,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            [],
+        )?;
+        set_schema_version(&conn, 1)?;
+    }
 
-    // Create translation history table
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS translation_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_text TEXT NOT NULL,
-            translated_text TEXT NOT NULL,
-            source_lang TEXT DEFAULT '',
-            target_lang TEXT DEFAULT '',
-            model TEXT DEFAULT '',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)", [])?;
+    if current_version < 2 {
+        // Handle old databases: add uuid/is_deleted/updated_at if missing
+        let pragma_info: Vec<String> = conn
+            .prepare("PRAGMA table_info(wordbook)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if !pragma_info.contains(&"uuid".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN uuid TEXT", [])?;
+            let mut stmt = conn.prepare("SELECT id FROM wordbook WHERE uuid IS NULL")?;
+            let rows = stmt.query_map([], |row| row.get::<_, i32>(0))?;
+            for row in rows {
+                if let Ok(id) = row {
+                    conn.execute("UPDATE wordbook SET uuid = ?1 WHERE id = ?2",
+                        [Uuid::new_v4().to_string(), id.to_string()])?;
+                }
+            }
+        }
+        if !pragma_info.contains(&"is_deleted".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN is_deleted INTEGER DEFAULT 0", [])?;
+        }
+        if !pragma_info.contains(&"updated_at".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT '2024-01-01 00:00:00'", [])?;
+            conn.execute("UPDATE wordbook SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '2024-01-01 00:00:00'", [])?;
+        }
+        set_schema_version(&conn, 2)?;
+    }
 
-    // Create translation memory table (sentence-level cache)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS translation_memory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_hash TEXT NOT NULL,
-            target_lang TEXT NOT NULL,
-            source_text TEXT NOT NULL,
-            translated_text TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(source_hash, target_lang)
-        )",
-        [],
-    )?;
-
-    // Create indexes for common query patterns
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_word ON wordbook(word)", [])?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_is_deleted ON wordbook(is_deleted)", [])?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_created_at ON wordbook(created_at)", [])?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_updated_at ON wordbook(updated_at)", [])?;
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_wordbook_uuid ON wordbook(uuid)", [])?;
+    if current_version < 3 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS translation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_text TEXT NOT NULL, translated_text TEXT NOT NULL,
+                source_lang TEXT DEFAULT '', target_lang TEXT DEFAULT '',
+                model TEXT DEFAULT '', created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)", [])?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS translation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_hash TEXT NOT NULL, target_lang TEXT NOT NULL,
+                source_text TEXT NOT NULL, translated_text TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source_hash, target_lang)
+            )",
+            [],
+        )?;
+        // Create performance indexes
+        for idx in &["word", "is_deleted", "created_at", "updated_at", "uuid"] {
+            let sql = format!("CREATE INDEX IF NOT EXISTS idx_wordbook_{} ON wordbook({})", idx, idx);
+            conn.execute(&sql, [])?;
+        }
+        set_schema_version(&conn, 3)?;
+    }
 
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
@@ -83,41 +124,6 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     }
 
     Ok(conn)
-}
-
-fn migrate_schema(conn: &Connection) -> Result<()> {
-    let pragma_info: Vec<String> = conn
-        .prepare("PRAGMA table_info(wordbook)")?
-        .query_map([], |row| row.get::<_, String>(1))?
-        .map(|r| r.unwrap())
-        .collect();
-
-    // Add uuid if not exists
-    if !pragma_info.contains(&"uuid".to_string()) {
-        conn.execute("ALTER TABLE wordbook ADD COLUMN uuid TEXT", [])?;
-        // Initialize existing rows with a random uuid
-        let mut stmt = conn.prepare("SELECT id FROM wordbook WHERE uuid IS NULL")?;
-        let rows = stmt.query_map([], |row| row.get::<_, i32>(0))?;
-        let ids: Vec<i32> = rows.map(|r| r.unwrap()).collect();
-        for id in ids {
-            conn.execute("UPDATE wordbook SET uuid = ?1 WHERE id = ?2", [Uuid::new_v4().to_string(), id.to_string()])?;
-        }
-    }
-
-    // Add is_deleted if not exists
-    if !pragma_info.contains(&"is_deleted".to_string()) {
-        conn.execute("ALTER TABLE wordbook ADD COLUMN is_deleted INTEGER DEFAULT 0", [])?;
-    }
-
-    // Add updated_at if not exists
-    if !pragma_info.contains(&"updated_at".to_string()) {
-        // SQLite doesn't allow CURRENT_TIMESTAMP as default for ALTER TABLE.
-        // Use a fixed string instead, then update existing rows if needed.
-        conn.execute("ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT '2024-01-01 00:00:00'", [])?;
-        conn.execute("UPDATE wordbook SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '2024-01-01 00:00:00'", [])?;
-    }
-
-    Ok(())
 }
 
 pub fn set_config(conn: &Connection, key: &str, value: &str) -> Result<()> {
