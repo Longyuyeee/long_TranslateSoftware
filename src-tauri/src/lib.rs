@@ -27,6 +27,7 @@ const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 
 struct AppState {
     shortcuts_paused: Mutex<bool>,
+    clipboard_lock: Mutex<bool>,
 }
 
 #[tauri::command]
@@ -522,7 +523,17 @@ fn clear_audio_cache(app: AppHandle) -> Result<(), String> {
 }
 
 fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
+    // Prevent concurrent clipboard operations
     let app_handle = app.clone();
+    {
+        let state = app.state::<AppState>();
+        let mut lock = state.clipboard_lock.lock().unwrap();
+        if *lock {
+            return; // Another translation is in progress
+        }
+        *lock = true;
+    }
+
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(200));
         let clipboard = app_handle.clipboard();
@@ -530,7 +541,16 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
         let token = "__DETECT_TOKEN__";
         let _ = clipboard.write_text(token.to_string());
 
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
+        let mut enigo = match Enigo::new(&Settings::default()) {
+            Ok(e) => e,
+            Err(_) => {
+                // Failed to init Enigo, restore clipboard and unlock
+                let _ = clipboard.write_text(original_text);
+                *app_handle.state::<AppState>().clipboard_lock.lock().unwrap() = false;
+                return;
+            }
+        };
+
         let _ = enigo.key(Key::Control, Direction::Press);
         thread::sleep(Duration::from_millis(50));
         let _ = enigo.key(Key::C, Direction::Press);
@@ -538,7 +558,7 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
         let _ = enigo.key(Key::C, Direction::Release);
         thread::sleep(Duration::from_millis(50));
         let _ = enigo.key(Key::Control, Direction::Release);
-        
+
         let mut final_text = String::new();
         let mut success = false;
         for _ in 0..10 {
@@ -563,6 +583,9 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
                 let _ = app_handle.emit("shortcut-triggered", final_text);
             }
         }
+
+        // Release lock
+        *app_handle.state::<AppState>().clipboard_lock.lock().unwrap() = false;
     });
 }
 
@@ -776,7 +799,7 @@ fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Pat
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState { shortcuts_paused: Mutex::new(false) })
+        .manage(AppState { shortcuts_paused: Mutex::new(false), clipboard_lock: Mutex::new(false) })
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
