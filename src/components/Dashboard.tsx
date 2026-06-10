@@ -9,6 +9,7 @@ import { translations, Lang } from "../i18n";
 import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
 import { translateStreaming, speak } from "../services/api";
 import ReviewTab from "./ReviewTab";
+import { ToastContainer, toast } from "./Toast";
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
@@ -26,14 +27,12 @@ export default function Dashboard() {
   const [autoCopy, setAutoCopy] = useState(false);
   const [theme, setTheme] = useState("system");
   const [fontSize, setFontSize] = useState(14);
-  const [status, setStatus] = useState("");
   const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
 
   const addNotification = (msg: string) => {
     if (!msg) return;
     const time = new Date().toLocaleTimeString();
     setNotifications(prev => [{msg, time}, ...prev].slice(0, 10));
-    setStatus(msg);
   };
   const [isSyncing, setIsSyncing] = useState(false);
   const [autoLaunch, setAutoLaunch] = useState(false);
@@ -136,16 +135,14 @@ export default function Dashboard() {
     });
 
     const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
-        setStatus(`错误: ${event.payload}`);
-        setTimeout(() => setStatus(""), 5000);
+        toast("error", `错误: ${event.payload}`);
     });
 
     const unlistenConfigImport = listen("config-updated", () => {
         loadConfig();
         loadWordbook();
         refreshStats();
-        setStatus(t.importSuccess);
-        setTimeout(() => setStatus(""), 5000);
+        toast("success", t.importSuccess);
     });
 
     return () => {
@@ -161,14 +158,14 @@ export default function Dashboard() {
     try {
         const pw = window.prompt("Enter a password to encrypt the backup:");
         if (pw === null) return; // User cancelled
-        if (!pw.trim()) { addNotification(t.passwordEmpty); setTimeout(() => setStatus(""), 3000); return; }
+        if (!pw.trim()) { toast("warning", t.passwordEmpty); return; }
         await invoke<string>("export_data", { password: pw });
+        toast("success", t.exportSuccessMsg);
         addNotification(t.exportSuccess);
-        setTimeout(() => setStatus(""), 3000);
     } catch (e: any) {
         if (e !== "User cancelled") {
+            toast("error", `${t.exportFailed}: ${e}`);
             addNotification(`${t.exportFailed}: ${e}`);
-            setTimeout(() => setStatus(""), 5000);
         }
     }
   };
@@ -181,8 +178,8 @@ export default function Dashboard() {
         setTimeout(() => window.location.reload(), 500);
     } catch (e: any) {
         if (e !== "User cancelled") {
+            toast("error", `${t.importFailed}: ${e}`);
             addNotification(`${t.importFailed}: ${e}`);
-            setTimeout(() => setStatus(""), 5000);
         }
     }
   };
@@ -237,11 +234,11 @@ export default function Dashboard() {
         await invoke("update_shortcut", { name, shortcutStr: shortcut });
         if (name === 'q') setShortcutQ(shortcut);
         else setShortcutW(shortcut);
+        toast("success", t.shortcutUpdated);
         addNotification(t.shortcutUpdated);
-        setTimeout(() => setStatus(""), 2000);
     } catch (e) {
+        toast("error", `${t.shortcutFailed}: ${e}`);
         addNotification(`${t.shortcutFailed}: ${e}`);
-        setTimeout(() => setStatus(""), 5000);
     }
   };
 
@@ -256,8 +253,7 @@ export default function Dashboard() {
     try {
       await invoke("clear_audio_cache");
       await refreshCacheSize();
-      setStatus(t.cacheCleared);
-      setTimeout(() => setStatus(""), 2000);
+      toast("success", t.cacheCleared);
     } catch (e) { console.error(e); }
   };
 
@@ -328,16 +324,17 @@ export default function Dashboard() {
     try {
       const update = await check();
       if (update) {
+        toast("info", t.versionDownloading.replace("{version}", update.version));
         addNotification(t.versionDownloading.replace("{version}", update.version));
         await update.downloadAndInstall();
         await update.install();
       } else {
+        toast("success", t.upToDate);
         addNotification(t.upToDate);
-        setTimeout(() => setStatus(""), 3000);
       }
     } catch (e) {
+      toast("error", `${t.updateCheckFailed}: ${e}`);
       addNotification(`${t.updateCheckFailed}: ${e}`);
-      setTimeout(() => setStatus(""), 5000);
     }
   };
 
@@ -359,19 +356,19 @@ export default function Dashboard() {
         
         if (nowEnabled === prevState) {
             // If it didn't change, it might be blocked by system or antivirus
+            toast("warning", t.autoLaunchDenied);
             addNotification(t.autoLaunchDenied);
-            setTimeout(() => setStatus(""), 5000);
         } else {
+            toast("success", t.success);
             addNotification(t.success);
-            setTimeout(() => setStatus(""), 2000);
         }
     } catch (e) {
         console.error("Toggle autostart failed:", e);
         // Sync UI with reality
         const realState = await isEnabled();
         setAutoLaunch(realState);
+        toast("error", t.autoLaunchFailed);
         addNotification(t.autoLaunchFailed);
-        setTimeout(() => setStatus(""), 5000);
     }
   };
 
@@ -396,19 +393,18 @@ export default function Dashboard() {
   const handleSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    setStatus(t.syncing);
     try {
       await invoke("sync_wordbook");
+      toast("success", t.syncSuccess);
       addNotification(t.syncSuccess);
       const time = await invoke<string>("get_config_value", { key: "last_sync_time" });
       setLastSyncTime(time);
       await loadWordbook();
     } catch (e) {
       console.error(e);
-      setStatus(`${t.syncFailed}: ${e}`);
+      toast("error", `${t.syncFailed}: ${e}`);
     } finally {
       setIsSyncing(false);
-      setTimeout(() => setStatus(""), 5000);
     }
   };
 
@@ -450,10 +446,10 @@ export default function Dashboard() {
         setVal("webdav_user", webdavUser),
         setVal("webdav_pass", webdavPass)
       ]);
+      toast("success", t.success);
       addNotification(t.success);
       emit("settings-changed", { theme, fontSize }).catch(console.error);
-      setTimeout(() => setStatus(""), 3000);
-    } catch (e) { setStatus(t.error); }
+    } catch (e) { toast("error", t.error); }
   };
 
   const deleteWord = async (id: number) => {
@@ -530,6 +526,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-screen apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
+      <ToastContainer />
       {/* Sidebar */}
       <div 
         className="glass border-r border-black/5 dark:border-white/5 flex flex-col z-20 shadow-xl shrink-0" 
@@ -636,13 +633,6 @@ export default function Dashboard() {
                         </div>
                     )}
                 </div>
-                <AnimatePresence>
-                    {status && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex items-center gap-2 px-4 py-2 bg-green-500/10 text-green-600 border border-green-500/20 rounded-full text-[10px] font-black">
-                            <CheckCircle size={12} /> {status}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
                 {activeTab !== 'wordbook' && activeTab !== 'batch' && (
                     <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleSave} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-full font-black text-[12px] shadow-xl shadow-blue-600/20 transition-all">
                         <Save size={14} /> {t.save}
