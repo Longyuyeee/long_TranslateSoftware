@@ -12,6 +12,7 @@ export interface WordAnalysis {
   phonetic: string;
   meaning: string;
   etymology: string;
+  mnemonic: string;
   examples: { en: string; zh: string }[];
   synonyms: string[];
   status?: "success" | "failed";
@@ -48,6 +49,7 @@ export async function analyzeAndSaveWord(text: string): Promise<boolean> {
         "phonetic": "音标 (例如: /əˈnaɪ.lə.reɪt/)",
         "meaning": "准确、简洁的中文核心释义 (例如: 彻底消灭；湮灭)",
         "etymology": "词源故事或构词法分析 (必须使用中文，例如: 源自拉丁语 'an' (向) + 'nihil' (零)，意为化为乌有)",
+        "mnemonic": "一个实用的记忆技巧或联想方法 (必须使用中文，例如: annihilate → 谐音 '俺奶吃哩' — 因为太饿了，把奶奶的饭都消灭光啦！注意：请提供巧妙的谐音、拆分、联想或故事法来帮助记忆)",
         "examples": [
           {"en": "例句 1 (英文)", "zh": "例句 1 (准确的中文翻译)"},
           {"en": "例句 2 (英文)", "zh": "例句 2 (准确的中文翻译)"}
@@ -55,7 +57,8 @@ export async function analyzeAndSaveWord(text: string): Promise<boolean> {
         "synonyms": ["近义词1", "近义词2", "近义词3"]
       }
 
-      注意：所有解释性文字 (meaning, etymology, examples 中的 zh) 必须使用中文。
+      注意：所有解释性文字 (meaning, etymology, mnemonic, examples 中的 zh) 必须使用中文。
+      mnemonic 是帮助记忆的关键，请务必提供有趣、好记的中文联想！
     `;
 
     const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
