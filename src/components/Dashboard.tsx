@@ -7,7 +7,7 @@ import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
-import { translateStreaming, speak } from "../services/api";
+import { translateStreaming, translateCompare, speak } from "../services/api";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 
@@ -126,6 +126,8 @@ export default function Dashboard() {
   // Batch Translator state
   const [batchInput, setBatchInput] = useState("");
   const [batchOutput, setBatchOutput] = useState("");
+  const [batchOutputBackup, setBatchOutputBackup] = useState("");
+  const [compareMode, setCompareMode] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
 
   // Wordbook search, sort & pagination
@@ -564,6 +566,36 @@ export default function Dashboard() {
     );
   };
 
+  const startCompareTranslation = async () => {
+    if (!batchInput || isTranslating) return;
+    setBatchOutput("");
+    setBatchOutputBackup("");
+    setIsTranslating(true);
+    const primaryModel = transModelName || "Primary";
+    const backupModel = backupModelName || "Backup";
+    let primaryResult = "";
+    let backupResult = "";
+    await translateCompare(
+      batchInput,
+      (chunk) => { primaryResult += chunk; setBatchOutput(prev => prev + chunk); },
+      (chunk) => { backupResult += chunk; setBatchOutputBackup(prev => prev + chunk); },
+      () => {
+        setIsTranslating(false);
+        refreshStats();
+        const combined = `[${primaryModel}]\n${primaryResult.trim()}\n\n[${backupModel}]\n${backupResult.trim()}`;
+        if (primaryResult.trim() || backupResult.trim()) {
+          invoke("save_translation", {
+            sourceText: batchInput,
+            translatedText: combined,
+            sourceLang: "",
+            targetLang: targetLang,
+            model: `${primaryModel} vs ${backupModel}`,
+          }).catch(console.error);
+        }
+      }
+    );
+  };
+
   const handleManualAdd = async () => {
     if (!newWord.trim()) return;
     const wordToAdd = newWord.trim();
@@ -899,7 +931,7 @@ export default function Dashboard() {
                                     <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative">
                                         <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                         <div className="absolute bottom-6 right-6">
-                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={startBatchTranslation} disabled={isTranslating || !batchInput} className={`px-6 py-2.5 rounded-full font-black text-[11px] shadow-xl flex items-center gap-2 transition-all ${isTranslating || !batchInput ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400' : 'bg-accent text-white shadow-accent'}`}>
+                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={compareMode ? startCompareTranslation : startBatchTranslation} disabled={isTranslating || !batchInput} className={`px-6 py-2.5 rounded-full font-black text-[11px] shadow-xl flex items-center gap-2 transition-all ${isTranslating || !batchInput ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400' : 'bg-accent text-white shadow-accent'}`}>
                                                 {isTranslating ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Languages size={14} />} {t.translate}
                                             </motion.button>
                                         </div>
@@ -908,14 +940,51 @@ export default function Dashboard() {
                                 <div className="flex flex-col gap-4">
                                     <div className="flex justify-between items-center px-4">
                                         <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">Output</h3>
-                                        {batchOutput && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="text-[10px] font-bold text-accent hover:bg-accent/10 px-3 py-1 rounded-full flex items-center gap-1.5 transition-all"><Copy size={12} /> {t.copy}</button>}
-                                    </div>
-                                    <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative bg-black/[0.02] dark:bg-white/[0.02]">
-                                        <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.9em] leading-relaxed selectable-text">
-                                            {batchOutput || (isTranslating ? "" : <span className="opacity-30 italic">{t.outputPlaceholder}</span>)}
-                                            {isTranslating && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
+                                        <div className="flex items-center gap-2">
+                                            {batchOutput && !compareMode && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="text-[10px] font-bold text-accent hover:bg-accent/10 px-3 py-1 rounded-full flex items-center gap-1.5 transition-all"><Copy size={12} /> {t.copy}</button>}
+                                            <button
+                                                onClick={() => { setCompareMode(!compareMode); setBatchOutput(""); setBatchOutputBackup(""); }}
+                                                className={`text-[9px] font-black px-2.5 py-1.5 rounded-full transition-all ${
+                                                    compareMode ? 'bg-accent text-white shadow-accent' : 'bg-black/5 dark:bg-white/5 text-zinc-400 hover:bg-accent/10 hover:text-accent'
+                                                }`}
+                                            >
+                                                {t.compareMode} {compareMode ? t.toggleOn : t.toggleOff}
+                                            </button>
                                         </div>
                                     </div>
+                                    {compareMode ? (
+                                        <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
+                                            {/* Primary model */}
+                                            <div className="flex flex-col gap-1.5 min-h-0">
+                                                <span className="text-[8px] font-black text-accent uppercase tracking-wider px-2">{transModelName || "Primary"}</span>
+                                                <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
+                                                    <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
+                                                        {batchOutput || (isTranslating ? "" : <span className="opacity-30 italic">...</span>)}
+                                                        {isTranslating && !batchOutput && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
+                                                    </div>
+                                                </div>
+                                                {batchOutput && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="self-end text-[9px] font-bold text-zinc-400 hover:text-accent px-2 py-1 rounded-lg hover:bg-accent/10 transition-all"><Copy size={10} className="inline mr-1" />{t.copy}</button>}
+                                            </div>
+                                            {/* Backup model */}
+                                            <div className="flex flex-col gap-1.5 min-h-0">
+                                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider px-2">{backupModelName || "Backup"}</span>
+                                                <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
+                                                    <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
+                                                        {batchOutputBackup || (isTranslating ? "" : <span className="opacity-30 italic">...</span>)}
+                                                        {isTranslating && !batchOutputBackup && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-zinc-400 align-middle" />}
+                                                    </div>
+                                                </div>
+                                                {batchOutputBackup && <button onClick={() => navigator.clipboard.writeText(batchOutputBackup)} className="self-end text-[9px] font-bold text-zinc-400 hover:text-accent px-2 py-1 rounded-lg hover:bg-accent/10 transition-all"><Copy size={10} className="inline mr-1" />{t.copy}</button>}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative bg-black/[0.02] dark:bg-white/[0.02]">
+                                            <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.9em] leading-relaxed selectable-text">
+                                                {batchOutput || (isTranslating ? "" : <span className="opacity-30 italic">{t.outputPlaceholder}</span>)}
+                                                {isTranslating && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

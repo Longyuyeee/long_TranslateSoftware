@@ -160,6 +160,87 @@ export async function translateStreaming(
   }
 }
 
+/** Translate with both primary and backup models in parallel for comparison. */
+export async function translateCompare(
+  text: string,
+  onPrimaryChunk: (chunk: string) => void,
+  onBackupChunk: (chunk: string) => void,
+  onFinish: () => void
+) {
+  try {
+    invoke("increment_translate_count").catch(console.error);
+
+    const getVal = async (key: string) => await invoke<string>("get_config_value", { key }) || "";
+
+    const primaryKey = (await getVal("trans_api_key") || await getVal("openai_api_key")).trim();
+    const primaryUrl = (await getVal("trans_base_url") || await getVal("base_url") || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
+    const primaryModel = (await getVal("trans_model_name") || await getVal("model_name") || "deepseek-chat").trim();
+
+    const backupKey = (await getVal("backup_api_key")).trim();
+    const backupUrl = (await getVal("backup_base_url")).trim().replace(/\/+$/, "");
+    const backupModel = (await getVal("backup_model")).trim();
+
+    const targetLang = await getVal("target_lang") || "Chinese";
+    const sourceLang = await getVal("source_lang") || "auto";
+    const customPrompt = await getVal("custom_prompt") || "";
+
+    let glossary: GlossaryEntry[] = [];
+    try { glossary = await invoke<GlossaryEntry[]>("get_glossary_entries"); } catch { /* optional */ }
+
+    if (!primaryKey) {
+      onPrimaryChunk("Error: Primary API Key is missing.");
+      onBackupChunk("Error: Primary API Key is missing.");
+      onFinish();
+      return;
+    }
+
+    // Check translation memory
+    const cached = await invoke<string | null>("lookup_translation_memory", { text, targetLang });
+    if (cached) {
+      onPrimaryChunk(cached);
+      onBackupChunk(cached);
+      onFinish();
+      return;
+    }
+
+    let primaryResult = "";
+    let backupResult = "";
+
+    const primaryTask = doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, (chunk) => {
+      primaryResult += chunk;
+      onPrimaryChunk(chunk);
+    }, glossary).catch(e => {
+      onPrimaryChunk(`\n[Error: ${e instanceof Error ? e.message : "Unknown"}]`);
+      return false;
+    });
+
+    const backupTask = (async () => {
+      if (backupKey && backupUrl && backupModel) {
+        return doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, (chunk) => {
+          backupResult += chunk;
+          onBackupChunk(chunk);
+        }, glossary).catch(e => {
+          onBackupChunk(`\n[Error: ${e instanceof Error ? e.message : "Unknown"}]`);
+          return false;
+        });
+      } else {
+        onBackupChunk("[Backup model not configured. Set it in Model Config.]");
+        return false;
+      }
+    })();
+
+    await Promise.all([primaryTask, backupTask]);
+
+    // Save to memory cache (use primary result if available, otherwise backup)
+    const bestResult = primaryResult.trim() || backupResult.trim();
+    if (bestResult && text.length < 500) {
+      invoke("save_translation_memory", { sourceText: text, translatedText: bestResult, targetLang }).catch(() => {});
+    }
+  } finally {
+    onFinish();
+  }
+}
+
 let audioCtx: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 
