@@ -974,7 +974,13 @@ export default function Dashboard() {
                         <div className="space-y-6 flex-1 flex flex-col min-h-0">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
                                 <div className="flex flex-col gap-4">
-                                    <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] pl-4">Input Text</h3>
+                                    <div className="flex items-center justify-between pl-4 pr-2">
+                                        <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.inputText}</h3>
+                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[10px] text-zinc-600 dark:text-zinc-300 outline-none cursor-pointer focus:border-accent/50 transition-all appearance-none">
+                                            <option value="auto">{t.autoDetect}</option>
+                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                        </select>
+                                    </div>
                                     <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative">
                                         <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                         <div className="absolute bottom-6 right-6">
@@ -986,7 +992,12 @@ export default function Dashboard() {
                                 </div>
                                 <div className="flex flex-col gap-4">
                                     <div className="flex justify-between items-center px-4">
-                                        <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">Output</h3>
+                                        <div className="flex items-center gap-3">
+                                            <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.output}</h3>
+                                            <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[10px] text-accent outline-none cursor-pointer focus:border-accent/50 transition-all appearance-none">
+                                                {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                                            </select>
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             {batchOutput && !compareMode && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="text-[10px] font-bold text-accent hover:bg-accent/10 px-3 py-1 rounded-full flex items-center gap-1.5 transition-all"><Copy size={12} /> {t.copy}</button>}
                                             {batchOutput && !compareMode && (
