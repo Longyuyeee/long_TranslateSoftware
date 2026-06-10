@@ -499,6 +499,7 @@ export default function Dashboard() {
 
   const [isLangOpen, setIsLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+  const prevActiveTab = useRef("general");
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -519,6 +520,13 @@ export default function Dashboard() {
     { id: "review", label: t.review, icon: Brain },
     { id: "history", label: t.history, icon: Clock },
   ];
+
+  // Compute slide direction for tab transitions
+  const tabIds = ["general", "batch", "model", "appearance", "wordbook", "review", "history"];
+  const prevIdx = tabIds.indexOf(prevActiveTab.current);
+  const currIdx = tabIds.indexOf(activeTab);
+  const slideDirection = currIdx >= prevIdx ? 1 : -1;
+  prevActiveTab.current = activeTab;
 
   return (
     <div className="flex h-screen apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
@@ -645,7 +653,7 @@ export default function Dashboard() {
 
         <main className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 relative">
             <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.3 }} className="h-full flex flex-col">
+                <motion.div key={activeTab} initial={{ opacity: 0, x: slideDirection * 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: slideDirection * -24 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="h-full flex flex-col">
                     {activeTab === "general" && (
                         <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
