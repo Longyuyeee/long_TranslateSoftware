@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
@@ -83,9 +83,29 @@ export default function Dashboard() {
   const [batchOutput, setBatchOutput] = useState("");
   const [isTranslating, setIsTranslating] = useState(false);
 
-  // Wordbook pagination
+  // Wordbook search, sort & pagination
   const [wordsLimit, setWordsLimit] = useState(200);
-  const displayedWords = words.slice(0, wordsLimit);
+  const [wordbookSearch, setWordbookSearch] = useState("");
+  const [wordbookSort, setWordbookSort] = useState<"newest" | "az" | "za">("newest");
+
+  const filteredWords = useMemo(() => {
+    let result = words;
+    if (wordbookSearch.trim()) {
+      const q = wordbookSearch.trim().toLowerCase();
+      result = result.filter(w =>
+        w.word.toLowerCase().includes(q) ||
+        (w.meaning && w.meaning.toLowerCase().includes(q))
+      );
+    }
+    if (wordbookSort === "az") {
+      result = [...result].sort((a, b) => a.word.localeCompare(b.word));
+    } else if (wordbookSort === "za") {
+      result = [...result].sort((a, b) => b.word.localeCompare(a.word));
+    }
+    return result;
+  }, [words, wordbookSearch, wordbookSort]);
+
+  const displayedWords = filteredWords.slice(0, wordsLimit);
 
   // Manual Add Word state
   const [newWord, setNewWord] = useState("");
@@ -952,11 +972,46 @@ export default function Dashboard() {
                     {activeTab === "wordbook" && (
                         <div className="flex h-full gap-8 relative overflow-hidden">
                             <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-3 shrink-0" style={{ width: 'min(30%, 260px)', minWidth: '160px' }}>
-                                <div className="flex items-center justify-between px-1 mb-1">
-                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">{words.length} {t.wordCount}</span>
+                                {/* Search & Sort */}
+                                <div className="flex gap-2">
+                                    <div className="flex-1 relative">
+                                        <input
+                                            type="text"
+                                            value={wordbookSearch}
+                                            onChange={(e) => setWordbookSearch(e.target.value)}
+                                            placeholder={t.searchWords}
+                                            className="w-full py-2.5 pl-8 pr-8 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:border-blue-500/50 focus:ring-2 ring-blue-500/10 transition-all"
+                                        />
+                                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                                        {wordbookSearch && (
+                                            <button onClick={() => setWordbookSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                                                <CloseIcon size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="relative">
+                                        <select
+                                            value={wordbookSort}
+                                            onChange={(e) => setWordbookSort(e.target.value as "newest" | "az" | "za")}
+                                            className="py-2.5 pl-3 pr-7 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none text-zinc-600 dark:text-zinc-300 appearance-none cursor-pointer focus:border-blue-500/50 transition-all"
+                                        >
+                                            <option value="newest">{t.sortNewest}</option>
+                                            <option value="az">{t.sortAZ}</option>
+                                            <option value="za">{t.sortZA}</option>
+                                        </select>
+                                        <ChevronRight size={12} className="absolute right-2 top-1/2 -translate-y-1/2 rotate-90 text-zinc-400 pointer-events-none" />
+                                    </div>
                                 </div>
+
+                                {/* Word count */}
+                                <div className="flex items-center justify-between px-1">
+                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">
+                                        {wordbookSearch ? `${filteredWords.length} / ` : ""}{words.length} {t.wordCount}
+                                    </span>
+                                </div>
+
                                 {words.length > 0 && (
-                                    <div className="flex gap-2 mb-1">
+                                    <div className="flex gap-2">
                                         <button onClick={() => invoke("export_wordbook", { format: "csv" }).then(() => addNotification(t.exportSuccess + " (CSV)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">{t.exportCsv}</button>
                                         <button onClick={() => invoke("export_wordbook", { format: "json" }).then(() => addNotification(t.exportSuccess + " (JSON)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-blue-600 hover:border-blue-500/20 transition-all">{t.exportJson}</button>
                                     </div>
@@ -976,10 +1031,10 @@ export default function Dashboard() {
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
-                                {words.length > wordsLimit && (
+                                {filteredWords.length > wordsLimit && !wordbookSearch && (
                                     <div className="flex gap-2">
-                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] hover:bg-blue-600/20 transition-all">LOAD MORE ({words.length - wordsLimit} remaining)</button>
-                                        <button onClick={() => setWordsLimit(words.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-blue-600 transition-all">ALL</button>
+                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-blue-600/10 text-blue-600 border border-blue-600/20 font-black text-[10px] hover:bg-blue-600/20 transition-all">LOAD MORE ({filteredWords.length - wordsLimit} remaining)</button>
+                                        <button onClick={() => setWordsLimit(filteredWords.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-blue-600 transition-all">ALL</button>
                                     </div>
                                 )}
                             </div>
