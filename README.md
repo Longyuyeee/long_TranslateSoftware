@@ -30,6 +30,8 @@
 - **可自定义提示词**: 自由定制 AI 翻译 Prompt，支持 `{{targetLang}}` / `{{text}}` 占位符
 - **术语表 (Glossary)**: 自定义固定术语译法，翻译时自动注入 AI 提示词
 - **多模型对比翻译**: 主备模型并行翻译，左右分屏实时对比结果
+- **回译验证**: 译文二次回译至源语言，快速校验翻译质量
+- **剪贴板监听**: 开启后复制文字自动弹出 AI 翻译浮窗，无需快捷键
 - **翻译历史**: 自动保存所有翻译记录，支持浏览、复制与删除
 - **翻译记忆**: 缓存重复翻译内容，减少 API 调用费用
 - **30 种目标语言**: 下拉菜单选择，源语言支持自动检测
@@ -43,7 +45,8 @@
 ### 🧠 SM-2 间隔重复背单词
 - **卡片模式**: 3D 翻转卡片，正面单词+音标，点击翻面看释义+例句，评分后自动安排下次复习
 - **测验模式**: 看单词选释义，10 题一轮即时反馈
-- **SM-2 算法**: 智能间隔调度（1天→6天→15天→...），已掌握单词自动延长周期
+- **FSRS 算法**: 新一代间隔重复（Anki 默认），稳定性/难度/可提取性三维记忆模型，准确率 90%
+- **AI 记忆钩子**: 谐音、联想、拆分、故事等创意记忆法，琥珀色高亮卡片展示
 - **学习统计**: 今日待复习 / 已复习 / 已掌握 / 连续天数
 
 ### ⌨️ 快捷键系统
@@ -54,6 +57,7 @@
 ### 📚 智能 AI 生词本
 - AI 深度解析：音标、中文释义、词源分析、多场景例句、近义词对比
 - **搜索与排序**: 实时搜索过滤单词/释义，支持最新 / A-Z / Z-A 排序
+- **Anki APKG 导出**: 一键导出为 `.apkg` 文件（7 字段 + 精美卡片模板），无缝导入 Anki
 - **导出 CSV / JSON**: 一键导出含例句与近义词的完整数据
 - **WebDAV 云端同步**: 支持坚果云、Nextcloud 等所有 WebDAV 服务，自动创建目录
 - 懒加载渲染，数千单词流畅浏览
@@ -93,14 +97,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.5 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [v0.3.5 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.6 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_Setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [v0.3.6 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_zh-CN.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.3.5 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
 | v0.3.4 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
 | v0.3.3 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_zh-CN.msi) |
 | v0.3.2 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_zh-CN.msi) |
@@ -109,6 +114,23 @@
 </details>
 
 ### 更新日志
+
+<details>
+<summary>v0.3.6 — Vocabulary & Translation Quality Update</summary>
+
+**新增**
+- **FSRS 间隔重复算法** — 替换 SM-2，记忆准确性从 47% 提升至 90%（Anki 默认算法）
+- **剪贴板监听模式** — 开启后复制任何文字自动弹出 AI 翻译浮窗
+- **AI 记忆钩子** — 单词分析新增谐音/联想/拆分等记忆技巧（琥珀色卡片展示）
+- **Anki APKG 导出** — 一键导出单词本为 `.apkg` 文件，可导入 Anki 生态
+- **回译验证 (Back-translation)** — 将译文回译至源语言，快速校验翻译准确性
+- **Batch 标签页语言选择器** — 输入/输出面板可直接切换源语言和目标语言
+
+**优化**
+- 单词详情面板全部标签（Meaning/Etymology/Synonyms/Examples）i18n 化
+- 已掌握判定从 `repetitions >= 3` 升级为 `stability >= 21 days` (FSRS)
+- 数据库 v6 迁移：新增 stability/difficulty 列，SM-2 数据自动转换
+</details>
 
 <details>
 <summary>v0.3.5 — Feature Update</summary>

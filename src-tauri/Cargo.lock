@@ -2799,7 +2799,7 @@ dependencies = [
 
 [[package]]
 name = "long-translate"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
