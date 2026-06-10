@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, Star, Volume2, X, RotateCcw, Sparkles } from "lucide-react";
+import { Copy, Star, Volume2, X, RotateCcw, Sparkles, ArrowLeftRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { translateStreaming, speak } from "../services/api";
 import { analyzeAndSaveWord, checkWordExists } from "../services/wordbook";
@@ -10,7 +10,9 @@ import { translations, Lang } from "../i18n";
 export default function FloatingWindow() {
   const [text, setText] = useState("");
   const [translation, setTranslation] = useState("");
+  const [backTranslation, setBackTranslation] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isBackTranslating, setIsBackTranslating] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [lang, setLang] = useState<Lang>("zh");
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
@@ -93,6 +95,17 @@ export default function FloatingWindow() {
     );
   };
 
+  const startBackTranslate = async () => {
+    if (!translation || isBackTranslating) return;
+    setIsBackTranslating(true);
+    setBackTranslation("");
+    await translateStreaming(
+      translation,
+      (chunk) => setBackTranslation(prev => prev + chunk),
+      () => setIsBackTranslating(false)
+    );
+  };
+
   const handleSaveToWordbook = () => {
     if (!text || isSaved) return;
     setIsSaved(true);
@@ -153,13 +166,29 @@ export default function FloatingWindow() {
                     <div className="text-[16px] leading-[1.7] text-zinc-800 dark:text-zinc-100 font-medium tracking-tight break-words">
                         {translation || (isStreaming ? "" : "...")}
                         {isStreaming && (
-                            <motion.span 
+                            <motion.span
                                 animate={{ opacity: [1, 0, 1] }}
                                 transition={{ repeat: Infinity, duration: 0.8 }}
-                                className="inline-block w-1.5 h-5 ml-1.5 bg-accent align-middle rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
+                                className="inline-block w-1.5 h-5 ml-1.5 bg-accent align-middle rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]"
                             />
                         )}
                     </div>
+
+                    {/* Back-translation result */}
+                    <AnimatePresence>
+                        {(backTranslation || isBackTranslating) && (
+                            <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="relative mt-2">
+                                <div className="absolute -left-3 top-0 bottom-0 w-1 bg-amber-400/40 rounded-full" />
+                                <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed pl-1 break-words">
+                                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-400 mr-2">{t.backTranslation}</span>
+                                    {backTranslation || (isBackTranslating ? "" : "...")}
+                                    {isBackTranslating && (
+                                        <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-3.5 ml-1 bg-amber-400 align-middle rounded-full" />
+                                    )}
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
             ) : (
                 <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20 text-zinc-900 dark:text-white">
@@ -199,6 +228,16 @@ export default function FloatingWindow() {
             title={isSaved ? (t.alreadySaved) : (t.saveToWordbook)}
           >
             <Star size={18} fill={isSaved ? "currentColor" : "none"} />
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={startBackTranslate}
+            disabled={!translation || isBackTranslating}
+            className={`p-3 rounded-2xl transition-all ${!translation || isBackTranslating ? 'text-zinc-300 dark:text-zinc-700' : 'text-zinc-500 hover:bg-amber-500/10 hover:text-amber-500'}`}
+            title={t.backTranslation}
+          >
+            <ArrowLeftRight size={18} />
           </motion.button>
         </div>
         

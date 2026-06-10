@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
@@ -129,6 +129,8 @@ export default function Dashboard() {
   const [batchOutput, setBatchOutput] = useState("");
   const [batchOutputBackup, setBatchOutputBackup] = useState("");
   const [compareMode, setCompareMode] = useState(false);
+  const [batchBackTranslation, setBatchBackTranslation] = useState("");
+  const [isBatchBackTranslating, setIsBatchBackTranslating] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
 
   // Wordbook search, sort & pagination
@@ -595,6 +597,17 @@ export default function Dashboard() {
     );
   };
 
+  const startBatchBackTranslate = async () => {
+    if (!batchOutput || isBatchBackTranslating) return;
+    setIsBatchBackTranslating(true);
+    setBatchBackTranslation("");
+    await translateStreaming(
+      batchOutput,
+      (chunk) => setBatchBackTranslation(prev => prev + chunk),
+      () => setIsBatchBackTranslating(false)
+    );
+  };
+
   const startCompareTranslation = async () => {
     if (!batchInput || isTranslating) return;
     setBatchOutput("");
@@ -976,6 +989,11 @@ export default function Dashboard() {
                                         <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">Output</h3>
                                         <div className="flex items-center gap-2">
                                             {batchOutput && !compareMode && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="text-[10px] font-bold text-accent hover:bg-accent/10 px-3 py-1 rounded-full flex items-center gap-1.5 transition-all"><Copy size={12} /> {t.copy}</button>}
+                                            {batchOutput && !compareMode && (
+                                                <button onClick={startBatchBackTranslate} disabled={isBatchBackTranslating} className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 transition-all ${isBatchBackTranslating ? 'text-zinc-300' : 'text-amber-500 hover:bg-amber-500/10'}`}>
+                                                    <ArrowLeftRight size={12} /> {t.backTranslation}
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => { setCompareMode(!compareMode); setBatchOutput(""); setBatchOutputBackup(""); }}
                                                 className={`text-[9px] font-black px-2.5 py-1.5 rounded-full transition-all ${
@@ -1019,6 +1037,25 @@ export default function Dashboard() {
                                             </div>
                                         </div>
                                     )}
+                                    {/* Back-translation result */}
+                                    <AnimatePresence>
+                                        {(batchBackTranslation || isBatchBackTranslating) && (
+                                            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                                <div className="glass-card rounded-2xl p-4 border border-amber-500/20 bg-amber-50/50 dark:bg-amber-500/5">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <ArrowLeftRight size={12} className="text-amber-500" />
+                                                        <span className="text-[9px] font-black uppercase text-amber-500 tracking-[0.2em]">{t.backTranslation}</span>
+                                                    </div>
+                                                    <div className="text-[12px] font-medium text-amber-800 dark:text-amber-300 leading-relaxed selectable-text">
+                                                        {batchBackTranslation || (isBatchBackTranslating ? "" : "...")}
+                                                        {isBatchBackTranslating && (
+                                                            <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-3.5 ml-1 bg-amber-400 align-middle rounded-full" />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
                             </div>
 
