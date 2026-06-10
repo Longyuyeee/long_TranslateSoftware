@@ -814,6 +814,15 @@ fn get_clipboard_text(app: AppHandle) -> Result<String, String> {
     clipboard.read_text().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn clipboard_detect(app: AppHandle, text: String) {
+    if let Some(floating) = app.get_webview_window("floating") {
+        let _ = floating.show();
+        let _ = floating.set_focus();
+        let _ = app.emit("shortcut-triggered", text);
+    }
+}
+
 fn show_ocr_overlay(app: &AppHandle) {
     if let Some(overlay) = app.get_webview_window("ocr-overlay") {
         // Span all monitors for dual/multi-monitor support
@@ -1446,7 +1455,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             run_ocr, capture_and_ocr, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
-            hide_floating_window, start_window_drag, add_to_wordbook, get_wordbook, delete_word,
+            hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,

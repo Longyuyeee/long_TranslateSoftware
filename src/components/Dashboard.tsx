@@ -36,6 +36,7 @@ export default function Dashboard() {
     "Romanian", "Hungarian", "Hebrew", "Ukrainian", "Catalan", "Slovak",
   ];
   const [autoCopy, setAutoCopy] = useState(false);
+  const [clipboardMonitor, setClipboardMonitor] = useState(false);
   const [theme, setTheme] = useState("system");
   const [accentColor, setAccentColor] = useState("#007aff");
   const [fontSize, setFontSize] = useState(14);
@@ -334,6 +335,32 @@ export default function Dashboard() {
     applyAccent(accentColor);
   }, [accentColor]);
 
+  // Clipboard monitoring
+  const lastClipboardRef = useRef("");
+  const clipboardTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (clipboardMonitor) {
+      clipboardTimerRef.current = setInterval(async () => {
+        try {
+          const text = await invoke<string>("get_clipboard_text");
+          if (text && text !== lastClipboardRef.current) {
+            lastClipboardRef.current = text;
+            await invoke("clipboard_detect", { text });
+          }
+        } catch { /* clipboard read can fail */ }
+      }, 900);
+    } else {
+      lastClipboardRef.current = "";
+    }
+    return () => {
+      if (clipboardTimerRef.current) {
+        clearInterval(clipboardTimerRef.current);
+        clipboardTimerRef.current = null;
+      }
+    };
+  }, [clipboardMonitor]);
+
   // Theme effect
   useEffect(() => {
     const applyTheme = () => {
@@ -376,6 +403,7 @@ export default function Dashboard() {
       setTargetLang(await getVal("target_lang") || "Chinese");
       setSourceLang(await getVal("source_lang") || "auto");
       setAutoCopy((await getVal("auto_copy")) === "true");
+      setClipboardMonitor((await getVal("clipboard_monitor")) === "true");
       const savedAccent = await getVal("accent_color") || "#007aff";
       setAccentColor(savedAccent);
       applyAccent(savedAccent);
@@ -508,6 +536,7 @@ export default function Dashboard() {
         setVal("target_lang", targetLang),
         setVal("source_lang", sourceLang),
         setVal("auto_copy", autoCopy ? "true" : "false"),
+        setVal("clipboard_monitor", clipboardMonitor ? "true" : "false"),
         setVal("accent_color", accentColor),
         setVal("theme", theme),
         setVal("font_size", fontSize.toString()),
@@ -825,6 +854,11 @@ export default function Dashboard() {
                                     { label: t.autoCopy, desc: "Clipboard Integration", component: (
                                         <div onClick={() => setAutoCopy(!autoCopy)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoCopy ? 'bg-accent shadow-lg shadow-accent' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
                                             <motion.div animate={{ left: autoCopy ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
+                                        </div>
+                                    )},
+                                    { label: t.clipboardMonitor, desc: t.clipboardMonitorDesc, component: (
+                                        <div onClick={() => setClipboardMonitor(!clipboardMonitor)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${clipboardMonitor ? 'bg-accent shadow-lg shadow-accent' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
+                                            <motion.div animate={{ left: clipboardMonitor ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
                                         </div>
                                     )}
                                 ].map((item, idx) => (
