@@ -154,6 +154,27 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         set_schema_version(&conn, 5)?;
     }
 
+    if current_version < 6 {
+        // Add FSRS columns to replace SM-2
+        let pragma_info: Vec<String> = conn
+            .prepare("PRAGMA table_info(wordbook)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if !pragma_info.contains(&"stability".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN stability REAL DEFAULT 0", [])?;
+        }
+        if !pragma_info.contains(&"difficulty".to_string()) {
+            conn.execute("ALTER TABLE wordbook ADD COLUMN difficulty REAL DEFAULT 0", [])?;
+        }
+        // Migrate existing SM-2 data → FSRS: stability = interval_days, difficulty = 5.0 (default)
+        conn.execute(
+            "UPDATE wordbook SET stability = MAX(interval_days, 0.1), difficulty = 5.0 WHERE stability = 0 AND interval_days > 0",
+            [],
+        )?;
+        set_schema_version(&conn, 6)?;
+    }
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {

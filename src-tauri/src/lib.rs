@@ -208,7 +208,7 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
     }
 
     let mut wordbook_data = Vec::new();
-    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed FROM wordbook").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty FROM wordbook").map_err(|e| e.to_string())?;
     let word_rows = stmt.query_map([], |row| {
         Ok(serde_json::json!({
             "uuid": row.get::<_, String>(0)?,
@@ -223,6 +223,8 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
             "repetitions": row.get::<_, i32>(9)?,
             "next_review": row.get::<_, Option<String>>(10)?,
             "last_reviewed": row.get::<_, Option<String>>(11)?,
+            "stability": row.get::<_, f64>(12)?,
+            "difficulty": row.get::<_, f64>(13)?,
         }))
     }).map_err(|e| e.to_string())?;
     for row in word_rows {
@@ -324,7 +326,7 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
             if let Some(words) = full_json["wordbook"].as_array() {
                 for item in words {
                     tx.execute(
-                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         (
                             item["uuid"].as_str().unwrap_or_default(),
                             item["word"].as_str().unwrap_or_default(),
@@ -338,6 +340,8 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
                             item["repetitions"].as_i64().unwrap_or(0),
                             item["next_review"].as_str().unwrap_or(""),
                             item["last_reviewed"].as_str().unwrap_or(""),
+                            item["stability"].as_f64().unwrap_or(0.0),
+                            item["difficulty"].as_f64().unwrap_or(0.0),
                         )
                     ).map_err(|e| e.to_string())?;
                 }
@@ -458,7 +462,7 @@ fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json:
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut stmt = conn.prepare(
-        "SELECT id, word, phonetic, meaning, analysis_json, ease_factor, interval_days, repetitions, next_review FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1) ORDER BY next_review ASC LIMIT ?2"
+        "SELECT id, word, phonetic, meaning, analysis_json, stability, difficulty, interval_days, repetitions, next_review FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1) ORDER BY next_review ASC LIMIT ?2"
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map([&now, &limit.unwrap_or(50).to_string()], |row| {
         Ok(serde_json::json!({
@@ -467,10 +471,11 @@ fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json:
             "phonetic": row.get::<_, String>(2)?,
             "meaning": row.get::<_, String>(3)?,
             "analysis": row.get::<_, String>(4)?,
-            "ease_factor": row.get::<_, f64>(5)?,
-            "interval_days": row.get::<_, i32>(6)?,
-            "repetitions": row.get::<_, i32>(7)?,
-            "next_review": row.get::<_, Option<String>>(8)?,
+            "stability": row.get::<_, f64>(5)?,
+            "difficulty": row.get::<_, f64>(6)?,
+            "interval_days": row.get::<_, i32>(7)?,
+            "repetitions": row.get::<_, i32>(8)?,
+            "next_review": row.get::<_, Option<String>>(9)?,
         }))
     }).map_err(|e| e.to_string())?;
     let mut items = Vec::new();
@@ -478,45 +483,107 @@ fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json:
     Ok(items)
 }
 
+// ── FSRS (Free Spaced Repetition Scheduler) ──
+
+// Standard FSRS-5 parameters from open-spaced-repetition project
+const W: [f64; 19] = [
+    0.4027, 0.5904, 0.9180, 0.4325,  // w0-w3: init stability per rating 1-4
+    3.4615, 0.7028,                    // w4-w5: init difficulty params
+    0.9264,                            // w6: difficulty delta
+    0.0232, 0.8851, 0.3068, 0.6761,   // w7-w10: short-term stability
+    2.1960, 0.0469, 0.3361, 1.2586,   // w11-w14: long-term stability
+    0.2864, 2.5646, 0.2845, 0.3494,   // w15-w18: rating modifiers
+];
+
+fn retrievability(elapsed_days: f64, stability: f64) -> f64 {
+    if stability <= 0.0 { return 1.0; }
+    (0.9_f64).powf(elapsed_days.max(0.0) / stability)
+}
+
+fn init_stability(rating: u8) -> f64 {
+    match rating {
+        1 => W[0],
+        2 => W[1],
+        3 => W[2],
+        4 => W[3],
+        _ => W[2],
+    }
+}
+
+fn init_difficulty(rating: u8) -> f64 {
+    let d = W[4] - W[5] * (rating as f64 - 3.0);
+    d.clamp(1.0, 10.0)
+}
+
+fn next_difficulty(d: f64, rating: u8) -> f64 {
+    let delta = -W[6] * (rating as f64 - 3.0);
+    (d + delta * (10.0 - d) / 9.0).clamp(1.0, 10.0)
+}
+
+fn next_stability(s: f64, d: f64, r: f64, rating: u8) -> f64 {
+    if rating == 1 {
+        // Again: short-term stability
+        let s_min = W[7];
+        let s_max = s / (1.0 + W[8] * (d - 1.0).max(0.0));
+        s_max.max(s_min).min(s) // never increase stability on "again"
+    } else {
+        // Hard/Good/Easy: long-term stability
+        let hard_pen = if rating == 2 { W[15] } else { 1.0 };
+        let easy_bonus = if rating == 4 { W[16].exp() * (d - W[17]).max(0.0) / W[18] } else { 0.0 };
+        let base = s * (1.0 + W[9].exp() * (11.0 - d) * s.powf(-W[10]) * ((1.0 - r) * W[11]).exp() * W[12]);
+        (base * hard_pen + easy_bonus).max(0.01)
+    }
+}
+
 #[tauri::command]
 fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_json::Value, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let rating = quality.clamp(1, 4) as u8;
 
-    // Read current SM-2 state
-    let (ease, interval, reps): (f64, i32, i32) = conn.query_row(
-        "SELECT ease_factor, interval_days, repetitions FROM wordbook WHERE id = ?1",
+    // Read current FSRS state (stability and difficulty)
+    let (stability, difficulty, last_reviewed): (f64, f64, Option<String>) = conn.query_row(
+        "SELECT stability, difficulty, last_reviewed FROM wordbook WHERE id = ?1",
         [word_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     ).map_err(|e| e.to_string())?;
 
-    // SM-2 algorithm
-    let (new_interval, new_reps, new_ease) = if quality >= 3 {
-        let interval = match reps {
-            0 => 1,
-            1 => 6,
-            _ => ((interval as f64) * ease).round() as i32,
-        };
-        (interval, reps + 1, ease)
+    // Compute elapsed days since last review
+    let elapsed = if let Some(ref lr) = last_reviewed {
+        if let Ok(lr_time) = chrono::NaiveDateTime::parse_from_str(lr, "%Y-%m-%d %H:%M:%S") {
+            let now_time = chrono::Local::now().naive_local();
+            (now_time - lr_time).num_seconds() as f64 / 86400.0
+        } else { 0.0 }
+    } else { 0.0 };
+
+    // FSRS: compute new stability and difficulty
+    let (new_s, new_d) = if stability <= 0.0 {
+        // First review
+        (init_stability(rating), init_difficulty(rating))
     } else {
-        (1, 0, ease)
+        let r = retrievability(elapsed, stability);
+        let nd = next_difficulty(difficulty, rating);
+        let ns = next_stability(stability, nd, r, rating);
+        (ns, nd)
     };
 
-    let new_ease = (new_ease + (0.1 - (5 - quality) as f64 * (0.08 + (5 - quality) as f64 * 0.02))).max(1.3);
-    let next_review = chrono::Local::now() + chrono::Duration::days(new_interval as i64);
+    // Schedule next review at target retrievability (90%)
+    let interval_days = (new_s * (- (0.9_f64).ln()).recip() * (0.9_f64).ln().abs()).round() as i32;
+    let next_review = chrono::Local::now() + chrono::Duration::days(interval_days.max(1) as i64);
     let next_str = next_review.format("%Y-%m-%d %H:%M:%S").to_string();
 
+    // Update DB with new FSRS state
     conn.execute(
-        "UPDATE wordbook SET ease_factor = ?1, interval_days = ?2, repetitions = ?3, next_review = ?4, last_reviewed = ?5 WHERE id = ?6",
-        [&new_ease.to_string(), &new_interval.to_string(), &new_reps.to_string(), &next_str, &now, &word_id.to_string()],
+        "UPDATE wordbook SET stability = ?1, difficulty = ?2, interval_days = ?3, repetitions = repetitions + 1, next_review = ?4, last_reviewed = ?5 WHERE id = ?6",
+        rusqlite::params![new_s, new_d, interval_days, &next_str, &now, word_id],
     ).map_err(|e| e.to_string())?;
 
     app.emit("wordbook-updated", "local").unwrap();
     Ok(serde_json::json!({
-        "interval": new_interval,
-        "repetitions": new_reps,
-        "ease_factor": new_ease,
+        "interval": interval_days,
+        "stability": new_s,
+        "difficulty": new_d,
         "next_review": next_str,
     }))
 }
@@ -529,7 +596,7 @@ fn get_review_stats(app: AppHandle) -> Result<serde_json::Value, String> {
 
     let total: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |r| r.get(0)).map_err(|e| e.to_string())?;
     let reviewed: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND last_reviewed IS NOT NULL", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let mastered: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND repetitions >= 3", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let mastered: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND stability >= 21", [], |r| r.get(0)).map_err(|e| e.to_string())?;
     let due: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1)", [&now], |r| r.get(0)).map_err(|e| e.to_string())?;
 
     // Streak: count consecutive days with reviews
@@ -1062,7 +1129,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
             match local_updated_at {
                 Some(local_time) if updated_at > local_time.as_str() => {
                     tx.execute(
-                        "UPDATE wordbook SET word = ?1, phonetic = ?2, meaning = ?3, analysis_json = ?4, is_deleted = ?5, updated_at = ?6, ease_factor = ?7, interval_days = ?8, repetitions = ?9, next_review = ?10, last_reviewed = ?11 WHERE uuid = ?12",
+                        "UPDATE wordbook SET word = ?1, phonetic = ?2, meaning = ?3, analysis_json = ?4, is_deleted = ?5, updated_at = ?6, ease_factor = ?7, interval_days = ?8, repetitions = ?9, next_review = ?10, last_reviewed = ?11, stability = ?12, difficulty = ?13 WHERE uuid = ?14",
                         (
                             item["word"].as_str().unwrap_or_default(),
                             item["phonetic"].as_str().unwrap_or_default(),
@@ -1075,13 +1142,15 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                             item["repetitions"].as_i64().unwrap_or(0),
                             item["next_review"].as_str().unwrap_or(""),
                             item["last_reviewed"].as_str().unwrap_or(""),
+                            item["stability"].as_f64().unwrap_or(0.0),
+                            item["difficulty"].as_f64().unwrap_or(0.0),
                             uuid
                         )
                     ).map_err(|e| e.to_string())?;
                 },
                 None => {
                     tx.execute(
-                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                         (
                             uuid,
                             item["word"].as_str().unwrap_or_default(),
@@ -1095,6 +1164,8 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                             item["repetitions"].as_i64().unwrap_or(0),
                             item["next_review"].as_str().unwrap_or(""),
                             item["last_reviewed"].as_str().unwrap_or(""),
+                            item["stability"].as_f64().unwrap_or(0.0),
+                            item["difficulty"].as_f64().unwrap_or(0.0),
                         )
                     ).map_err(|e| e.to_string())?;
                 },
@@ -1103,7 +1174,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         }
         tx.commit().map_err(|e| e.to_string())?;
 
-        let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed FROM wordbook").map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty FROM wordbook").map_err(|e| e.to_string())?;
         let items = stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "uuid": row.get::<_, String>(0)?,
@@ -1118,6 +1189,8 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                 "repetitions": row.get::<_, i32>(9)?,
                 "next_review": row.get::<_, Option<String>>(10)?,
                 "last_reviewed": row.get::<_, Option<String>>(11)?,
+                "stability": row.get::<_, f64>(12)?,
+                "difficulty": row.get::<_, f64>(13)?,
             }))
         }).map_err(|e| e.to_string())?.map(|r| r.unwrap()).collect();
         items

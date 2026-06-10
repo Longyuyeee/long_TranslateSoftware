@@ -11,7 +11,8 @@ interface ReviewWord {
   phonetic: string;
   meaning: string;
   analysis: string;
-  ease_factor: number;
+  stability: number;
+  difficulty: number;
   interval_days: number;
   repetitions: number;
   next_review: string | null;
@@ -191,10 +192,10 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
               {isFlipped && (
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex gap-3">
                   {[
-                    { label: t.again, quality: 0, color: "bg-red-500/10 text-red-600 border-red-500/20 hover:bg-red-500 hover:text-white" },
+                    { label: t.again, quality: 1, color: "bg-red-500/10 text-red-600 border-red-500/20 hover:bg-red-500 hover:text-white" },
                     { label: t.hard, quality: 2, color: "bg-orange-500/10 text-orange-600 border-orange-500/20 hover:bg-orange-500 hover:text-white" },
-                    { label: t.good, quality: 4, color: "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500 hover:text-white" },
-                    { label: t.easy, quality: 5, color: "bg-accent/10 text-accent border-accent/20 hover:bg-accent hover:text-white" },
+                    { label: t.good, quality: 3, color: "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500 hover:text-white" },
+                    { label: t.easy, quality: 4, color: "bg-accent/10 text-accent border-accent/20 hover:bg-accent hover:text-white" },
                   ].map(b => (
                     <button key={b.label} onClick={() => handleReview(b.quality)} className={`px-5 py-2.5 rounded-full border font-black text-[11px] transition-all ${b.color}`}>
                       {b.label}
