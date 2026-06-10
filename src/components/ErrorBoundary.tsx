@@ -36,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <pre className="text-[10px] text-zinc-400 max-w-md text-center whitespace-pre-wrap">{this.state.error}</pre>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 bg-accent text-white rounded-xl text-xs font-bold hover:bg-accent transition-colors"
           >
             {this.isZh() ? "重新加载" : "RELOAD"}
           </button>

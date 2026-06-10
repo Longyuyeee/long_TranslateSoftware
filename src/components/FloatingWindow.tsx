@@ -112,13 +112,13 @@ export default function FloatingWindow() {
       >
         <div className="flex items-center gap-3 pointer-events-none">
           <div className="relative">
-            <div className={`w-3 h-3 rounded-full transition-all duration-500 ${isStreaming ? 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
+            <div className={`w-3 h-3 rounded-full transition-all duration-500 ${isStreaming ? 'bg-accent shadow-[0_0_10px_rgba(59,130,246,0.8)]' : 'bg-zinc-300 dark:bg-zinc-600'}`} />
             {isStreaming && (
                 <motion.div 
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1.5, opacity: 0 }}
                     transition={{ repeat: Infinity, duration: 1.5 }}
-                    className="absolute inset-0 bg-blue-500 rounded-full"
+                    className="absolute inset-0 bg-accent rounded-full"
                 />
             )}
           </div>
@@ -144,7 +144,7 @@ export default function FloatingWindow() {
             {text ? (
                 <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 break-words">
                     <div className="relative">
-                        <div className="absolute -left-3 top-0 bottom-0 w-1 bg-blue-500/20 rounded-full" />
+                        <div className="absolute -left-3 top-0 bottom-0 w-1 bg-accent/20 rounded-full" />
                         <div className="text-[12px] text-zinc-400 font-bold italic leading-relaxed pl-1 break-words">
                             {text}
                         </div>
@@ -156,7 +156,7 @@ export default function FloatingWindow() {
                             <motion.span 
                                 animate={{ opacity: [1, 0, 1] }}
                                 transition={{ repeat: Infinity, duration: 0.8 }}
-                                className="inline-block w-1.5 h-5 ml-1.5 bg-blue-500 align-middle rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
+                                className="inline-block w-1.5 h-5 ml-1.5 bg-accent align-middle rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" 
                             />
                         )}
                     </div>
@@ -177,7 +177,7 @@ export default function FloatingWindow() {
             whileHover={{ scale: 1.05, backgroundColor: "rgba(59,130,246,0.1)" }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigator.clipboard.writeText(translation)}
-            className="p-3 text-zinc-500 hover:text-blue-500 rounded-2xl transition-all"
+            className="p-3 text-zinc-500 hover:text-accent rounded-2xl transition-all"
             title={t.copyTranslation}
           >
             <Copy size={18} />
@@ -186,7 +186,7 @@ export default function FloatingWindow() {
             whileHover={{ scale: 1.05, backgroundColor: "rgba(59,130,246,0.1)" }}
             whileTap={{ scale: 0.95 }}
             onClick={() => speak(text)}
-            className="p-3 text-zinc-500 hover:text-blue-500 rounded-2xl transition-all"
+            className="p-3 text-zinc-500 hover:text-accent rounded-2xl transition-all"
             title={t.readAloud}
           >
             <Volume2 size={18} />
@@ -195,7 +195,7 @@ export default function FloatingWindow() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.9 }}
             onClick={handleSaveToWordbook}
-            className={`p-3 rounded-2xl transition-all ${isSaved ? 'text-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10' : 'text-zinc-500 hover:bg-blue-500/10 hover:text-blue-500'}`}
+            className={`p-3 rounded-2xl transition-all ${isSaved ? 'text-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10' : 'text-zinc-500 hover:bg-accent/10 hover:text-accent'}`}
             title={isSaved ? (t.alreadySaved) : (t.saveToWordbook)}
           >
             <Star size={18} fill={isSaved ? "currentColor" : "none"} />

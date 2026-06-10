@@ -12,10 +12,51 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  --accent: #007aff;
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Runtime accent-color utilities ── */
+.bg-accent              { background-color: var(--accent); }
+.bg-accent\/10          { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.bg-accent\/20          { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.bg-accent\/5           { background-color: color-mix(in srgb, var(--accent) 5%, transparent); }
+.bg-accent\/40          { background-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.text-accent            { color: var(--accent); }
+.text-accent\/60        { color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.text-accent\/80        { color: color-mix(in srgb, var(--accent) 80%, transparent); }
+.border-accent          { border-color: var(--accent); }
+.border-accent\/10      { border-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.border-accent\/20      { border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.border-accent\/30      { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.border-accent\/50      { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.shadow-accent          { --tw-shadow-color: var(--accent); }
+.ring-accent            { --tw-ring-color: var(--accent); }
+
+.hover\:bg-accent:hover             { background-color: var(--accent); }
+.hover\:bg-accent\/10:hover         { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.hover\:bg-accent\/20:hover         { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.hover\:bg-accent\/5:hover          { background-color: color-mix(in srgb, var(--accent) 5%, transparent); }
+.hover\:bg-accent\/30:hover         { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.hover\:text-accent:hover           { color: var(--accent); }
+.hover\:border-accent:hover         { border-color: var(--accent); }
+.hover\:border-accent\/20:hover     { border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.hover\:border-accent\/30:hover     { border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.hover\:border-accent\/50:hover     { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.hover\:shadow-accent:hover         { --tw-shadow-color: var(--accent); }
+
+.dark .dark\:text-accent            { color: var(--accent); }
+.dark .dark\:text-accent\/60        { color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.dark .dark\:text-accent\/80        { color: color-mix(in srgb, var(--accent) 80%, transparent); }
+.dark .dark\:bg-accent\/10          { background-color: color-mix(in srgb, var(--accent) 10%, transparent); }
+.dark .dark\:bg-accent\/20          { background-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.dark .dark\:border-accent          { border-color: var(--accent); }
+.dark .dark\:border-accent\/20      { border-color: color-mix(in srgb, var(--accent) 20%, transparent); }
+.dark .dark\:bg-accent\/5           { background-color: color-mix(in srgb, var(--accent) 5%, transparent); }
+
+.border-t-accent          { border-top-color: var(--accent); }
 
 html, body {
   margin: 0;

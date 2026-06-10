@@ -14,7 +14,7 @@ const iconMap = {
   success: { icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
   error:   { icon: XCircle,     color: "text-red-500",     bg: "bg-red-500/10",     border: "border-red-500/20" },
   warning: { icon: AlertTriangle, color: "text-amber-500",  bg: "bg-amber-500/10",  border: "border-amber-500/20" },
-  info:    { icon: Info,        color: "text-blue-500",    bg: "bg-blue-500/10",    border: "border-blue-500/20" },
+  info:    { icon: Info,        color: "text-accent",    bg: "bg-accent/10",    border: "border-accent/20" },
 };
 
 let nextId = 0;

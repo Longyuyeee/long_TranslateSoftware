@@ -117,7 +117,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   const StatsBar = () => (
     <div className="flex gap-4 mb-6">
       {[
-        { label: t.dueToday, value: stats.due_today, color: "text-blue-500" },
+        { label: t.dueToday, value: stats.due_today, color: "text-accent" },
         { label: t.reviewed, value: stats.reviewed, color: "text-green-500" },
         { label: t.mastered, value: stats.mastered, color: "text-amber-500" },
         { label: t.streak, value: `${stats.streak}d`, color: "text-purple-500" },
@@ -136,7 +136,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
       <div className="flex flex-col h-full gap-4">
         <div className="flex items-center justify-between shrink-0">
           <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
-            <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.flashcardMode}</button>
+            <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-accent">{t.flashcardMode}</button>
             <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.quizMode}</button>
           </div>
           {currentWord && <span className="text-[10px] font-bold text-zinc-400">{currentIdx + 1} / {dueWords.length}</span>}
@@ -148,7 +148,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-zinc-300 dark:text-zinc-700">
             <Brain size={64} className="opacity-30" />
             <p className="font-black text-sm opacity-40">{t.allCaughtUp}</p>
-            <button onClick={loadData} className="px-6 py-2 bg-blue-600/10 text-blue-600 rounded-full text-[10px] font-black hover:bg-blue-600/20 transition-all">
+            <button onClick={loadData} className="px-6 py-2 bg-accent/10 text-accent rounded-full text-[10px] font-black hover:bg-accent/20 transition-all">
               <RotateCcw size={12} className="inline mr-1" />{t.refresh}
             </button>
           </div>
@@ -174,8 +174,8 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
                   <p className="text-[10px] text-zinc-300 font-bold uppercase tracking-[0.3em] mt-2">{t.flipHint}</p>
                 </div>
                 {/* Back */}
-                <div className={`absolute inset-0 glass-card rounded-3xl border border-blue-500/20 bg-blue-50/80 dark:bg-blue-900/20 flex flex-col items-center justify-center gap-3 p-8 backface-hidden rotate-y-180 ${!isFlipped ? 'pointer-events-none' : ''}`}>
-                  <h3 className="text-xl font-black text-blue-600 dark:text-blue-400">{currentWord.meaning || "?"}</h3>
+                <div className={`absolute inset-0 glass-card rounded-3xl border border-accent/20 bg-accent/5 dark:bg-accent/20 flex flex-col items-center justify-center gap-3 p-8 backface-hidden rotate-y-180 ${!isFlipped ? 'pointer-events-none' : ''}`}>
+                  <h3 className="text-xl font-black text-accent dark:text-accent">{currentWord.meaning || "?"}</h3>
                   {examples.length > 0 && (
                     <div className="text-center">
                       <p className="text-[11px] text-zinc-500 italic">"{examples[0].en}"</p>
@@ -194,7 +194,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
                     { label: t.again, quality: 0, color: "bg-red-500/10 text-red-600 border-red-500/20 hover:bg-red-500 hover:text-white" },
                     { label: t.hard, quality: 2, color: "bg-orange-500/10 text-orange-600 border-orange-500/20 hover:bg-orange-500 hover:text-white" },
                     { label: t.good, quality: 4, color: "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500 hover:text-white" },
-                    { label: t.easy, quality: 5, color: "bg-blue-500/10 text-blue-600 border-blue-500/20 hover:bg-blue-500 hover:text-white" },
+                    { label: t.easy, quality: 5, color: "bg-accent/10 text-accent border-accent/20 hover:bg-accent hover:text-white" },
                   ].map(b => (
                     <button key={b.label} onClick={() => handleReview(b.quality)} className={`px-5 py-2.5 rounded-full border font-black text-[11px] transition-all ${b.color}`}>
                       {b.label}
@@ -217,7 +217,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
         <div className="flex items-center justify-between shrink-0">
           <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
             <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.flashcardMode}</button>
-            <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.quizMode}</button>
+            <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-accent">{t.quizMode}</button>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold text-green-500">{t.correct}: {quizScore.correct}</span>
@@ -240,7 +240,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
                 if (opt === quizCorrectAnswer) btnClass += "bg-green-500/20 border-green-500 text-green-600";
                 else btnClass += "bg-black/5 dark:bg-white/5 border-transparent text-zinc-300";
               } else {
-                btnClass += "glass-card border-black/5 dark:border-white/5 hover:border-blue-500/30 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer text-zinc-700 dark:text-zinc-200";
+                btnClass += "glass-card border-black/5 dark:border-white/5 hover:border-accent/30 hover:bg-accent/5 dark:hover:bg-accent/20 cursor-pointer text-zinc-700 dark:text-zinc-200";
               }
               return (
                 <button key={opt} onClick={() => handleQuizAnswer(opt)} className={btnClass} disabled={quizAnswered}>
@@ -252,7 +252,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
           </div>
 
           {quizAnswered && (
-            <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={handleQuizNext} className="px-6 py-2.5 bg-blue-600 text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-blue-700 transition-all">
+            <motion.button initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={handleQuizNext} className="px-6 py-2.5 bg-accent text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-accent transition-all">
               {quizQuestion + 1 < quizScore.total ? <>{t.quizFinish} <ChevronRight size={14} /></> : t.quizFinish}
             </motion.button>
           )}
@@ -267,7 +267,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
       <div className="flex items-center justify-between shrink-0">
         <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5 dark:border-white/10">
           <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.flashcardMode}</button>
-          <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-blue-600">{t.quizMode}</button>
+          <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-accent">{t.quizMode}</button>
         </div>
       </div>
 
@@ -280,7 +280,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
               {quizScore.correct}/{quizScore.total}
             </div>
             <p className="text-sm font-bold text-zinc-500">{Math.round(quizScore.correct / quizScore.total * 100)}% {t.correct}</p>
-            <button onClick={() => { setQuizFinished(false); startQuiz(); }} className="px-6 py-2.5 bg-blue-600 text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-blue-700 transition-all">
+            <button onClick={() => { setQuizFinished(false); startQuiz(); }} className="px-6 py-2.5 bg-accent text-white rounded-full font-black text-[11px] flex items-center gap-2 hover:bg-accent transition-all">
               <RotateCcw size={14} /> {t.playAgain}
             </button>
           </>
@@ -288,13 +288,13 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
           <>
             <Brain size={64} className="opacity-30 text-zinc-300" />
             <p className="font-bold text-sm text-zinc-400">{t.quizNeedMore}</p>
-            <button onClick={loadData} className="px-4 py-2 bg-blue-600/10 text-blue-600 rounded-full text-[10px] font-black">{t.refresh}</button>
+            <button onClick={loadData} className="px-4 py-2 bg-accent/10 text-accent rounded-full text-[10px] font-black">{t.refresh}</button>
           </>
         ) : (
           <>
             <Brain size={64} className="opacity-30 text-zinc-300" />
             <p className="font-bold text-sm text-zinc-400">{t.quizStartDesc}</p>
-            <button onClick={startQuiz} className="px-8 py-3 bg-blue-600 text-white rounded-full font-black text-[12px] hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20">
+            <button onClick={startQuiz} className="px-8 py-3 bg-accent text-white rounded-full font-black text-[12px] hover:bg-accent transition-all shadow-lg shadow-accent">
               {t.quizStart}
             </button>
           </>

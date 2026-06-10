@@ -120,7 +120,7 @@ export default function OcrOverlay() {
       {/* 只有在有宽度且未在处理时显示选框，或者在处理时显示固定的选框 */}
       {(rect.w > 0 || isProcessing) && (
         <div 
-            className="absolute border-2 border-blue-500 bg-blue-500/10 pointer-events-none ring-1 ring-white/20"
+            className="absolute border-2 border-accent bg-accent/10 pointer-events-none ring-1 ring-white/20"
             style={{
             left: rect.x,
             top: rect.y,
@@ -137,7 +137,7 @@ export default function OcrOverlay() {
       )}
 
       <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-white/10 dark:bg-black/40 backdrop-blur-2xl text-white px-8 py-3 rounded-2xl text-[11px] font-black tracking-[0.2em] border border-white/20 shadow-2xl pointer-events-none flex items-center gap-3">
-        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
 {screenBounds.count > 1 ? t.ocrMultiHint.replace('{count}', String(screenBounds.count)) : t.ocrDragHint}
       </div>
     </div>
