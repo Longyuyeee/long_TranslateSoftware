@@ -8,6 +8,8 @@ function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_T
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
 }
 
+interface GlossaryEntry { source_term: string; target_term: string; }
+
 async function doTranslate(
   text: string,
   apiKey: string,
@@ -16,13 +18,27 @@ async function doTranslate(
   targetLang: string,
   sourceLang: string,
   customPrompt: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  glossary?: GlossaryEntry[]
 ): Promise<boolean> {
   const sourceHint = sourceLang !== "auto" ? ` from ${sourceLang}` : "";
   const defaultPrompt = `You are a professional translator. Translate the following text${sourceHint} to ${targetLang}. Return only the translated text.`;
-  const systemPrompt = customPrompt.trim()
-    ? customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text)
-    : defaultPrompt;
+
+  // Build system prompt with glossary injection
+  let systemPrompt: string;
+  if (customPrompt.trim()) {
+    systemPrompt = customPrompt.replace(/\{\{targetLang\}\}/g, targetLang).replace(/\{\{text\}\}/g, text);
+  } else {
+    systemPrompt = defaultPrompt;
+  }
+
+  // Inject glossary terms into the system prompt
+  if (glossary && glossary.length > 0) {
+    const glossaryBlock = glossary
+      .map(g => `- "${g.source_term}" → "${g.target_term}"`)
+      .join("\n");
+    systemPrompt = `IMPORTANT: Use these exact terminology translations:\n${glossaryBlock}\n\n${systemPrompt}`;
+  }
 
   const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -80,6 +96,12 @@ export async function translateStreaming(
     const sourceLang = await invoke<string>("get_config_value", { key: "source_lang" }) || "auto";
     const customPrompt = await invoke<string>("get_config_value", { key: "custom_prompt" }) || "";
 
+    // Fetch glossary entries
+    let glossary: GlossaryEntry[] = [];
+    try {
+      glossary = await invoke<GlossaryEntry[]>("get_glossary_entries");
+    } catch { /* glossary fetch is optional */ }
+
     const primaryKey = rawApiKey?.trim();
     const primaryUrl = rawBaseUrl?.trim().replace(/\/+$/, "");
     const primaryModel = rawModelName?.trim();
@@ -105,7 +127,7 @@ export async function translateStreaming(
       await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, (chunk) => {
         translatedResult += chunk;
         onChunk(chunk);
-      });
+      }, glossary);
     } catch (primaryError) {
       console.warn("Primary model failed, trying backup...", primaryError);
       // Try backup model
@@ -120,7 +142,7 @@ export async function translateStreaming(
           await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, (chunk) => {
             translatedResult += chunk;
             onChunk(chunk);
-          });
+          }, glossary);
         } catch (backupError) {
           onChunk(`\n\n[Error: Both primary and backup models failed]`);
         }

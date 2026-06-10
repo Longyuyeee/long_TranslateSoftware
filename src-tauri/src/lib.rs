@@ -1208,6 +1208,68 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
+// ── Glossary CRUD ──
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct GlossaryEntry {
+    id: i64,
+    source_term: String,
+    target_term: String,
+    created_at: String,
+}
+
+#[tauri::command]
+fn add_glossary_entry(app: AppHandle, source_term: String, target_term: String) -> Result<GlossaryEntry, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO glossary (source_term, target_term) VALUES (?1, ?2)",
+        rusqlite::params![source_term, target_term],
+    ).map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    Ok(GlossaryEntry { id, source_term, target_term, created_at: String::new() })
+}
+
+#[tauri::command]
+fn get_glossary_entries(app: AppHandle) -> Result<Vec<GlossaryEntry>, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, source_term, target_term, created_at FROM glossary ORDER BY created_at DESC"
+    ).map_err(|e| e.to_string())?;
+    let entries = stmt.query_map([], |row| {
+        Ok(GlossaryEntry {
+            id: row.get(0)?,
+            source_term: row.get(1)?,
+            target_term: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(entries)
+}
+
+#[tauri::command]
+fn delete_glossary_entry(app: AppHandle, id: i64) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM glossary WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn update_glossary_entry(app: AppHandle, id: i64, source_term: String, target_term: String) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE glossary SET source_term = ?1, target_term = ?2 WHERE id = ?3",
+        rusqlite::params![source_term, target_term, id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
     let old_identifier = "com.ai.trans.assistant";
@@ -1317,7 +1379,8 @@ pub fn run() {
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             save_translation, get_translation_history, delete_translation, clear_translation_history,
             export_wordbook, lookup_translation_memory, save_translation_memory,
-            get_due_reviews, submit_review, get_review_stats
+            get_due_reviews, submit_review, get_review_stats,
+            add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

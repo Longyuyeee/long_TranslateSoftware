@@ -141,6 +141,19 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         set_schema_version(&conn, 4)?;
     }
 
+    if current_version < 5 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS glossary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_term TEXT NOT NULL,
+                target_term TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        set_schema_version(&conn, 5)?;
+    }
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {
