@@ -28,6 +28,8 @@
 - **流式实时翻译**: 支持 OpenAI / DeepSeek 及所有兼容接口，毫秒级 SSE 流式响应
 - **双模型故障切换**: 主模型不可用时自动切换至备用 API，确保服务不中断
 - **可自定义提示词**: 自由定制 AI 翻译 Prompt，支持 `{{targetLang}}` / `{{text}}` 占位符
+- **术语表 (Glossary)**: 自定义固定术语译法，翻译时自动注入 AI 提示词
+- **多模型对比翻译**: 主备模型并行翻译，左右分屏实时对比结果
 - **翻译历史**: 自动保存所有翻译记录，支持浏览、复制与删除
 - **翻译记忆**: 缓存重复翻译内容，减少 API 调用费用
 - **30 种目标语言**: 下拉菜单选择，源语言支持自动检测
@@ -51,6 +53,7 @@
 
 ### 📚 智能 AI 生词本
 - AI 深度解析：音标、中文释义、词源分析、多场景例句、近义词对比
+- **搜索与排序**: 实时搜索过滤单词/释义，支持最新 / A-Z / Z-A 排序
 - **导出 CSV / JSON**: 一键导出含例句与近义词的完整数据
 - **WebDAV 云端同步**: 支持坚果云、Nextcloud 等所有 WebDAV 服务，自动创建目录
 - 懒加载渲染，数千单词流畅浏览
@@ -69,6 +72,9 @@
 
 ### 🎨 视觉与体验
 - 精美毛玻璃 Apple Style 设计，深色/浅色/跟随系统三种主题
+- **8 色可自定义主题色**: 蓝/靛/紫/粉/橙/绿/青/薄荷，CSS 变量即时切换
+- **Toast 通知系统**: 右上角堆叠、spring 动画、自动消失
+- **弹性标签切换动画**: 定向滑入，自然流畅
 - **暗色模式完整适配**: 所有下拉框、输入框、placeholder 暗色对比度已修复
 - **可调整大小的浮动窗口**: 拖拽边缘自由缩放，适配长短文本
 - **Ctrl+1~7 键盘导航**: 快速切换设置标签页
@@ -87,14 +93,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.4 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [v0.3.4 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.5 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [v0.3.5 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.3.4 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
 | v0.3.3 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_zh-CN.msi) |
 | v0.3.2 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.2/LongTranslate_0.3.2_x64_zh-CN.msi) |
 | v0.3.1 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.1/LongTranslate_0.3.1_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.1/LongTranslate_0.3.1_x64_zh-CN.msi) |
@@ -102,6 +109,24 @@
 </details>
 
 ### 更新日志
+
+<details>
+<summary>v0.3.5 — Feature Update</summary>
+
+**新增**
+- **定向弹性动画标签切换** — 左右导航时内容自然滑入，spring 物理曲线
+- **Toast 通知系统** — 成功/错误/警告/信息 4 类，右上角堆叠、自动消失
+- **单词本搜索与排序** — 实时过滤单词/释义 + 最新 / A-Z / Z-A 排序
+- **可自定义主题色** — 8 种预设颜色（蓝/靛/紫/粉/橙/绿/青/薄荷），CSS 变量即时切换
+- **术语表 (Glossary)** — 自定义固定术语译法，翻译时自动注入 AI 提示词
+- **多模型对比翻译** — 主模型与备用模型并行翻译，左右分屏对比结果
+
+**优化**
+- 移除旧 header 状态栏，统一使用 Toast 通知系统
+- 全部硬编码 blue-500/600 替换为 runtime CSS 变量 (`--accent`)
+- 单词本加载更多按钮在搜索激活时自动隐藏
+- 单词表左侧面板增加搜索框与排序下拉
+</details>
 
 <details>
 <summary>v0.3.4 — Fullscreen Layout Fix</summary>
