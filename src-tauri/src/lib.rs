@@ -13,6 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 use sha2::{Sha256, Digest};
 use rusqlite::OptionalExtension;
+use std::io::Write;
 use std::sync::Mutex;
 use aes_gcm::{Aes256Gcm, AeadCore, Nonce, aead::{Aead, KeyInit, OsRng}};
 use futures_util::{StreamExt, SinkExt};
@@ -586,6 +587,227 @@ fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_jso
         "difficulty": new_d,
         "next_review": next_str,
     }))
+}
+
+#[tauri::command]
+fn export_anki(app: AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
+
+    // Read wordbook data
+    let mut stmt = conn.prepare(
+        "SELECT word, phonetic, meaning, analysis_json FROM wordbook WHERE is_deleted = 0 ORDER BY word"
+    ).map_err(|e| e.to_string())?;
+    let words: Vec<(String, String, String, String)> = stmt.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    }).map_err(|e| e.to_string())?.filter_map(|r| r.ok()).collect();
+
+    if words.is_empty() {
+        return Err("No words to export.".to_string());
+    }
+
+    let now = chrono::Utc::now();
+    let ts = now.timestamp_millis();
+    let ts_sec = now.timestamp();
+    let deck_id = ts;
+    let model_id = ts;
+
+    // Build Anki model JSON
+    let models = serde_json::json!({
+        model_id.to_string(): {
+            "id": model_id,
+            "name": "Long Translate Vocabulary",
+            "type": 0,
+            "mod": ts_sec,
+            "usn": 0,
+            "sortf": 0,
+            "did": null,
+            "tmpls": [{
+                "name": "Card 1",
+                "ord": 0,
+                "qfmt": "<div style='font-size:24px;margin-bottom:8px'>{{Word}}</div>{{#Phonetic}}<div style='color:#888;font-size:16px'>{{Phonetic}}</div>{{/Phonetic}}",
+                "afmt": "<div style='font-size:20px;color:#1a73e8;margin-bottom:12px'><b>{{Meaning}}</b></div>{{#Mnemonic}}<hr><div style='background:#fff8e1;padding:12px;border-radius:8px;margin:8px 0'><b>💡 Memory Hook</b><br>{{Mnemonic}}</div>{{/Mnemonic}}{{#Etymology}}<hr><div style='color:#666;font-style:italic;font-size:14px'>📖 {{Etymology}}</div>{{/Etymology}}{{#Examples}}<hr><div style='font-size:14px'>📝 {{Examples}}</div>{{/Examples}}{{#Synonyms}}<hr><div style='font-size:14px'>🔤 {{Synonyms}}</div>{{/Synonyms}}",
+                "bqfmt": "",
+                "bafmt": "",
+                "did": null,
+                "bfont": "",
+                "bsize": 0
+            }],
+            "flds": [
+                {"name": "Word", "ord": 0, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Phonetic", "ord": 1, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Meaning", "ord": 2, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Mnemonic", "ord": 3, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Etymology", "ord": 4, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Examples", "ord": 5, "sticky": false, "rtl": false, "font": "Arial", "size": 20},
+                {"name": "Synonyms", "ord": 6, "sticky": false, "rtl": false, "font": "Arial", "size": 20}
+            ],
+            "css": ".card{font-family:Arial,sans-serif;font-size:20px;text-align:center;color:#333;background:#fff;padding:16px}hr{border:none;border-top:1px solid #e0e0e0;margin:12px 0}",
+            "latexPre": "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\begin{document}\n",
+            "latexPost": "\\end{document}",
+            "latexsvg": false,
+            "req": [[0, "any", [0, 1, 2]]]
+        }
+    });
+
+    let decks = serde_json::json!({
+        deck_id.to_string(): {
+            "id": deck_id,
+            "name": "Long Translate Import",
+            "mod": ts_sec,
+            "usn": 0,
+            "desc": "Imported from Long Translate",
+            "collapsed": false,
+            "browserCollapsed": false,
+            "newToday": [0, 0],
+            "revToday": [0, 0],
+            "lrnToday": [0, 0],
+            "conf": 1,
+            "extendNew": 10,
+            "extendRev": 50
+        }
+    });
+
+    let dconf = serde_json::json!({
+        "1": {
+            "id": 1, "name": "Default", "mod": ts_sec, "usn": 0,
+            "new": {"delays": [1.0, 10.0], "ints": [1, 4, 7], "initialFactor": 2500, "separate": true, "order": 1, "perDay": 20, "bury": true},
+            "lapse": {"delays": [10.0], "mult": 0.0, "minInt": 1, "leechFails": 8, "leechAction": 0},
+            "rev": {"perDay": 200, "ease4": 1.3, "fuzz": 0.05, "minSpace": 1, "ivlFct": 1.0, "maxIvl": 36500, "bury": true, "hardFactor": 1.2},
+            "maxTaken": 60, "timer": 0, "autoplay": true, "replayq": true, "mod": 0, "usn": 0
+        }
+    });
+
+    let col_conf = serde_json::json!({
+        "activeDecks": [1], "curDeck": 1, "newSpread": 0, "collapseTime": 1200,
+        "timeLim": 0, "estTimes": true, "dueCounts": true, "curModel": null,
+        "nextPos": 1, "sortType": "noteFld", "sortBackwards": false,
+        "addToCur": true, "dayLearnFirst": false
+    });
+
+    // Create temp Anki database
+    let temp_dir = std::env::temp_dir().join(format!("long_anki_{}", ts));
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let db_path = temp_dir.join("collection.anki2");
+    let aconn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+
+    aconn.execute_batch(
+        "CREATE TABLE col (
+            id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, mod INTEGER NOT NULL,
+            scm INTEGER NOT NULL, ver INTEGER NOT NULL, dty INTEGER NOT NULL,
+            usn INTEGER NOT NULL, ls INTEGER NOT NULL, conf TEXT NOT NULL,
+            models TEXT NOT NULL, decks TEXT NOT NULL, dconf TEXT NOT NULL, tags TEXT NOT NULL
+        );
+        CREATE TABLE notes (
+            id INTEGER PRIMARY KEY, guid TEXT NOT NULL, mid INTEGER NOT NULL,
+            mod INTEGER NOT NULL, usn INTEGER NOT NULL, tags TEXT NOT NULL,
+            flds TEXT NOT NULL, sfld TEXT NOT NULL, csum INTEGER NOT NULL,
+            flags INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        CREATE TABLE cards (
+            id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL,
+            ord INTEGER NOT NULL, mod INTEGER NOT NULL, usn INTEGER NOT NULL,
+            type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL,
+            ivl INTEGER NOT NULL, factor INTEGER NOT NULL, reps INTEGER NOT NULL,
+            lapses INTEGER NOT NULL, left INTEGER NOT NULL, odue INTEGER NOT NULL,
+            odid INTEGER NOT NULL, flags INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        CREATE INDEX idx_notes_usn ON notes (usn);
+        CREATE INDEX idx_cards_nid ON cards (nid);
+        CREATE INDEX idx_cards_sched ON cards (did, queue, due);
+        CREATE INDEX idx_cards_usn ON cards (usn);"
+    ).map_err(|e| e.to_string())?;
+
+    // Insert collection row
+    aconn.execute(
+        "INSERT INTO col VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        rusqlite::params![
+            1_i64, ts, ts, ts_sec, 21_i64, 0_i64, -1_i64, 0_i64,
+            serde_json::to_string(&col_conf).unwrap(),
+            serde_json::to_string(&models).unwrap(),
+            serde_json::to_string(&decks).unwrap(),
+            serde_json::to_string(&dconf).unwrap(),
+            "{}"
+        ],
+    ).map_err(|e| e.to_string())?;
+
+    // Insert notes and cards
+    for (i, (word, phonetic, meaning, analysis_json)) in words.iter().enumerate() {
+        let note_id = ts + i as i64;
+        let guid = uuid::Uuid::new_v4().to_string();
+        let sfld = word.clone();
+
+        // Parse analysis JSON for extra fields
+        let (mnemonic, etymology, examples, synonyms): (String, String, String, String) =
+            if let Ok(analysis) = serde_json::from_str::<serde_json::Value>(analysis_json) {
+                (
+                    analysis["mnemonic"].as_str().unwrap_or("").to_string(),
+                    analysis["etymology"].as_str().unwrap_or("").to_string(),
+                    analysis["examples"].as_array().map(|arr| {
+                        arr.iter().map(|ex| {
+                            format!("{} ({})", ex["en"].as_str().unwrap_or(""), ex["zh"].as_str().unwrap_or(""))
+                        }).collect::<Vec<_>>().join("<br>")
+                    }).unwrap_or_default(),
+                    analysis["synonyms"].as_array().map(|arr| {
+                        arr.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                    }).unwrap_or_default(),
+                )
+            } else {
+                (String::new(), String::new(), String::new(), String::new())
+            };
+
+        let flds = vec![
+            word.clone(),
+            phonetic.clone(),
+            meaning.clone(),
+            mnemonic,
+            etymology,
+            examples,
+            synonyms,
+        ].join("\x1f"); // Anki field separator
+
+        aconn.execute(
+            "INSERT INTO notes VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            rusqlite::params![note_id, guid, model_id, ts_sec, -1_i64, "", flds, sfld, 0_i64, 0_i64, ""],
+        ).map_err(|e| e.to_string())?;
+
+        // New card: queue=0 (new), type=0 (new), due=note_id
+        aconn.execute(
+            "INSERT INTO cards VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+            rusqlite::params![
+                note_id + 1, note_id, deck_id, 0_i64, ts_sec, -1_i64,
+                0_i64, 0_i64, note_id, 0_i64, 0_i64, 0_i64, 0_i64, 0_i64,
+                0_i64, 0_i64, 0_i64, ""
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    aconn.close().map_err(|_| "close error".to_string())?;
+
+    // Create media file
+    std::fs::write(temp_dir.join("media"), "{}").map_err(|e| e.to_string())?;
+
+    // Create APKG zip
+    let desktop = app.path().desktop_dir().map_err(|e| e.to_string())?;
+    let filename = format!("LongTranslate_Anki_{}.apkg", now.format("%Y%m%d_%H%M%S"));
+    let apkg_path = desktop.join(&filename);
+
+    let file = std::fs::File::create(&apkg_path).map_err(|e| e.to_string())?;
+    let mut zip_writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    for entry_name in &["collection.anki2", "media"] {
+        zip_writer.start_file(*entry_name, options).map_err(|e| e.to_string())?;
+        let data = std::fs::read(temp_dir.join(entry_name)).map_err(|e| e.to_string())?;
+        zip_writer.write(&data).map_err(|e| e.to_string())?;
+    }
+
+    zip_writer.finish().map_err(|e| e.to_string())?;
+
+    // Cleanup temp
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    Ok(apkg_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -1461,7 +1683,7 @@ pub fn run() {
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             save_translation, get_translation_history, delete_translation, clear_translation_history,
             export_wordbook, lookup_translation_memory, save_translation_memory,
-            get_due_reviews, submit_review, get_review_stats,
+            get_due_reviews, submit_review, get_review_stats, export_anki,
             add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
         ])
         .run(tauri::generate_context!())
