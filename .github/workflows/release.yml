@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -49,6 +49,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Long翻译 v__VERSION__"
+          releaseBody: "发现新的正式版本。应用将验证更新包签名后再安装，完整更新内容请查看本 Release 页面。"
           generateReleaseNotes: true
           releaseDraft: false
           prerelease: false
