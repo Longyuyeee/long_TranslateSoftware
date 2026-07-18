@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from "lucide-react";
 
@@ -28,18 +28,27 @@ export function toast(type: ToastType, message: string) {
 /** Render once near the root of the component tree. */
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const addToast = useCallback((type: ToastType, message: string) => {
     const id = String(++nextId);
-    setToasts(prev => [...prev, { id, type, message }]);
-    setTimeout(() => {
+    setToasts(prev => {
+      if (prev.some(item => item.type === type && item.message === message)) return prev;
+      return [...prev, { id, type, message }].slice(-4);
+    });
+    const timer = setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 3500);
+    timersRef.current.push(timer);
   }, []);
 
   useEffect(() => {
     notifyFn = addToast;
-    return () => { notifyFn = null; };
+    return () => {
+      notifyFn = null;
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
   }, [addToast]);
 
   const dismiss = (id: string) => {
@@ -59,12 +68,14 @@ export function ToastContainer() {
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 80, scale: 0.9 }}
               transition={{ type: "spring", stiffness: 400, damping: 28 }}
+              role={t.type === "error" ? "alert" : "status"}
               className={`pointer-events-auto flex items-center gap-3 pl-4 pr-2 py-3 rounded-2xl backdrop-blur-2xl border shadow-2xl ${cfg.bg} ${cfg.border}`}
             >
               <Icon size={16} className={`shrink-0 ${cfg.color}`} />
               <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-100 leading-snug">{t.message}</span>
               <button
                 onClick={() => dismiss(t.id)}
+                aria-label="Dismiss notification"
                 className="shrink-0 p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
               >
                 <X size={12} />

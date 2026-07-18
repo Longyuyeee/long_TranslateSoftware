@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
@@ -7,7 +7,7 @@ import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
-import { translateStreaming, translateCompare, speak } from "../services/api";
+import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 
@@ -21,6 +21,14 @@ const ACCENT_PALETTE = [
   { id: "teal",   value: "#5ac8fa" },
   { id: "mint",   value: "#00c7be" },
 ];
+
+const TRANSLATION_PROVIDERS = [
+  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { id: "custom", label: "Custom", baseUrl: "", model: "" },
+] as const;
+
+type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
@@ -69,6 +77,11 @@ export default function Dashboard() {
   const [transBaseUrl, setTransBaseUrl] = useState("");
   const [transModelName, setTransModelName] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
+  const [translationProvider, setTranslationProvider] = useState<TranslationProviderId>("deepseek");
+  const [showAdvancedModel, setShowAdvancedModel] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
   // Backup model config
   const [backupApiKey, setBackupApiKey] = useState("");
   const [backupBaseUrl, setBackupBaseUrl] = useState("");
@@ -87,6 +100,9 @@ export default function Dashboard() {
 
   const [words, setWords] = useState<any[]>([]);
   const [selectedWord, setSelectedWord] = useState<any>(null);
+  const [configHydrated, setConfigHydrated] = useState(false);
+  const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Glossary state
   interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
@@ -132,6 +148,13 @@ export default function Dashboard() {
   const [batchBackTranslation, setBatchBackTranslation] = useState("");
   const [isBatchBackTranslating, setIsBatchBackTranslating] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [batchTaskState, setBatchTaskState] = useState<TranslationTaskState>({ requestId: "", phase: "idle" });
+  const batchTaskRef = useRef<TranslationTask | null>(null);
+  const activeBatchRequestIdRef = useRef("");
+  const comparisonTaskRef = useRef<TranslationComparisonTask | null>(null);
+  const activeComparisonRequestIdRef = useRef("");
+  const [primaryComparisonState, setPrimaryComparisonState] = useState<ComparisonSideState | null>(null);
+  const [backupComparisonState, setBackupComparisonState] = useState<ComparisonSideState | null>(null);
 
   // Wordbook search, sort & pagination
   const [wordsLimit, setWordsLimit] = useState(200);
@@ -162,7 +185,40 @@ export default function Dashboard() {
   const [isAdding, setIsAdding] = useState(false);
 
   const syncTimerRef = useRef<any>(null);
+  const webdavEnabledRef = useRef(webdavEnabled);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const settingsFingerprint = useMemo(() => JSON.stringify({
+    transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
+    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
+    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass,
+  }), [transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
+    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
+    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass]);
+  const hasUnsavedChanges = configHydrated && savedSettingsFingerprint !== null && settingsFingerprint !== savedSettingsFingerprint;
+
+  useEffect(() => { webdavEnabledRef.current = webdavEnabled; }, [webdavEnabled]);
+
+  useEffect(() => {
+    if (configHydrated && savedSettingsFingerprint === null) setSavedSettingsFingerprint(settingsFingerprint);
+  }, [configHydrated, savedSettingsFingerprint, settingsFingerprint]);
+
+  useEffect(() => {
+    const warnBeforeClose = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeClose);
+    return () => window.removeEventListener("beforeunload", warnBeforeClose);
+  }, [hasUnsavedChanges]);
+  const batchStatusText = batchTaskState.phase === "loading-config" ? t.translationPreparing
+    : batchTaskState.phase === "checking-cache" ? t.translationCheckingCache
+      : batchTaskState.phase === "translating-primary" ? t.translationPrimary
+        : batchTaskState.phase === "translating-backup" ? t.translationBackup
+          : batchTaskState.phase === "error" ? t.translationFailed
+            : batchTaskState.phase === "cancelled" ? t.translationCancelled
+              : batchTaskState.cached ? t.translationCacheHit
+                : "";
 
   // Keyboard shortcuts for tab switching (Ctrl+1..5)
   useEffect(() => {
@@ -197,10 +253,10 @@ export default function Dashboard() {
         loadWordbook();
         refreshStats();
         // 1-minute auto sync logic - only for local changes
-        if (webdavEnabled && event.payload === "local") {
+        if (webdavEnabledRef.current && event.payload === "local") {
             if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
             syncTimerRef.current = setTimeout(() => {
-                handleSync();
+                invoke("sync_wordbook").catch(error => console.error("Background sync failed", error));
             }, 60000); // 1 minute
         }
     });
@@ -223,7 +279,7 @@ export default function Dashboard() {
         unlistenConfigImport.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
-  }, [webdavEnabled, lang]); // Added lang to deps to refresh UI when lang changes
+  }, []);
 
   const handleExport = async () => {
     try {
@@ -384,50 +440,64 @@ export default function Dashboard() {
   }, [theme]);
 
   const loadConfig = async () => {
+    setConfigHydrated(false);
+    setSavedSettingsFingerprint(null);
     try {
-      const getVal = async (key: string) => await invoke<string>("get_config_value", { key });
+      const keys = [
+        "trans_api_key", "openai_api_key", "trans_base_url", "base_url", "trans_model_name", "model_name",
+        "custom_prompt", "backup_api_key", "backup_base_url", "backup_model", "ocr_lang", "shortcut_q", "shortcut_w",
+        "language", "target_lang", "source_lang", "auto_copy", "clipboard_monitor", "accent_color", "theme", "font_size",
+        "tts_engine", "tts_api_key", "tts_base_url", "tts_model_name", "tts_model", "tts_voice", "tts_speed",
+        "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time",
+      ];
+      const values = await invoke<Record<string, string>>("get_config_values", { keys });
+      const getVal = (key: string) => values[key] || "";
       
-      setTransApiKey(await getVal("trans_api_key") || await getVal("openai_api_key") || "");
-      setTransBaseUrl(await getVal("trans_base_url") || await getVal("base_url") || "");
-      setTransModelName(await getVal("trans_model_name") || await getVal("model_name") || "");
-      setCustomPrompt(await getVal("custom_prompt") || "");
-      setBackupApiKey(await getVal("backup_api_key") || "");
-      setBackupBaseUrl(await getVal("backup_base_url") || "");
-      setBackupModelName(await getVal("backup_model") || "");
-      setOcrLang(await getVal("ocr_lang") || "auto");
+      setTransApiKey(getVal("trans_api_key") || getVal("openai_api_key") || "");
+      const loadedBaseUrl = getVal("trans_base_url") || getVal("base_url") || "https://api.deepseek.com/v1";
+      setTransBaseUrl(loadedBaseUrl);
+      setTransModelName(getVal("trans_model_name") || getVal("model_name") || "deepseek-chat");
+      const matchedProvider = TRANSLATION_PROVIDERS.find(provider => provider.baseUrl && loadedBaseUrl.replace(/\/+$/, "") === provider.baseUrl);
+      setTranslationProvider(matchedProvider?.id || "custom");
+      setCustomPrompt(getVal("custom_prompt"));
+      setBackupApiKey(getVal("backup_api_key"));
+      setBackupBaseUrl(getVal("backup_base_url"));
+      setBackupModelName(getVal("backup_model"));
+      setOcrLang(getVal("ocr_lang") || "auto");
 
-      setShortcutQ(await getVal("shortcut_q") || "Alt+Q");
-      setShortcutW(await getVal("shortcut_w") || "Alt+W");
+      setShortcutQ(getVal("shortcut_q") || "Alt+Q");
+      setShortcutW(getVal("shortcut_w") || "Alt+W");
 
-      const savedLang = await getVal("language") as Lang;
+      const savedLang = getVal("language") as Lang;
       if (savedLang) setLang(savedLang);
       
-      setTargetLang(await getVal("target_lang") || "Chinese");
-      setSourceLang(await getVal("source_lang") || "auto");
-      setAutoCopy((await getVal("auto_copy")) === "true");
-      setClipboardMonitor((await getVal("clipboard_monitor")) === "true");
-      const savedAccent = await getVal("accent_color") || "#007aff";
+      setTargetLang(getVal("target_lang") || "Chinese");
+      setSourceLang(getVal("source_lang") || "auto");
+      setAutoCopy(getVal("auto_copy") === "true");
+      setClipboardMonitor(getVal("clipboard_monitor") === "true");
+      const savedAccent = getVal("accent_color") || "#007aff";
       setAccentColor(savedAccent);
       applyAccent(savedAccent);
-      setTheme(await getVal("theme") || "system");
-      setFontSize(parseInt(await getVal("font_size") || "14"));
+      setTheme(getVal("theme") || "system");
+      setFontSize(parseInt(getVal("font_size") || "14"));
 
-      setTtsEngine(await getVal("tts_engine") || "local");
-      setTtsApiKey(await getVal("tts_api_key") || await getVal("openai_api_key") || "");
-      setTtsBaseUrl(await getVal("tts_base_url") || await getVal("base_url") || "");
-      setTtsModelName(await getVal("tts_model_name") || await getVal("tts_model") || "tts-1");
-      setTtsVoice(await getVal("tts_voice") || "alloy");
-      setTtsSpeed(await getVal("tts_speed") || "1.0");
+      setTtsEngine(getVal("tts_engine") || "local");
+      setTtsApiKey(getVal("tts_api_key") || getVal("openai_api_key"));
+      setTtsBaseUrl(getVal("tts_base_url") || getVal("base_url"));
+      setTtsModelName(getVal("tts_model_name") || getVal("tts_model") || "tts-1");
+      setTtsVoice(getVal("tts_voice") || "alloy");
+      setTtsSpeed(getVal("tts_speed") || "1.0");
 
-      setWebdavEnabled((await getVal("webdav_enabled")) === "true");
-      setWebdavUrl(await getVal("webdav_url") || "");
-      setWebdavUser(await getVal("webdav_user") || "");
-      setWebdavPass(await getVal("webdav_pass") || "");
-      setLastSyncTime(await getVal("last_sync_time") || "");
+      setWebdavEnabled(getVal("webdav_enabled") === "true");
+      setWebdavUrl(getVal("webdav_url"));
+      setWebdavUser(getVal("webdav_user"));
+      setWebdavPass(getVal("webdav_pass"));
+      setLastSyncTime(getVal("last_sync_time"));
 
       const enabled = await isEnabled();
       setAutoLaunch(enabled);
     } catch (e) { console.error(e); }
+    finally { setConfigHydrated(true); }
   };
 
   const checkUpdate = async () => {
@@ -516,56 +586,80 @@ export default function Dashboard() {
       await loadWordbook();
     } catch (e) {
       console.error(e);
-      toast("error", `${t.syncFailed}: ${e}`);
+      toast("error", t.syncFailed);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const toggleWebdav = async () => {
+  const toggleWebdav = () => {
     const next = !webdavEnabled;
     setWebdavEnabled(next);
-    try {
-        await invoke("set_config_value", { key: "webdav_enabled", value: next ? "true" : "false" });
-    } catch (e) { console.error(e); }
+  };
+
+  const applyTranslationProvider = (providerId: TranslationProviderId) => {
+    setTranslationProvider(providerId);
+    setConnectionTest(null);
+    const provider = TRANSLATION_PROVIDERS.find(item => item.id === providerId);
+    if (provider && provider.id !== "custom") {
+      setTransBaseUrl(provider.baseUrl);
+      setTransModelName(provider.model);
+    }
+  };
+
+  const handleTestTranslationConnection = async () => {
+    if (isTestingConnection) return;
+    setIsTestingConnection(true);
+    setConnectionTest(null);
+    const result = await testTranslationConnection({ apiKey: transApiKey, baseUrl: transBaseUrl, model: transModelName });
+    setConnectionTest(result);
+    setIsTestingConnection(false);
+    if (result.ok) toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs || 0)));
+    else toast("error", t[`translationError_${result.error?.code}`] || result.error?.message || t.connectionFailed);
   };
 
   const handleSave = async () => {
+    if (isSavingSettings || !hasUnsavedChanges) return;
+    setIsSavingSettings(true);
     try {
-      const setVal = async (key: string, value: string) => await invoke("set_config_value", { key, value });
-      
-      await Promise.all([
-        setVal("trans_api_key", transApiKey),
-        setVal("trans_base_url", transBaseUrl),
-        setVal("trans_model_name", transModelName),
-        setVal("language", lang),
-        setVal("target_lang", targetLang),
-        setVal("source_lang", sourceLang),
-        setVal("auto_copy", autoCopy ? "true" : "false"),
-        setVal("clipboard_monitor", clipboardMonitor ? "true" : "false"),
-        setVal("accent_color", accentColor),
-        setVal("theme", theme),
-        setVal("font_size", fontSize.toString()),
-        setVal("tts_engine", ttsEngine),
-        setVal("tts_api_key", ttsApiKey),
-        setVal("tts_base_url", ttsBaseUrl),
-        setVal("tts_model_name", ttsModelName),
-        setVal("tts_voice", ttsVoice),
-        setVal("tts_speed", ttsSpeed),
-        setVal("custom_prompt", customPrompt),
-        setVal("backup_api_key", backupApiKey),
-        setVal("backup_base_url", backupBaseUrl),
-        setVal("backup_model", backupModelName),
-        setVal("ocr_lang", ocrLang),
-        setVal("webdav_enabled", webdavEnabled ? "true" : "false"),
-        setVal("webdav_url", webdavUrl),
-        setVal("webdav_user", webdavUser),
-        setVal("webdav_pass", webdavPass)
-      ]);
+      await invoke("set_config_values", { values: {
+        trans_api_key: transApiKey,
+        trans_base_url: transBaseUrl,
+        trans_model_name: transModelName,
+        language: lang,
+        target_lang: targetLang,
+        source_lang: sourceLang,
+        auto_copy: autoCopy ? "true" : "false",
+        clipboard_monitor: clipboardMonitor ? "true" : "false",
+        accent_color: accentColor,
+        theme,
+        font_size: fontSize.toString(),
+        tts_engine: ttsEngine,
+        tts_api_key: ttsApiKey,
+        tts_base_url: ttsBaseUrl,
+        tts_model_name: ttsModelName,
+        tts_voice: ttsVoice,
+        tts_speed: ttsSpeed,
+        custom_prompt: customPrompt,
+        backup_api_key: backupApiKey,
+        backup_base_url: backupBaseUrl,
+        backup_model: backupModelName,
+        ocr_lang: ocrLang,
+        webdav_enabled: webdavEnabled ? "true" : "false",
+        webdav_url: webdavUrl,
+        webdav_user: webdavUser,
+        webdav_pass: webdavPass,
+      } });
+      setSavedSettingsFingerprint(settingsFingerprint);
       toast("success", t.success);
       addNotification(t.success);
       emit("settings-changed", { theme, fontSize }).catch(console.error);
-    } catch (e) { toast("error", t.error); }
+    } catch (e) {
+      console.error("Failed to save settings", e);
+      toast("error", t.settingsSaveFailed);
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   const deleteWord = async (id: number) => {
@@ -574,32 +668,41 @@ export default function Dashboard() {
     refreshStats();
   };
 
-  const startBatchTranslation = async () => {
+  const startBatchTranslation = () => {
     if (!batchInput || isTranslating) return;
+    batchTaskRef.current?.cancel();
     setBatchOutput("");
     setIsTranslating(true);
-    let fullText = "";
-    await translateStreaming(
-      batchInput,
-      (chunk) => {
-        fullText += chunk;
-        setBatchOutput(prev => prev + chunk);
+    const sourceText = batchInput;
+    const task = startTranslationTask(sourceText, {
+      onState: (nextState) => {
+        if (activeBatchRequestIdRef.current === nextState.requestId) setBatchTaskState(nextState);
       },
-      () => {
-        setIsTranslating(false);
-        refreshStats();
-        if (fullText.trim()) {
-          invoke("save_translation", {
-            sourceText: batchInput,
-            translatedText: fullText.trim(),
-            sourceLang: "",
-            targetLang: targetLang,
-            model: "",
-          }).catch(console.error);
-        }
+      onText: (nextText, requestId) => {
+        if (activeBatchRequestIdRef.current === requestId) setBatchOutput(nextText);
+      },
+    });
+    batchTaskRef.current = task;
+    activeBatchRequestIdRef.current = task.id;
+    setBatchTaskState({ requestId: task.id, phase: "loading-config" });
+
+    task.done.then((completion) => {
+      if (activeBatchRequestIdRef.current !== task.id) return;
+      setIsTranslating(false);
+      refreshStats();
+      if (completion.status === "success") {
+        invoke("save_translation", {
+          sourceText,
+          translatedText: completion.result.text,
+          sourceLang,
+          targetLang,
+          model: completion.result.model,
+        }).catch(console.error);
       }
-    );
+    });
   };
+
+  const cancelBatchTranslation = () => batchTaskRef.current?.cancel();
 
   const startBatchBackTranslate = async () => {
     if (!batchOutput || isBatchBackTranslating) return;
@@ -612,34 +715,55 @@ export default function Dashboard() {
     );
   };
 
-  const startCompareTranslation = async () => {
+  const startCompareTranslation = () => {
     if (!batchInput || isTranslating) return;
+    comparisonTaskRef.current?.cancel();
     setBatchOutput("");
     setBatchOutputBackup("");
+    setPrimaryComparisonState(null);
+    setBackupComparisonState(null);
     setIsTranslating(true);
-    const primaryModel = transModelName || "Primary";
-    const backupModel = backupModelName || "Backup";
-    let primaryResult = "";
-    let backupResult = "";
-    await translateCompare(
-      batchInput,
-      (chunk) => { primaryResult += chunk; setBatchOutput(prev => prev + chunk); },
-      (chunk) => { backupResult += chunk; setBatchOutputBackup(prev => prev + chunk); },
-      () => {
-        setIsTranslating(false);
-        refreshStats();
-        const combined = `[${primaryModel}]\n${primaryResult.trim()}\n\n[${backupModel}]\n${backupResult.trim()}`;
-        if (primaryResult.trim() || backupResult.trim()) {
-          invoke("save_translation", {
-            sourceText: batchInput,
-            translatedText: combined,
-            sourceLang: "",
-            targetLang: targetLang,
-            model: `${primaryModel} vs ${backupModel}`,
-          }).catch(console.error);
-        }
+    const sourceText = batchInput;
+    const task = startTranslationComparisonTask(sourceText, {
+      onText: (side, nextText, requestId) => {
+        if (activeComparisonRequestIdRef.current !== requestId) return;
+        if (side === "primary") setBatchOutput(nextText);
+        else setBatchOutputBackup(nextText);
+      },
+      onSideState: (nextState) => {
+        if (activeComparisonRequestIdRef.current !== nextState.requestId) return;
+        if (nextState.side === "primary") setPrimaryComparisonState(nextState);
+        else setBackupComparisonState(nextState);
+      },
+    });
+    comparisonTaskRef.current = task;
+    activeComparisonRequestIdRef.current = task.id;
+
+    task.done.then((completion) => {
+      if (activeComparisonRequestIdRef.current !== task.id) return;
+      setIsTranslating(false);
+      refreshStats();
+      if (completion.status !== "success") return;
+      const { primary, backup } = completion.result;
+      const combined = [
+        primary && `[${primary.model}]\n${primary.text}`,
+        backup && `[${backup.model}]\n${backup.text}`,
+      ].filter(Boolean).join("\n\n");
+      if (combined) {
+        invoke("save_translation", {
+          sourceText,
+          translatedText: combined,
+          sourceLang,
+          targetLang,
+          model: [primary?.model, backup?.model].filter(Boolean).join(" vs "),
+        }).catch(console.error);
       }
-    );
+    });
+  };
+
+  const cancelBatchWork = () => {
+    if (compareMode) comparisonTaskRef.current?.cancel();
+    else cancelBatchTranslation();
   };
 
   const handleManualAdd = async () => {
@@ -791,8 +915,9 @@ export default function Dashboard() {
                     )}
                 </div>
                 {activeTab !== 'wordbook' && activeTab !== 'batch' && (
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleSave} className="flex items-center gap-2 bg-accent text-white px-6 py-2.5 rounded-full font-black text-[12px] shadow-xl shadow-accent transition-all">
-                        <Save size={14} /> {t.save}
+                    <motion.button whileHover={hasUnsavedChanges ? { scale: 1.02 } : undefined} whileTap={hasUnsavedChanges ? { scale: 0.98 } : undefined} onClick={handleSave} disabled={!hasUnsavedChanges || isSavingSettings} className="flex items-center gap-2 bg-accent text-white px-6 py-2.5 rounded-full font-black text-[12px] shadow-xl shadow-accent transition-all disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:shadow-none disabled:cursor-not-allowed">
+                        {hasUnsavedChanges && !isSavingSettings && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
+                        <Save size={14} /> {isSavingSettings ? t.saving : hasUnsavedChanges ? t.saveChanges : t.saved}
                     </motion.button>
                 )}
             </div>
@@ -911,7 +1036,12 @@ export default function Dashboard() {
                                 ))}
                             </div>
 
-                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
+                            <button type="button" onClick={() => setShowAdvancedSettings(value => !value)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-dashed border-black/10 dark:border-white/10 text-[10px] font-black text-zinc-400 hover:text-accent hover:border-accent/30 transition-all">
+                                <Settings size={14} /> {showAdvancedSettings ? t.hideAdvancedSettings : t.showAdvancedSettings}
+                                <ChevronRight size={13} className={`transition-transform ${showAdvancedSettings ? "rotate-90" : ""}`} />
+                            </button>
+
+                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50`}>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex flex-col">
                                         <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.cloudSync}</h3>
@@ -954,7 +1084,7 @@ export default function Dashboard() {
                                 </AnimatePresence>
                             </div>
 
-                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
+                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50`}>
                                 <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Storage</h3>
                                 <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
                                     <div><label className="text-[0.9em] font-black block">{t.cacheSize}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">Cached audio files</span></div>
@@ -988,8 +1118,8 @@ export default function Dashboard() {
                                     <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative">
                                         <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                         <div className="absolute bottom-6 right-6">
-                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={compareMode ? startCompareTranslation : startBatchTranslation} disabled={isTranslating || !batchInput} className={`px-6 py-2.5 rounded-full font-black text-[11px] shadow-xl flex items-center gap-2 transition-all ${isTranslating || !batchInput ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400' : 'bg-accent text-white shadow-accent'}`}>
-                                                {isTranslating ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Languages size={14} />} {t.translate}
+                                            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={isTranslating ? cancelBatchWork : compareMode ? startCompareTranslation : startBatchTranslation} disabled={!batchInput} className={`px-6 py-2.5 rounded-full font-black text-[11px] shadow-xl flex items-center gap-2 transition-all ${!batchInput ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400' : isTranslating ? 'bg-red-500 text-white shadow-red-500/20' : 'bg-accent text-white shadow-accent'}`}>
+                                                {isTranslating ? <CircleStop size={14} /> : <Languages size={14} />} {isTranslating ? t.cancelTranslation : t.translate}
                                             </motion.button>
                                         </div>
                                     </div>
@@ -1011,8 +1141,9 @@ export default function Dashboard() {
                                             )}
                                             <button
                                                 onClick={() => { setCompareMode(!compareMode); setBatchOutput(""); setBatchOutputBackup(""); }}
+                                                disabled={isTranslating}
                                                 className={`text-[9px] font-black px-2.5 py-1.5 rounded-full transition-all ${
-                                                    compareMode ? 'bg-accent text-white shadow-accent' : 'bg-black/5 dark:bg-white/5 text-zinc-400 hover:bg-accent/10 hover:text-accent'
+                                                    isTranslating ? 'opacity-40 cursor-not-allowed' : compareMode ? 'bg-accent text-white shadow-accent' : 'bg-black/5 dark:bg-white/5 text-zinc-400 hover:bg-accent/10 hover:text-accent'
                                                 }`}
                                             >
                                                 {t.compareMode} {compareMode ? t.toggleOn : t.toggleOff}
@@ -1023,22 +1154,34 @@ export default function Dashboard() {
                                         <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
                                             {/* Primary model */}
                                             <div className="flex flex-col gap-1.5 min-h-0">
-                                                <span className="text-[8px] font-black text-accent uppercase tracking-wider px-2">{transModelName || "Primary"}</span>
+                                                <div className="flex items-center justify-between px-2">
+                                                    <span className="text-[8px] font-black text-accent uppercase tracking-wider">{primaryComparisonState?.model || transModelName || "Primary"}</span>
+                                                    {primaryComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{primaryComparisonState.durationMs} ms</span>}
+                                                </div>
                                                 <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
                                                     <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
-                                                        {batchOutput || (isTranslating ? "" : <span className="opacity-30 italic">...</span>)}
-                                                        {isTranslating && !batchOutput && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
+                                                        {batchOutput || (primaryComparisonState?.phase === "error"
+                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{t[`translationError_${primaryComparisonState.error?.code}`] || primaryComparisonState.error?.message}</span>
+                                                            : primaryComparisonState?.phase === "cancelled" ? <span className="opacity-30 italic">{t.translationCancelled}</span>
+                                                            : <span className="opacity-30 italic">{primaryComparisonState?.phase === "translating" ? t.translationPrimary : "..."}</span>)}
+                                                        {primaryComparisonState?.phase === "translating" && !batchOutput && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
                                                     </div>
                                                 </div>
                                                 {batchOutput && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="self-end text-[9px] font-bold text-zinc-400 hover:text-accent px-2 py-1 rounded-lg hover:bg-accent/10 transition-all"><Copy size={10} className="inline mr-1" />{t.copy}</button>}
                                             </div>
                                             {/* Backup model */}
                                             <div className="flex flex-col gap-1.5 min-h-0">
-                                                <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider px-2">{backupModelName || "Backup"}</span>
+                                                <div className="flex items-center justify-between px-2">
+                                                    <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">{backupComparisonState?.model || backupModelName || "Backup"}</span>
+                                                    {backupComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{backupComparisonState.durationMs} ms</span>}
+                                                </div>
                                                 <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
                                                     <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
-                                                        {batchOutputBackup || (isTranslating ? "" : <span className="opacity-30 italic">...</span>)}
-                                                        {isTranslating && !batchOutputBackup && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-zinc-400 align-middle" />}
+                                                        {batchOutputBackup || (backupComparisonState?.phase === "error"
+                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{t[`translationError_${backupComparisonState.error?.code}`] || backupComparisonState.error?.message}</span>
+                                                            : backupComparisonState?.phase === "cancelled" ? <span className="opacity-30 italic">{t.translationCancelled}</span>
+                                                            : <span className="opacity-30 italic">{backupComparisonState?.phase === "translating" ? t.translationBackupModel : "..."}</span>)}
+                                                        {backupComparisonState?.phase === "translating" && !batchOutputBackup && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-zinc-400 align-middle" />}
                                                     </div>
                                                 </div>
                                                 {batchOutputBackup && <button onClick={() => navigator.clipboard.writeText(batchOutputBackup)} className="self-end text-[9px] font-bold text-zinc-400 hover:text-accent px-2 py-1 rounded-lg hover:bg-accent/10 transition-all"><Copy size={10} className="inline mr-1" />{t.copy}</button>}
@@ -1047,9 +1190,16 @@ export default function Dashboard() {
                                     ) : (
                                         <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative bg-black/[0.02] dark:bg-white/[0.02]">
                                             <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.9em] leading-relaxed selectable-text">
-                                                {batchOutput || (isTranslating ? "" : <span className="opacity-30 italic">{t.outputPlaceholder}</span>)}
+                                                {batchOutput || (isTranslating ? <span className="opacity-30 italic">{batchStatusText}</span> : batchTaskState.phase === "error" ? "" : <span className="opacity-30 italic">{t.outputPlaceholder}</span>)}
                                                 {isTranslating && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
                                             </div>
+                                            {batchTaskState.phase === "error" && (
+                                                <div className="absolute inset-x-5 bottom-5 flex items-center gap-3 rounded-2xl border border-red-500/15 bg-red-50/95 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-400">
+                                                    <AlertCircle size={15} className="shrink-0" />
+                                                    <span className="min-w-0 flex-1 text-[10px] font-bold">{t[`translationError_${batchTaskState.error?.code}`] || batchTaskState.error?.message}</span>
+                                                    <button onClick={startBatchTranslation} className="text-[10px] font-black hover:underline">{t.retry}</button>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                     {/* Back-translation result */}
@@ -1116,50 +1266,89 @@ export default function Dashboard() {
 
                     {activeTab === "model" && (
                         <div className="space-y-8 max-w-3xl mx-auto w-full pb-20">
+                            <div className="flex justify-end">
+                                <button type="button" onClick={() => setShowAdvancedSettings(value => !value)} className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 text-[10px] font-black text-zinc-400 hover:text-accent transition-colors">
+                                    <Settings size={13} /> {showAdvancedSettings ? t.hideAdvancedSettings : t.showAdvancedSettings}
+                                </button>
+                            </div>
                             <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
                                 <div className="flex items-center gap-5 mb-4">
                                     <div className="w-14 h-14 bg-zinc-200 dark:bg-white/10 rounded-[20px] flex items-center justify-center text-zinc-600 dark:text-zinc-300 shadow-inner"><Cpu size={28} /></div>
                                     <div><h3 className="text-lg font-black tracking-tight">{t.transModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">Translation Intelligence</p></div>
                                 </div>
                                 <div className="space-y-5">
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.translationService}</label>
+                                        <div className="grid grid-cols-3 gap-2 rounded-[20px] bg-black/[0.03] dark:bg-white/[0.04] p-1.5">
+                                            {TRANSLATION_PROVIDERS.map(provider => (
+                                                <button key={provider.id} onClick={() => applyTranslationProvider(provider.id)} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
+                                                    {provider.id === "custom" ? t.customService : provider.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
                                     {[
-                                        { label: t.baseUrl, val: transBaseUrl, set: setTransBaseUrl, placeholder: "https://api.deepseek.com", icon: ExternalLink, type: "text" },
                                         { label: t.apiKey, val: transApiKey, set: setTransApiKey, placeholder: "sk-...", icon: Save, type: "password" },
                                         { label: t.modelName, val: transModelName, set: setTransModelName, placeholder: "deepseek-chat", icon: Sparkles, type: "text" }
                                     ].map((f, i) => (
                                         <div key={i}><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{f.label}</label>
-                                            <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
+                                            <div className="relative"><input type={f.type} value={f.val} onChange={(e) => { f.set(e.target.value); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
                                         </div>
                                     ))}
-                                </div>
-                                {/* Custom Prompt */}
-                                <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
-                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.customPrompt}</label>
-                                    <textarea
-                                        value={customPrompt}
-                                        onChange={(e) => setCustomPrompt(e.target.value)}
-                                        placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text."
-                                        className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
-                                    />
-                                    <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
-                                </div>
-                                {/* Backup Model */}
-                                <div className="mt-6 pt-5 border-t border-black/5 dark:border-white/5">
-                                    <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">{t.backupModel}</label>
-                                    <div className="space-y-4">
-                                        {[
-                                            { label: t.baseUrl, val: backupBaseUrl, set: setBackupBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
-                                            { label: t.apiKey, val: backupApiKey, set: setBackupApiKey, placeholder: "sk-...", icon: Save, type: "password" },
-                                            { label: t.modelName, val: backupModelName, set: setBackupModelName, placeholder: "gpt-3.5-turbo", icon: Sparkles, type: "text" }
-                                        ].map((f, i) => (
-                                            <div key={i}><label className="block text-[9px] font-black uppercase text-zinc-400 mb-1.5 tracking-[0.15em] ml-2">{f.label}</label>
-                                                <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-3.5 bg-white/40 dark:bg-black/20 rounded-[18px] border border-black/5 dark:border-white/10 text-[0.8em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={18} /></div>
-                                            </div>
-                                        ))}
+
+                                    <div className="flex items-center gap-3">
+                                        <button onClick={handleTestTranslationConnection} disabled={isTestingConnection} className="flex items-center gap-2 rounded-full bg-accent/10 px-5 py-2.5 text-[10px] font-black text-accent hover:bg-accent/15 disabled:opacity-50 transition-all">
+                                            {isTestingConnection ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/20 border-t-accent" /> : <CheckCircle size={14} />}
+                                            {isTestingConnection ? t.connectionTesting : t.testConnection}
+                                        </button>
+                                        {connectionTest && (
+                                            <span className={`flex items-center gap-1.5 text-[10px] font-bold ${connectionTest.ok ? "text-emerald-500" : "text-red-500"}`}>
+                                                {connectionTest.ok ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
+                                                {connectionTest.ok ? t.connectionSuccess.replace("{latency}", String(connectionTest.latencyMs || 0)) : t[`translationError_${connectionTest.error?.code}`] || connectionTest.error?.message}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
+
+                                <div className="border-t border-black/5 dark:border-white/5 pt-4">
+                                    <button onClick={() => setShowAdvancedModel(value => !value)} className="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400 hover:text-accent transition-colors">
+                                        {t.advancedSettings}
+                                        <ChevronRight size={15} className={`transition-transform ${showAdvancedModel ? "rotate-90" : ""}`} />
+                                    </button>
+                                    <AnimatePresence initial={false}>
+                                        {showAdvancedModel && (
+                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                                                <div className="space-y-5 pt-4">
+                                                    <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.baseUrl}</label>
+                                                        <div className="relative"><input value={transBaseUrl} onChange={(e) => { setTransBaseUrl(e.target.value); setTranslationProvider("custom"); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder="https://api.example.com/v1" /><ExternalLink className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.customPrompt}</label>
+                                                        <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text." className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                        <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
+                                                    </div>
+                                                    <div className="border-t border-black/5 dark:border-white/5 pt-5">
+                                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">{t.backupModel}</label>
+                                                        <div className="space-y-4">
+                                                            {[
+                                                                { label: t.baseUrl, val: backupBaseUrl, set: setBackupBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
+                                                                { label: t.apiKey, val: backupApiKey, set: setBackupApiKey, placeholder: "sk-...", icon: Save, type: "password" },
+                                                                { label: t.modelName, val: backupModelName, set: setBackupModelName, placeholder: "gpt-4o-mini", icon: Sparkles, type: "text" }
+                                                            ].map((f, i) => (
+                                                                <div key={i}><label className="block text-[9px] font-black uppercase text-zinc-400 mb-1.5 tracking-[0.15em] ml-2">{f.label}</label>
+                                                                    <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-3.5 bg-white/40 dark:bg-black/20 rounded-[18px] border border-black/5 dark:border-white/10 text-[0.8em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={18} /></div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             </div>
-                            <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
+                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50`}>
                                 <div className="flex items-center gap-5 mb-4">
                                     <div className="w-14 h-14 bg-accent/10 rounded-[20px] flex items-center justify-center text-accent shadow-inner"><Volume2 size={28} /></div>
                                     <div><h3 className="text-lg font-black tracking-tight">{t.audioModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">Voice Synthesis Engine</p></div>
@@ -1384,6 +1573,21 @@ export default function Dashboard() {
                                                     )}
                                                     <div className="p-7 bg-black/[0.02] dark:bg-white/[0.02] rounded-[28px] border border-black/5 dark:border-white/5"><h4 className="text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.4em]">{t.etymology}</h4><p className="text-[0.85em] text-zinc-500 dark:text-zinc-400 font-medium italic leading-relaxed">{analysis.etymology}</p></div>
                                                     <div className="p-7 bg-black/[0.02] dark:bg-white/[0.02] rounded-[28px] border border-black/5 dark:border-white/5"><h4 className="text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.4em]">{t.synonyms}</h4><div className="flex flex-wrap gap-2.5">{analysis.synonyms.map(s => (<span key={s} className="px-3 py-1.5 bg-accent/5 text-accent dark:text-blue-400 text-[10px] font-black rounded-xl border border-accent/10 transition-all">{s}</span>))}</div></div>
+                                                    {selectedWord.contexts?.length > 0 && (
+                                                        <div className="space-y-4 pt-2">
+                                                            <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.savedContext}</h4>
+                                                            {selectedWord.contexts.map((context: any) => (
+                                                                <div key={context.id} className="p-6 rounded-[24px] bg-accent/[0.035] border border-accent/10 space-y-3">
+                                                                    <div className="flex items-center justify-between gap-4 text-[9px] font-black uppercase tracking-wider text-zinc-400">
+                                                                        <span>{t[`contextSource_${context.source_type}`] || context.source_type}</span>
+                                                                        <time>{new Date(context.created_at).toLocaleString()}</time>
+                                                                    </div>
+                                                                    <div><span className="text-[9px] font-black text-accent uppercase">{t.originalContext}</span><p className="mt-1 text-[12px] font-semibold leading-relaxed">{context.source_text}</p></div>
+                                                                    {context.translated_text && <div><span className="text-[9px] font-black text-zinc-400 uppercase">{t.translatedContext}</span><p className="mt-1 text-[12px] text-zinc-500 dark:text-zinc-300 leading-relaxed">{context.translated_text}</p></div>}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                     <div className="space-y-4 pt-4"><h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.examples}</h4>
                                                         <div className="space-y-4">{analysis.examples.map((ex, i) => (<div key={i} className="p-7 bg-white/20 dark:bg-white/2 rounded-[28px] border border-black/5 dark:border-white/5 group transition-all hover:bg-white/40 dark:hover:bg-white/5 relative overflow-hidden"><div className="absolute top-0 left-0 bottom-0 w-1 bg-accent/10 group-hover:bg-accent transition-all" /><div className="flex justify-between items-start mb-2"><p className="font-black text-[0.9em] text-zinc-800 dark:text-zinc-100 leading-relaxed group-hover:text-accent transition-colors">"{ex.en}"</p><button onClick={() => speak(ex.en).then(refreshCacheSize)} className="p-1.5 text-zinc-300 hover:text-accent opacity-0 group-hover:opacity-100 transition-all"><Volume2 size={12} /></button></div><p className="text-[0.8em] text-zinc-400 font-bold border-l-3 border-accent/20 pl-4">{ex.zh}</p></div>))}</div>
                                                     </div>

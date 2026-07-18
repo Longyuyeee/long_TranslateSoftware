@@ -172,6 +172,26 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         set_schema_version(&conn, 6)?;
     }
 
+    if current_version < 7 {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS word_contexts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word_uuid TEXT NOT NULL,
+                source_text TEXT NOT NULL,
+                translated_text TEXT DEFAULT '',
+                source_type TEXT DEFAULT 'manual',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(word_uuid, source_text, translated_text)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_word_contexts_word_uuid ON word_contexts(word_uuid)",
+            [],
+        )?;
+        set_schema_version(&conn, 7)?;
+    }
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {
@@ -197,5 +217,38 @@ pub fn get_config(conn: &Connection, key: &str) -> Result<String> {
         Ok(value) => Ok(value),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok("".to_string()),
         Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migration_v7_is_repeatable_and_keeps_word_contexts() {
+        let test_dir = std::env::temp_dir().join(format!("long-translate-db-{}", Uuid::new_v4()));
+        let conn = init_db(test_dir.clone()).unwrap();
+        assert_eq!(get_schema_version(&conn), 7);
+
+        conn.execute(
+            "INSERT INTO wordbook (uuid, word) VALUES ('word-1', 'context')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO word_contexts (word_uuid, source_text, translated_text, source_type) VALUES ('word-1', 'in context', '在上下文中', 'selection')",
+            [],
+        ).unwrap();
+        drop(conn);
+
+        let reopened = init_db(test_dir.clone()).unwrap();
+        let count: i32 = reopened.query_row(
+            "SELECT COUNT(*) FROM word_contexts WHERE word_uuid = 'word-1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+        drop(reopened);
+
+        std::fs::remove_dir_all(test_dir).unwrap();
     }
 }

@@ -3,10 +3,107 @@ import { OpenAiSseParser } from "./sse";
 
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds
 
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+export type TranslationPhase =
+  | "idle"
+  | "loading-config"
+  | "checking-cache"
+  | "translating-primary"
+  | "translating-backup"
+  | "success"
+  | "error"
+  | "cancelled";
+
+export type TranslationErrorCode =
+  | "missing-api-key"
+  | "unauthorized"
+  | "model-not-found"
+  | "rate-limited"
+  | "timeout"
+  | "network"
+  | "server"
+  | "unknown";
+
+export interface TranslationTaskState {
+  requestId: string;
+  phase: TranslationPhase;
+  model?: string;
+  cached?: boolean;
+  usedBackup?: boolean;
+  error?: { code: TranslationErrorCode; message: string };
+}
+
+export interface TranslationTaskResult {
+  text: string;
+  model: string;
+  cached: boolean;
+  usedBackup: boolean;
+}
+
+export type TranslationTaskCompletion =
+  | { status: "success"; result: TranslationTaskResult }
+  | { status: "error"; error: { code: TranslationErrorCode; message: string } }
+  | { status: "cancelled" };
+
+export interface TranslationTask {
+  id: string;
+  cancel: () => void;
+  done: Promise<TranslationTaskCompletion>;
+}
+
+export interface TranslationTaskCallbacks {
+  onState?: (state: TranslationTaskState) => void;
+  onText?: (text: string, requestId: string) => void;
+}
+
+export type ComparisonSide = "primary" | "backup";
+export type ComparisonSidePhase = "idle" | "translating" | "success" | "error" | "cancelled";
+
+export interface ComparisonSideState {
+  requestId: string;
+  side: ComparisonSide;
+  phase: ComparisonSidePhase;
+  model: string;
+  durationMs?: number;
+  error?: { code: TranslationErrorCode; message: string };
+}
+
+export interface TranslationComparisonResult {
+  primary?: { text: string; model: string; durationMs: number };
+  backup?: { text: string; model: string; durationMs: number };
+}
+
+export interface TranslationComparisonTask {
+  id: string;
+  cancel: () => void;
+  done: Promise<{ status: "success"; result: TranslationComparisonResult } | { status: "error" } | { status: "cancelled" }>;
+}
+
+export interface TranslationComparisonCallbacks {
+  onSideState?: (state: ComparisonSideState) => void;
+  onText?: (side: ComparisonSide, text: string, requestId: string) => void;
+}
+
+class TranslationRequestError extends Error {
+  constructor(public readonly code: TranslationErrorCode, message: string) {
+    super(message);
+    this.name = "TranslationRequestError";
+  }
+}
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+
+  const timeoutId = setTimeout(
+    () => controller.abort(new DOMException("Translation request timed out", "TimeoutError")),
+    timeoutMs,
+  );
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
+  });
 }
 
 interface GlossaryEntry { source_term: string; target_term: string; }
@@ -20,7 +117,8 @@ async function doTranslate(
   sourceLang: string,
   customPrompt: string,
   onChunk: (chunk: string) => void,
-  glossary?: GlossaryEntry[]
+  glossary?: GlossaryEntry[],
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const sourceHint = sourceLang !== "auto" ? ` from ${sourceLang}` : "";
   const defaultPrompt = `You are a professional translator. Translate the following text${sourceHint} to ${targetLang}. Return only the translated text.`;
@@ -55,11 +153,22 @@ async function doTranslate(
       ],
       stream: true,
     }),
-  });
+  }, FETCH_TIMEOUT_MS, signal);
 
-  if (!response.ok) throw new Error(`API ${response.status}`);
+  if (!response.ok) {
+    const code: TranslationErrorCode = response.status === 401 || response.status === 403
+      ? "unauthorized"
+      : response.status === 404
+        ? "model-not-found"
+        : response.status === 429
+          ? "rate-limited"
+          : response.status >= 500
+            ? "server"
+            : "unknown";
+    throw new TranslationRequestError(code, `Translation service returned HTTP ${response.status}`);
+  }
   const reader = response.body?.getReader();
-  if (!reader) return false;
+  if (!reader) throw new TranslationRequestError("server", "Translation service returned an empty response");
   const parser = new OpenAiSseParser();
 
   while (true) {
@@ -69,6 +178,245 @@ async function doTranslate(
   }
   for (const content of parser.finish()) onChunk(content);
   return true;
+}
+
+function normalizeTranslationError(error: unknown): { code: TranslationErrorCode; message: string } {
+  if (error instanceof TranslationRequestError) return { code: error.code, message: error.message };
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return { code: "timeout", message: "Translation request timed out" };
+  }
+  if (error instanceof TypeError) return { code: "network", message: "Unable to reach the translation service" };
+  if (error instanceof Error) return { code: "unknown", message: error.message };
+  return { code: "unknown", message: "Unknown translation error" };
+}
+
+function createRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `translation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  latencyMs?: number;
+  error?: { code: TranslationErrorCode; message: string };
+}
+
+/** Performs a minimal non-streaming request against an OpenAI-compatible chat endpoint. */
+export async function testTranslationConnection(config: { apiKey: string; baseUrl: string; model: string }): Promise<ConnectionTestResult> {
+  const apiKey = config.apiKey.trim();
+  const baseUrl = config.baseUrl.trim().replace(/\/+$/, "");
+  const model = config.model.trim();
+  if (!apiKey) return { ok: false, error: { code: "missing-api-key", message: "API key is not configured" } };
+  if (!baseUrl || !model) return { ok: false, error: { code: "unknown", message: "Base URL and model are required" } };
+
+  const startedAt = performance.now();
+  try {
+    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "Reply with OK." }],
+        max_tokens: 2,
+        stream: false,
+      }),
+    }, 15000);
+    if (!response.ok) {
+      const code: TranslationErrorCode = response.status === 401 || response.status === 403
+        ? "unauthorized"
+        : response.status === 404
+          ? "model-not-found"
+          : response.status === 429
+            ? "rate-limited"
+            : response.status >= 500 ? "server" : "unknown";
+      return { ok: false, error: { code, message: `Translation service returned HTTP ${response.status}` } };
+    }
+    await response.text();
+    return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };
+  } catch (error) {
+    return { ok: false, error: normalizeTranslationError(error) };
+  }
+}
+
+/** Starts one isolated translation request with explicit state, cancellation and failover semantics. */
+export function startTranslationTask(text: string, callbacks: TranslationTaskCallbacks = {}): TranslationTask {
+  const requestId = createRequestId();
+  const controller = new AbortController();
+  const emitState = (state: Omit<TranslationTaskState, "requestId">) => callbacks.onState?.({ requestId, ...state });
+
+  const done = (async (): Promise<TranslationTaskCompletion> => {
+    let usedBackup = false;
+    const completeCancellation = (): TranslationTaskCompletion => {
+      emitState({ phase: "cancelled", usedBackup });
+      return { status: "cancelled" };
+    };
+    try {
+      invoke("increment_translate_count").catch(console.error);
+      emitState({ phase: "loading-config" });
+
+      const config = await invoke<Record<string, string>>("get_config_values", { keys: [
+        "trans_api_key", "openai_api_key", "trans_base_url", "base_url", "trans_model_name", "model_name",
+        "target_lang", "source_lang", "custom_prompt", "backup_api_key", "backup_base_url", "backup_model",
+      ] });
+      const primaryKey = (config.trans_api_key || config.openai_api_key || "").trim();
+      const primaryUrl = (config.trans_base_url || config.base_url || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
+      const primaryModel = (config.trans_model_name || config.model_name || "deepseek-chat").trim();
+      const targetLang = config.target_lang || "Chinese";
+      const sourceLang = config.source_lang || "auto";
+      const customPrompt = config.custom_prompt || "";
+
+      if (controller.signal.aborted) return completeCancellation();
+      if (!primaryKey) throw new TranslationRequestError("missing-api-key", "API key is not configured");
+
+      let glossary: GlossaryEntry[] = [];
+      try { glossary = await invoke<GlossaryEntry[]>("get_glossary_entries"); } catch { /* optional */ }
+
+      emitState({ phase: "checking-cache", model: primaryModel });
+      const cached = await invoke<string | null>("lookup_translation_memory", { text, targetLang });
+      if (controller.signal.aborted) return completeCancellation();
+      if (cached) {
+        callbacks.onText?.(cached, requestId);
+        const result = { text: cached, model: primaryModel, cached: true, usedBackup: false };
+        emitState({ phase: "success", model: primaryModel, cached: true, usedBackup: false });
+        return { status: "success", result };
+      }
+
+      let translatedText = "";
+      let activeModel = primaryModel;
+      callbacks.onText?.("", requestId);
+      emitState({ phase: "translating-primary", model: primaryModel, cached: false, usedBackup: false });
+
+      try {
+        await doTranslate(text, primaryKey, primaryUrl, primaryModel, targetLang, sourceLang, customPrompt, (chunk) => {
+          if (controller.signal.aborted) return;
+          translatedText += chunk;
+          callbacks.onText?.(translatedText, requestId);
+        }, glossary, controller.signal);
+      } catch (primaryError) {
+        if (controller.signal.aborted) return completeCancellation();
+
+        const backupKey = (config.backup_api_key || "").trim();
+        const backupUrl = (config.backup_base_url || "").trim().replace(/\/+$/, "");
+        const backupModel = (config.backup_model || "").trim();
+        if (!backupKey || !backupUrl || !backupModel) throw primaryError;
+
+        usedBackup = true;
+        activeModel = backupModel;
+        translatedText = "";
+        callbacks.onText?.("", requestId);
+        emitState({ phase: "translating-backup", model: backupModel, cached: false, usedBackup: true });
+        await doTranslate(text, backupKey, backupUrl, backupModel, targetLang, sourceLang, customPrompt, (chunk) => {
+          if (controller.signal.aborted) return;
+          translatedText += chunk;
+          callbacks.onText?.(translatedText, requestId);
+        }, glossary, controller.signal);
+      }
+
+      if (controller.signal.aborted) return completeCancellation();
+      const result = { text: translatedText.trim(), model: activeModel, cached: false, usedBackup };
+      if (!result.text) throw new TranslationRequestError("server", "Translation service returned no text");
+
+      if (text.length < 500) {
+        invoke("save_translation_memory", { sourceText: text, translatedText: result.text, targetLang }).catch(() => {});
+      }
+      emitState({ phase: "success", model: activeModel, cached: false, usedBackup });
+      return { status: "success", result };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return completeCancellation();
+      }
+      const normalized = normalizeTranslationError(error);
+      emitState({ phase: "error", usedBackup, error: normalized });
+      return { status: "error", error: normalized };
+    }
+  })();
+
+  return {
+    id: requestId,
+    cancel: () => controller.abort(),
+    done,
+  };
+}
+
+/** Runs primary and backup models independently so status and errors never pollute either result. */
+export function startTranslationComparisonTask(text: string, callbacks: TranslationComparisonCallbacks = {}): TranslationComparisonTask {
+  const requestId = createRequestId();
+  const controller = new AbortController();
+
+  const done = (async () => {
+    invoke("increment_translate_count").catch(console.error);
+    const config = await invoke<Record<string, string>>("get_config_values", { keys: [
+      "trans_api_key", "openai_api_key", "trans_base_url", "base_url", "trans_model_name", "model_name",
+      "backup_api_key", "backup_base_url", "backup_model", "target_lang", "source_lang", "custom_prompt",
+    ] });
+    const primary = {
+      key: (config.trans_api_key || config.openai_api_key || "").trim(),
+      url: (config.trans_base_url || config.base_url || "https://api.openai.com/v1").trim().replace(/\/+$/, ""),
+      model: (config.trans_model_name || config.model_name || "deepseek-chat").trim(),
+    };
+    const backup = {
+      key: (config.backup_api_key || "").trim(),
+      url: (config.backup_base_url || "").trim().replace(/\/+$/, ""),
+      model: (config.backup_model || "").trim(),
+    };
+    const targetLang = config.target_lang || "Chinese";
+    const sourceLang = config.source_lang || "auto";
+    const customPrompt = config.custom_prompt || "";
+    let glossary: GlossaryEntry[] = [];
+    try { glossary = await invoke<GlossaryEntry[]>("get_glossary_entries"); } catch { /* optional */ }
+
+    if (controller.signal.aborted) return { status: "cancelled" } as const;
+
+    const runSide = async (side: ComparisonSide, service: { key: string; url: string; model: string }) => {
+      const startedAt = performance.now();
+      let translatedText = "";
+      const model = service.model || (side === "primary" ? "Primary" : "Backup");
+      callbacks.onText?.(side, "", requestId);
+      if (!service.key || !service.url || !service.model) {
+        const error = { code: "missing-api-key" as const, message: `${model} is not fully configured` };
+        callbacks.onSideState?.({ requestId, side, phase: "error", model, error });
+        return undefined;
+      }
+
+      callbacks.onSideState?.({ requestId, side, phase: "translating", model });
+      try {
+        await doTranslate(text, service.key, service.url, service.model, targetLang, sourceLang, customPrompt, (chunk) => {
+          if (controller.signal.aborted) return;
+          translatedText += chunk;
+          callbacks.onText?.(side, translatedText, requestId);
+        }, glossary, controller.signal);
+        if (controller.signal.aborted) {
+          callbacks.onSideState?.({ requestId, side, phase: "cancelled", model });
+          return undefined;
+        }
+        const durationMs = Math.round(performance.now() - startedAt);
+        callbacks.onSideState?.({ requestId, side, phase: "success", model, durationMs });
+        return translatedText.trim() ? { text: translatedText.trim(), model, durationMs } : undefined;
+      } catch (error) {
+        if (controller.signal.aborted) {
+          callbacks.onSideState?.({ requestId, side, phase: "cancelled", model });
+          return undefined;
+        }
+        const normalized = normalizeTranslationError(error);
+        callbacks.onSideState?.({ requestId, side, phase: "error", model, error: normalized });
+        return undefined;
+      }
+    };
+
+    const [primaryResult, backupResult] = await Promise.all([
+      runSide("primary", primary),
+      runSide("backup", backup),
+    ]);
+    if (controller.signal.aborted) return { status: "cancelled" } as const;
+    if (!primaryResult && !backupResult) return { status: "error" } as const;
+
+    const bestResult = primaryResult?.text || backupResult?.text;
+    if (bestResult && text.length < 500) {
+      invoke("save_translation_memory", { sourceText: text, translatedText: bestResult, targetLang }).catch(() => {});
+    }
+    return { status: "success", result: { primary: primaryResult, backup: backupResult } } as const;
+  })();
+
+  return { id: requestId, cancel: () => controller.abort(), done };
 }
 
 export async function translateStreaming(

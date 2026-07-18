@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.3.7 稳定性更新**：修复流式翻译分块丢字，升级可跨设备恢复的 Argon2id 加密备份，清理依赖安全风险并补齐自动化测试。
+> **v0.4.0 体验打磨更新**：翻译主链路支持明确状态、取消重试与主备隔离；OCR 可先校对再翻译；生词收藏保留上下文；复习与设置流程完成键盘化和分层优化。
 
 ---
 
@@ -36,6 +36,8 @@
 ### 🚀 AI 翻译
 - **流式实时翻译**: 支持 OpenAI / DeepSeek 及所有兼容接口，毫秒级 SSE 流式响应
 - **双模型故障切换**: 主模型不可用时自动切换至备用 API，确保服务不中断
+- **可解释任务状态**: 清晰展示准备、缓存检查、主模型、备用模型、成功、失败与取消状态
+- **取消与原地重试**: 浮窗和批量翻译均可随时取消，失败后直接使用原文重试
 - **可自定义提示词**: 自由定制 AI 翻译 Prompt，支持 `{{targetLang}}` / `{{text}}` 占位符
 - **术语表 (Glossary)**: 自定义固定术语译法，翻译时自动注入 AI 提示词
 - **多模型对比翻译**: 主备模型并行翻译，左右分屏实时对比结果
@@ -48,11 +50,13 @@
 ### 🔍 系统级 OCR 识别
 - 调用 Windows 原生 Media OCR 引擎，本地识别，隐私无忧
 - 全屏截图、区域划选，一键提取并翻译
+- **识别结果校对**: OCR 后先编辑确认原文，空结果和识别失败可原地重新截图
 - **多显示器支持**: OCR 遮罩覆盖全部屏幕，副屏也能正常划选截图
 - **OCR 语言选择**: 支持中/英/日/韩/法/德/西 8 种识别语言
 
 ### 🧠 FSRS 间隔重复背单词
 - **卡片模式**: 3D 翻转卡片，正面单词+音标，点击翻面看释义+例句，评分后自动安排下次复习
+- **全键盘复习**: 空格翻面、数字 1–4 评分、方向键切换，完成后显示本轮数量和下次复习时间
 - **测验模式**: 看单词选释义，10 题一轮即时反馈
 - **FSRS 算法**: 新一代间隔重复（Anki 默认），稳定性/难度/可提取性三维记忆模型，准确率 90%
 - **AI 记忆钩子**: 谐音、联想、拆分、故事等创意记忆法，琥珀色高亮卡片展示
@@ -65,6 +69,7 @@
 
 ### 📚 智能 AI 生词本
 - AI 深度解析：音标、中文释义、词源分析、多场景例句、近义词对比
+- **上下文收藏**: 保存收藏时的原句、译文、来源和时间，同一单词可追加多条上下文
 - **搜索与排序**: 实时搜索过滤单词/释义，支持最新 / A-Z / Z-A 排序
 - **Anki APKG 导出**: 一键导出为 `.apkg` 文件（7 字段 + 精美卡片模板），无缝导入 Anki
 - **导出 CSV / JSON**: 一键导出含例句与近义词的完整数据
@@ -87,6 +92,7 @@
 - 精美毛玻璃 Apple Style 设计，深色/浅色/跟随系统三种主题
 - **8 色可自定义主题色**: 蓝/靛/紫/粉/橙/绿/青/薄荷，CSS 变量即时切换
 - **Toast 通知系统**: 右上角堆叠、spring 动画、自动消失
+- **渐进式设置**: 常用配置优先展示，TTS、WebDAV、缓存和诊断按需展开；未保存状态始终可见
 - **弹性标签切换动画**: 定向滑入，自然流畅
 - **暗色模式完整适配**: 所有下拉框、输入框、placeholder 暗色对比度已修复
 - **可调整大小的浮动窗口**: 拖拽边缘自由缩放，适配长短文本
@@ -106,14 +112,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.3.7 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.3.7 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.0 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_Setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.0 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_zh-CN.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.3.7 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_zh-CN.msi) |
 | v0.3.6 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_zh-CN.msi) |
 | v0.3.5 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
 | v0.3.4 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
@@ -126,6 +133,26 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.0 — Experience Refinement Update</strong></summary>
+
+**翻译体验**
+- 浮窗与批量翻译统一为显式任务状态，支持取消、原地重试、缓存提示和过期请求隔离
+- 主模型失败后备用模型从空结果开始，模型状态与技术错误不再污染可复制译文
+- 模型配置增加 DeepSeek / OpenAI / 自定义预设、连接测试及渐进式高级参数
+
+**OCR 与学习闭环**
+- OCR 识别后可编辑确认，支持空结果、失败重试以及 Enter / Shift+Enter / Esc 操作
+- 数据库升级至 schema v7；生词可保存多条原句、译文、来源和时间，并参与备份与 WebDAV 合并
+- 复习支持全键盘流程、重复提交保护、本轮统计和下次复习时间
+
+**设置、性能与质量**
+- 设置页区分基础与高级配置，提供未保存、保存中、已保存和失败反馈
+- 配置读取与保存改为单连接批量事务，减少翻译启动和设置加载时的重复数据库访问
+- Toast 去重限流，统一焦点、禁用状态和 reduced-motion 行为
+- 13 项前端测试、3 项 Rust 测试、严格 Clippy、生产构建和安全审计全部通过
+</details>
+
+<details>
 <summary><strong>v0.3.7 — Reliability & Security Update</strong></summary>
 
 **稳定性**

@@ -19,26 +19,42 @@ export interface WordAnalysis {
   error_msg?: string;
 }
 
+export interface WordContextInput {
+  sourceText: string;
+  translatedText?: string;
+  sourceType: "selection" | "ocr" | "manual";
+}
+
 export async function checkWordExists(word: string): Promise<boolean> {
   return await invoke<boolean>("check_word_exists", { word });
 }
 
-export async function analyzeAndSaveWord(text: string): Promise<boolean> {
+export async function analyzeAndSaveWord(text: string, context?: WordContextInput): Promise<boolean> {
   try {
+    const alreadyExists = await checkWordExists(text);
     // 1. 尝试在数据库创建记录（如果已存在则不会重复创建）
-    await invoke("add_to_wordbook", { word: text });
+    await invoke("add_to_wordbook", {
+      word: text,
+      context: context ? {
+        sourceText: context.sourceText,
+        translatedText: context.translatedText,
+        sourceType: context.sourceType,
+      } : undefined,
+    });
+    if (alreadyExists) return true;
 
     // 2. 获取配置
-    const openaiKey = await invoke<string>("get_config_value", { key: "openai_api_key" });
-    const transApiKey = await invoke<string>("get_config_value", { key: "trans_api_key" });
-    const apiKey = (openaiKey || transApiKey || "").trim();
+    const config = await invoke<Record<string, string>>("get_config_values", { keys: [
+      "openai_api_key", "trans_api_key", "base_url", "trans_base_url", "model_name", "trans_model_name",
+    ] });
+    const apiKey = (config.trans_api_key || config.openai_api_key || "").trim();
 
     if (!apiKey) {
         throw new Error("Missing API Key. Please check Model Config.");
     }
 
-    const baseUrl = (await invoke<string>("get_config_value", { key: "base_url" }) || await invoke<string>("get_config_value", { key: "trans_base_url" }) || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
-    const modelName = (await invoke<string>("get_config_value", { key: "model_name" }) || await invoke<string>("get_config_value", { key: "trans_model_name" }) || "deepseek-chat").trim();
+    const baseUrl = (config.trans_base_url || config.base_url || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
+    const modelName = (config.trans_model_name || config.model_name || "deepseek-chat").trim();
 
     // 3. 更加专业的提示词模版 (明确要求中文)
     const prompt = `

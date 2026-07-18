@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { Brain, Volume2, RotateCcw, CheckCircle, ChevronRight } from "lucide-react";
 import { translations, Lang } from "../i18n";
 import { speak } from "../services/api";
+import { getReviewKeyboardAction } from "../services/review";
 
 interface ReviewWord {
   id: number;
@@ -33,6 +34,12 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
   const [stats, setStats] = useState<ReviewStats>({ total: 0, reviewed: 0, mastered: 0, due_today: 0, streak: 0 });
   const [currentIdx, setCurrentIdx] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sessionReviewed, setSessionReviewed] = useState(0);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  const [sessionComplete, setSessionComplete] = useState(false);
+  const [nextReviewAt, setNextReviewAt] = useState<string | null>(null);
+  const submittingRef = useRef(false);
 
   // Quiz state
   const [quizWords, setQuizWords] = useState<ReviewWord[]>([]);
@@ -53,6 +60,10 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
       ]);
       setDueWords(words);
       setStats(s);
+      setSessionTotal(words.length);
+      setSessionReviewed(0);
+      setSessionComplete(false);
+      setNextReviewAt(null);
       setCurrentIdx(0);
       setIsFlipped(false);
     } catch (e) { console.error(e); }
@@ -60,17 +71,25 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
 
   const handleReview = async (quality: number) => {
     const word = dueWords[currentIdx];
-    if (!word) return;
+    if (!word || submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
     try {
-      await invoke("submit_review", { wordId: word.id, quality });
+      const result = await invoke<{ next_review: string }>("submit_review", { wordId: word.id, quality });
+      const remaining = dueWords.filter(item => item.id !== word.id);
+      const reviewed = sessionReviewed + 1;
+      setDueWords(remaining);
+      setSessionReviewed(reviewed);
+      setNextReviewAt(previous => !previous || result.next_review < previous ? result.next_review : previous);
       setIsFlipped(false);
       onRefreshStats();
-      if (currentIdx < dueWords.length - 1) {
-        setCurrentIdx(i => i + 1);
-      } else {
-        await loadData();
-      }
+      if (remaining.length === 0) setSessionComplete(true);
+      else setCurrentIdx(index => Math.min(index, remaining.length - 1));
     } catch (e) { console.error(e); }
+    finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const currentWord = dueWords[currentIdx];
@@ -79,6 +98,29 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
     try { return JSON.parse(currentWord.analysis).examples || []; }
     catch { return []; }
   }, [currentWord?.analysis]);
+
+  useEffect(() => {
+    if (mode !== "flashcard" || sessionComplete || !currentWord) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select") || target?.isContentEditable) return;
+      const action = getReviewKeyboardAction(event.key, isFlipped);
+      if (!action) return;
+      event.preventDefault();
+      if (action.type === "flip") setIsFlipped(flipped => !flipped);
+      if (action.type === "previous") {
+        setCurrentIdx(index => Math.max(0, index - 1));
+        setIsFlipped(false);
+      }
+      if (action.type === "next") {
+        setCurrentIdx(index => Math.min(dueWords.length - 1, index + 1));
+        setIsFlipped(false);
+      }
+      if (action.type === "rate") void handleReview(action.quality);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mode, sessionComplete, currentWord, isFlipped, dueWords.length, isSubmitting]);
 
   // Quiz mode helpers
   const startQuiz = () => {
@@ -140,12 +182,22 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
             <button onClick={() => setMode("flashcard")} className="px-4 py-1.5 rounded-full text-[10px] font-black bg-white dark:bg-zinc-800 shadow-md text-accent">{t.flashcardMode}</button>
             <button onClick={() => setMode("quiz")} className="px-4 py-1.5 rounded-full text-[10px] font-black text-zinc-400">{t.quizMode}</button>
           </div>
-          {currentWord && <span className="text-[10px] font-bold text-zinc-400">{currentIdx + 1} / {dueWords.length}</span>}
+          {currentWord && <span className="text-[10px] font-bold text-zinc-400">{sessionReviewed + 1} / {sessionTotal}</span>}
         </div>
 
         <StatsBar />
 
-        {!currentWord ? (
+        {sessionComplete ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 text-center">
+            <div className="w-20 h-20 rounded-3xl bg-green-500/10 text-green-500 flex items-center justify-center"><CheckCircle size={40} /></div>
+            <div>
+              <h3 className="text-xl font-black text-zinc-800 dark:text-zinc-100">{t.reviewSessionComplete}</h3>
+              <p className="mt-2 text-sm font-bold text-zinc-400">{t.reviewedThisSession.replace("{count}", String(sessionReviewed))}</p>
+              {nextReviewAt && <p className="mt-1 text-xs text-zinc-400">{t.nextReviewTime}: {new Date(nextReviewAt.replace(" ", "T")).toLocaleString()}</p>}
+            </div>
+            <button onClick={loadData} className="px-6 py-2.5 bg-accent/10 text-accent rounded-full text-[10px] font-black hover:bg-accent/20 transition-all"><RotateCcw size={12} className="inline mr-1" />{t.refresh}</button>
+          </div>
+        ) : !currentWord ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-zinc-300 dark:text-zinc-700">
             <Brain size={64} className="opacity-30" />
             <p className="font-black text-sm opacity-40">{t.allCaughtUp}</p>
@@ -197,13 +249,14 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
                     { label: t.good, quality: 3, color: "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500 hover:text-white" },
                     { label: t.easy, quality: 4, color: "bg-accent/10 text-accent border-accent/20 hover:bg-accent hover:text-white" },
                   ].map(b => (
-                    <button key={b.label} onClick={() => handleReview(b.quality)} className={`px-5 py-2.5 rounded-full border font-black text-[11px] transition-all ${b.color}`}>
-                      {b.label}
+                    <button key={b.label} onClick={() => handleReview(b.quality)} disabled={isSubmitting} className={`px-5 py-2.5 rounded-full border font-black text-[11px] transition-all disabled:opacity-40 ${b.color}`}>
+                      {b.quality} · {b.label}
                     </button>
                   ))}
                 </motion.div>
               )}
             </AnimatePresence>
+            <p className="text-[9px] font-bold text-zinc-300 dark:text-zinc-600 uppercase tracking-widest">{t.reviewKeyboardHint}</p>
           </div>
         )}
       </div>

@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, Star, Volume2, X, RotateCcw, Sparkles, ArrowLeftRight } from "lucide-react";
+import { Copy, Star, Volume2, X, RotateCcw, Sparkles, ArrowLeftRight, CircleStop, AlertCircle, Database } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { translateStreaming, speak } from "../services/api";
+import { startTranslationTask, translateStreaming, speak, TranslationTask, TranslationTaskState } from "../services/api";
 import { analyzeAndSaveWord, checkWordExists } from "../services/wordbook";
 import { translations, Lang } from "../i18n";
 
@@ -11,11 +11,26 @@ export default function FloatingWindow() {
   const [text, setText] = useState("");
   const [translation, setTranslation] = useState("");
   const [backTranslation, setBackTranslation] = useState("");
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [taskState, setTaskState] = useState<TranslationTaskState>({ requestId: "", phase: "idle" });
   const [isBackTranslating, setIsBackTranslating] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [sourceType, setSourceType] = useState<"selection" | "ocr">("selection");
   const [lang, setLang] = useState<Lang>("zh");
+  const taskRef = useRef<TranslationTask | null>(null);
+  const activeRequestIdRef = useRef("");
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const isStreaming = taskState.phase === "loading-config"
+    || taskState.phase === "checking-cache"
+    || taskState.phase === "translating-primary"
+    || taskState.phase === "translating-backup";
+  const statusText = taskState.phase === "loading-config" ? t.translationPreparing
+    : taskState.phase === "checking-cache" ? t.translationCheckingCache
+      : taskState.phase === "translating-primary" ? t.translationPrimary
+        : taskState.phase === "translating-backup" ? t.translationBackup
+          : taskState.phase === "error" ? t.translationFailed
+            : taskState.phase === "cancelled" ? t.translationCancelled
+              : taskState.cached ? t.translationCacheHit
+                : t.aiTranslation;
 
   useEffect(() => {
     const applyTheme = (savedTheme: string) => {
@@ -41,6 +56,7 @@ export default function FloatingWindow() {
     loadConfig();
 
     const unlistenShortcut = listen<string>("shortcut-triggered", async (event) => {
+      setSourceType("selection");
       const isExist = await checkWordExists(event.payload);
       setIsSaved(isExist);
       setText(event.payload);
@@ -48,6 +64,7 @@ export default function FloatingWindow() {
     });
 
     const unlistenOcr = listen<string>("ocr-triggered", async (event) => {
+      setSourceType("ocr");
       const isExist = await checkWordExists(event.payload);
       setIsSaved(isExist);
       setText(event.payload);
@@ -65,35 +82,41 @@ export default function FloatingWindow() {
       unlistenShortcut.then(f => f());
       unlistenOcr.then(f => f());
       unlistenSettings.then(f => f());
+      taskRef.current?.cancel();
     };
   }, []);
 
-  const startTranslation = async (sourceText: string) => {
+  const startTranslation = (sourceText: string) => {
     if (!sourceText) return;
-    setIsStreaming(true);
+    taskRef.current?.cancel();
     setTranslation("");
-    let fullText = "";
-    await translateStreaming(
+    setBackTranslation("");
+
+    const task = startTranslationTask(sourceText, {
+      onState: (nextState) => {
+        if (activeRequestIdRef.current === nextState.requestId) setTaskState(nextState);
+      },
+      onText: (nextText, requestId) => {
+        if (activeRequestIdRef.current === requestId) setTranslation(nextText);
+      },
+    });
+    taskRef.current = task;
+    activeRequestIdRef.current = task.id;
+    setTaskState({ requestId: task.id, phase: "loading-config" });
+
+    task.done.then((completion) => {
+      if (activeRequestIdRef.current !== task.id || completion.status !== "success") return;
+      invoke("save_translation", {
         sourceText,
-        (chunk) => {
-            fullText += chunk;
-            setTranslation(prev => prev + chunk);
-        },
-        () => {
-            setIsStreaming(false);
-            // Auto-save to translation history
-            if (fullText.trim()) {
-                invoke("save_translation", {
-                    sourceText,
-                    translatedText: fullText.trim(),
-                    sourceLang: "",
-                    targetLang: "",
-                    model: "",
-                }).catch(console.error);
-            }
-        }
-    );
+        translatedText: completion.result.text,
+        sourceLang: "",
+        targetLang: "",
+        model: completion.result.model,
+      }).catch(console.error);
+    });
   };
+
+  const cancelTranslation = () => taskRef.current?.cancel();
 
   const startBackTranslate = async () => {
     if (!translation || isBackTranslating) return;
@@ -107,10 +130,10 @@ export default function FloatingWindow() {
   };
 
   const handleSaveToWordbook = () => {
-    if (!text || isSaved) return;
+    if (!text) return;
     setIsSaved(true);
     
-    analyzeAndSaveWord(text).catch(err => {
+    analyzeAndSaveWord(text, { sourceText: text, translatedText: translation, sourceType }).catch(err => {
         console.error("Background save failed", err);
         setIsSaved(false);
     });
@@ -137,13 +160,13 @@ export default function FloatingWindow() {
           </div>
           <div className="flex flex-col">
             <span className="text-[11px] font-black text-zinc-800 dark:text-zinc-200 uppercase tracking-widest leading-none">Long AI</span>
-            <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-tighter">{t.aiTranslation}</span>
+            <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-tighter">{statusText}</span>
           </div>
         </div>
         
         <div className="flex items-center gap-1.5">
-            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => startTranslation(text)} className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full text-zinc-500 transition-colors" title={t.retranslate}>
-                <RotateCcw size={16} />
+            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={isStreaming ? cancelTranslation : () => startTranslation(text)} className={`p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors ${isStreaming ? "text-red-500" : "text-zinc-500"}`} title={isStreaming ? t.cancelTranslation : t.retranslate}>
+                {isStreaming ? <CircleStop size={16} /> : <RotateCcw size={16} />}
             </motion.button>
             <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onMouseDown={e => e.stopPropagation()} onClick={() => invoke("hide_floating_window")} className="group flex items-center justify-center w-8 h-8 bg-black/5 dark:bg-white/10 hover:bg-red-500 hover:text-white rounded-full transition-all" title={t.close}>
                 <X size={16} className="text-zinc-600 dark:text-zinc-400 group-hover:text-white" />
@@ -164,7 +187,7 @@ export default function FloatingWindow() {
                     </div>
                     
                     <div className="text-[16px] leading-[1.7] text-zinc-800 dark:text-zinc-100 font-medium tracking-tight break-words">
-                        {translation || (isStreaming ? "" : "...")}
+                        {translation || (isStreaming ? <span className="text-zinc-300 dark:text-zinc-600">{statusText}</span> : taskState.phase === "error" ? "" : "...")}
                         {isStreaming && (
                             <motion.span
                                 animate={{ opacity: [1, 0, 1] }}
@@ -173,6 +196,17 @@ export default function FloatingWindow() {
                             />
                         )}
                     </div>
+
+                    {taskState.phase === "error" && (
+                        <div className="flex items-start gap-3 rounded-2xl border border-red-500/15 bg-red-500/5 p-4 text-red-600 dark:text-red-400">
+                            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-black uppercase tracking-wider">{t.translationFailed}</div>
+                                <div className="mt-1 text-[11px] leading-relaxed opacity-80">{t[`translationError_${taskState.error?.code}`] || taskState.error?.message}</div>
+                            </div>
+                            <button onClick={() => startTranslation(text)} className="text-[10px] font-black hover:underline">{t.retry}</button>
+                        </div>
+                    )}
 
                     {/* Back-translation result */}
                     <AnimatePresence>
@@ -206,7 +240,8 @@ export default function FloatingWindow() {
             whileHover={{ scale: 1.05, backgroundColor: "rgba(59,130,246,0.1)" }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigator.clipboard.writeText(translation)}
-            className="p-3 text-zinc-500 hover:text-accent rounded-2xl transition-all"
+            disabled={!translation}
+            className={`p-3 rounded-2xl transition-all ${translation ? "text-zinc-500 hover:text-accent" : "text-zinc-300 dark:text-zinc-700"}`}
             title={t.copyTranslation}
           >
             <Copy size={18} />
@@ -215,7 +250,8 @@ export default function FloatingWindow() {
             whileHover={{ scale: 1.05, backgroundColor: "rgba(59,130,246,0.1)" }}
             whileTap={{ scale: 0.95 }}
             onClick={() => speak(text)}
-            className="p-3 text-zinc-500 hover:text-accent rounded-2xl transition-all"
+            disabled={!text}
+            className={`p-3 rounded-2xl transition-all ${text ? "text-zinc-500 hover:text-accent" : "text-zinc-300 dark:text-zinc-700"}`}
             title={t.readAloud}
           >
             <Volume2 size={18} />
@@ -225,7 +261,7 @@ export default function FloatingWindow() {
             whileTap={{ scale: 0.9 }}
             onClick={handleSaveToWordbook}
             className={`p-3 rounded-2xl transition-all ${isSaved ? 'text-orange-500 bg-orange-500/10 shadow-lg shadow-orange-500/10' : 'text-zinc-500 hover:bg-accent/10 hover:text-accent'}`}
-            title={isSaved ? (t.alreadySaved) : (t.saveToWordbook)}
+            title={isSaved ? t.saveCurrentContext : t.saveToWordbook}
           >
             <Star size={18} fill={isSaved ? "currentColor" : "none"} />
           </motion.button>
@@ -241,8 +277,9 @@ export default function FloatingWindow() {
           </motion.button>
         </div>
         
-        <div className="px-3 py-1 bg-black/5 dark:bg-white/5 rounded-full border border-white/10">
-            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-tighter italic">{t.aiTranslation}</span>
+        <div className="px-3 py-1 bg-black/5 dark:bg-white/5 rounded-full border border-white/10 flex items-center gap-1.5">
+            {taskState.cached && <Database size={9} className="text-emerald-500" />}
+            <span className="text-[9px] font-black text-zinc-400 uppercase tracking-tighter italic">{taskState.model || t.aiTranslation}</span>
         </div>
       </div>
     </div>

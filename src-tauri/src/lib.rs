@@ -305,10 +305,26 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
         wordbook_data.push(row.map_err(|e| e.to_string())?);
     }
 
+    let mut word_contexts = Vec::new();
+    let mut context_stmt = conn.prepare("SELECT word_uuid, source_text, translated_text, source_type, created_at FROM word_contexts ORDER BY created_at").map_err(|e| e.to_string())?;
+    let context_rows = context_stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "word_uuid": row.get::<_, String>(0)?,
+            "source_text": row.get::<_, String>(1)?,
+            "translated_text": row.get::<_, String>(2)?,
+            "source_type": row.get::<_, String>(3)?,
+            "created_at": row.get::<_, String>(4)?,
+        }))
+    }).map_err(|e| e.to_string())?;
+    for row in context_rows {
+        word_contexts.push(row.map_err(|e| e.to_string())?);
+    }
+
     let full_json = serde_json::json!({
         "config": config_data,
         "wordbook": wordbook_data,
-        "export_version": "3.0",
+        "word_contexts": word_contexts,
+        "export_version": "3.1",
         "export_time": chrono::Local::now().to_rfc3339()
     });
     let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
@@ -346,7 +362,7 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
         let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
 
         let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
-        let is_portable_v3 = full_json["export_version"].as_str() == Some("3.0");
+        let is_portable_v3 = full_json["export_version"].as_str().map(|version| version.starts_with("3.")).unwrap_or(false);
 
         let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
         {
@@ -354,6 +370,7 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
 
             tx.execute("DELETE FROM config", []).map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM word_contexts", []).map_err(|e| e.to_string())?;
             tx.execute("DELETE FROM wordbook", []).map_err(|e| e.to_string())?;
 
             if let Some(configs) = full_json["config"].as_object() {
@@ -386,6 +403,20 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
                             item["last_reviewed"].as_str().unwrap_or(""),
                             item["stability"].as_f64().unwrap_or(0.0),
                             item["difficulty"].as_f64().unwrap_or(0.0),
+                        )
+                    ).map_err(|e| e.to_string())?;
+                }
+            }
+            if let Some(contexts) = full_json["word_contexts"].as_array() {
+                for item in contexts {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO word_contexts (word_uuid, source_text, translated_text, source_type, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        (
+                            item["word_uuid"].as_str().unwrap_or_default(),
+                            item["source_text"].as_str().unwrap_or_default(),
+                            item["translated_text"].as_str().unwrap_or_default(),
+                            item["source_type"].as_str().unwrap_or("manual"),
+                            item["created_at"].as_str().unwrap_or_default(),
                         )
                     ).map_err(|e| e.to_string())?;
                 }
@@ -424,15 +455,22 @@ async fn capture_and_ocr(
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
     let bytes = ocr::capture_rect(x, y, w, h).map_err(|e| e.to_string())?;
-    let text = ocr::run_ocr(bytes, &ocr_lang).await.map_err(|e| e.to_string())?;
-    
+    ocr::run_ocr(bytes, &ocr_lang).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("OCR text is empty".to_string());
+    }
+
     if let Some(overlay) = app.get_webview_window("ocr-overlay") { let _ = overlay.hide(); }
     if let Some(floating) = app.get_webview_window("floating") {
         let _ = floating.show();
         let _ = floating.set_focus();
-        app.emit("ocr-triggered", text.clone()).unwrap();
     }
-    Ok(text)
+    app.emit("ocr-triggered", text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -443,8 +481,23 @@ fn check_word_exists(app: AppHandle, word: String) -> Result<bool, String> {
     stmt.exists([word]).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WordContextInput {
+    source_text: String,
+    translated_text: Option<String>,
+    source_type: String,
+}
+
 #[tauri::command]
-fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meaning: Option<String>, analysis: Option<String>) -> Result<(), String> {
+fn add_to_wordbook(
+    app: AppHandle,
+    word: String,
+    phonetic: Option<String>,
+    meaning: Option<String>,
+    analysis: Option<String>,
+    context: Option<WordContextInput>,
+) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
 
@@ -454,15 +507,26 @@ fn add_to_wordbook(app: AppHandle, word: String, phonetic: Option<String>, meani
         |row| row.get(0)
     ).optional().map_err(|e| e.to_string())?;
 
-    if existing_uuid.is_some() {
-        return Ok(());
-    }
+    let uuid = if let Some(uuid) = existing_uuid {
+        uuid
+    } else {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)",
+            [&uuid, &word, &phonetic.unwrap_or_default(), &meaning.unwrap_or_default(), &analysis.unwrap_or_default()],
+        ).map_err(|e| e.to_string())?;
+        uuid
+    };
 
-    let uuid = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)",
-        [uuid, word, phonetic.unwrap_or_default(), meaning.unwrap_or_default(), analysis.unwrap_or_default()],
-    ).map_err(|e| e.to_string())?;
+    if let Some(context) = context {
+        let source = context.source_text.trim();
+        if !source.is_empty() {
+            conn.execute(
+                "INSERT OR IGNORE INTO word_contexts (word_uuid, source_text, translated_text, source_type) VALUES (?1, ?2, ?3, ?4)",
+                [&uuid, source, &context.translated_text.unwrap_or_default(), &context.source_type],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
     app.emit("wordbook-updated", "local").unwrap();
     Ok(())
 }
@@ -496,7 +560,23 @@ fn get_wordbook(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
         }))
     }).map_err(|e| e.to_string())?;
     let mut words = Vec::new();
-    for row in rows { words.push(row.map_err(|e| e.to_string())?); }
+    for row in rows {
+        let mut word = row.map_err(|e| e.to_string())?;
+        let uuid = word["uuid"].as_str().unwrap_or_default();
+        let mut context_stmt = conn.prepare("SELECT id, source_text, translated_text, source_type, created_at FROM word_contexts WHERE word_uuid = ?1 ORDER BY created_at DESC").map_err(|e| e.to_string())?;
+        let context_rows = context_stmt.query_map([uuid], |context_row| {
+            Ok(serde_json::json!({
+                "id": context_row.get::<_, i32>(0)?,
+                "source_text": context_row.get::<_, String>(1)?,
+                "translated_text": context_row.get::<_, String>(2)?,
+                "source_type": context_row.get::<_, String>(3)?,
+                "created_at": context_row.get::<_, String>(4)?,
+            }))
+        }).map_err(|e| e.to_string())?;
+        let contexts = context_rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        word["contexts"] = serde_json::json!(contexts);
+        words.push(word);
+    }
     Ok(words)
 }
 
@@ -1445,11 +1525,25 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                 },
                 _ => {}
             }
+            if let Some(contexts) = item["contexts"].as_array() {
+                for context in contexts {
+                    tx.execute(
+                        "INSERT OR IGNORE INTO word_contexts (word_uuid, source_text, translated_text, source_type, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        (
+                            uuid,
+                            context["source_text"].as_str().unwrap_or_default(),
+                            context["translated_text"].as_str().unwrap_or_default(),
+                            context["source_type"].as_str().unwrap_or("manual"),
+                            context["created_at"].as_str().unwrap_or_default(),
+                        )
+                    ).map_err(|e| e.to_string())?;
+                }
+            }
         }
         tx.commit().map_err(|e| e.to_string())?;
 
         let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty FROM wordbook").map_err(|e| e.to_string())?;
-        let items = stmt.query_map([], |row| {
+        let mut items: Vec<serde_json::Value> = stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "uuid": row.get::<_, String>(0)?,
                 "word": row.get::<_, String>(1)?,
@@ -1466,7 +1560,21 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
                 "stability": row.get::<_, f64>(12)?,
                 "difficulty": row.get::<_, f64>(13)?,
             }))
-        }).map_err(|e| e.to_string())?.map(|r| r.unwrap()).collect();
+        }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        drop(stmt);
+        for item in &mut items {
+            let uuid = item["uuid"].as_str().unwrap_or_default();
+            let mut context_stmt = conn.prepare("SELECT source_text, translated_text, source_type, created_at FROM word_contexts WHERE word_uuid = ?1 ORDER BY created_at").map_err(|e| e.to_string())?;
+            let contexts = context_stmt.query_map([uuid], |row| {
+                Ok(serde_json::json!({
+                    "source_text": row.get::<_, String>(0)?,
+                    "translated_text": row.get::<_, String>(1)?,
+                    "source_type": row.get::<_, String>(2)?,
+                    "created_at": row.get::<_, String>(3)?,
+                }))
+            }).map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+            item["contexts"] = serde_json::json!(contexts);
+        }
         items
     };
 
@@ -1719,8 +1827,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr, capture_and_ocr, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
-            updater_configured,
+            run_ocr, capture_and_ocr, confirm_ocr_text, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
+            get_config_values, set_config_values, updater_configured,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
@@ -1755,4 +1863,38 @@ mod tests {
         assert!(decrypt_backup_payload(&encrypted, "wrong-password").is_err());
         assert!(decrypt_backup_payload(BACKUP_V3_MAGIC, "right-password").is_err());
     }
+}
+
+#[tauri::command]
+fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collections::HashMap<String, String>, String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    let device_key = get_device_key(&app_dir);
+    let mut values = std::collections::HashMap::new();
+    for key in keys {
+        let mut value = db::get_config(&conn, &key).map_err(|e| e.to_string())?;
+        if is_sensitive_key(&key) && value.starts_with("ENC:") {
+            value = decrypt_value(&value, &device_key)?;
+        }
+        values.insert(key, value);
+    }
+    Ok(values)
+}
+
+#[tauri::command]
+fn set_config_values(app: AppHandle, values: std::collections::HashMap<String, String>) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
+    let device_key = get_device_key(&app_dir);
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (key, value) in values {
+        let stored = if is_sensitive_key(&key) && !value.is_empty() {
+            encrypt_value(&value, &device_key)?
+        } else {
+            value
+        };
+        tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [&key, &stored])
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
 }
