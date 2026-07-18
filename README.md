@@ -16,9 +16,18 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
 </p>
 
+<p align="center">
+  <a href="#-下载与安装">下载安装</a> ·
+  <a href="#-核心特性">核心特性</a> ·
+  <a href="#更新日志">更新日志</a> ·
+  <a href="MARKET_AUDIT.md">产品路线图</a>
+</p>
+
 ---
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
+
+> **v0.3.7 稳定性更新**：修复流式翻译分块丢字，升级可跨设备恢复的 Argon2id 加密备份，清理依赖安全风险并补齐自动化测试。
 
 ---
 
@@ -42,7 +51,7 @@
 - **多显示器支持**: OCR 遮罩覆盖全部屏幕，副屏也能正常划选截图
 - **OCR 语言选择**: 支持中/英/日/韩/法/德/西 8 种识别语言
 
-### 🧠 SM-2 间隔重复背单词
+### 🧠 FSRS 间隔重复背单词
 - **卡片模式**: 3D 翻转卡片，正面单词+音标，点击翻面看释义+例句，评分后自动安排下次复习
 - **测验模式**: 看单词选释义，10 题一轮即时反馈
 - **FSRS 算法**: 新一代间隔重复（Anki 默认），稳定性/难度/可提取性三维记忆模型，准确率 90%
@@ -69,7 +78,7 @@
 - 可调速、可调音色
 
 ### 💾 安全备份
-- **密码加密**: 用户密码派生 AES-256-GCM 密钥
+- **密码加密**: Argon2id 密钥派生 + AES-256-GCM 认证加密
 - 导出 `.TLong` 文件，跨设备一键迁移配置与生词本（含复习进度）
 - 兼容旧版备份格式，无缝升级
 - **静态数据加密**: API 密钥与 WebDAV 密码在 SQLite 中 AES-256-GCM 加密存储
@@ -85,7 +94,7 @@
 - **通知历史**: 铃铛图标保留最近 10 条系统消息
 - **全局字号缩放**: 10-24px 自由调节
 - **完整双语界面**: 中文 / English，140+ 翻译键全覆盖
-- **自动更新**: 应用内检查并安装新版本
+- **版本检查**: 支持应用内检查更新；发布签名未配置时会引导前往 Release 手动下载
 - **开机自启**: 可配置随系统启动
 - **React ErrorBoundary**: 组件崩溃保护，一键刷新
 
@@ -97,14 +106,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [v0.3.6 .exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [v0.3.6 .msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.3.7 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_Setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.3.7 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_zh-CN.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.3.6 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_zh-CN.msi) |
 | v0.3.5 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
 | v0.3.4 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.4/LongTranslate_0.3.4_x64_zh-CN.msi) |
 | v0.3.3 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.3/LongTranslate_0.3.3_x64_zh-CN.msi) |
@@ -114,6 +124,24 @@
 </details>
 
 ### 更新日志
+
+<details open>
+<summary><strong>v0.3.7 — Reliability & Security Update</strong></summary>
+
+**稳定性**
+- 修复 SSE 数据跨网络分块时可能丢失译文的问题，完整保留拆分的 JSON 与 UTF-8 中文字符
+- 更新器未配置发布签名时显示明确引导，并移除重复安装调用
+- 清理 Rust Clippy 告警和误提交文件，补充 MIT License
+
+**安全与数据**
+- 备份升级为 v3：使用 Argon2id + AES-256-GCM，敏感配置可安全跨设备迁移
+- 保持 v0 / v1 / v2 历史 `.TLong` 备份兼容
+- 升级 Vite、PostCSS、esbuild 等构建依赖，npm 安全审计归零
+
+**工程质量**
+- 新增流式解析和加密备份自动化测试
+- 前端升级至 Vite 8，Node.js 最低版本调整为 20.19
+</details>
 
 <details>
 <summary>v0.3.6 — Vocabulary & Translation Quality Update</summary>
@@ -217,19 +245,19 @@
 | 层 | 技术 |
 |---|---|
 | **桌面框架** | Tauri 2.0 (Rust) |
-| **前端** | React 19 + TypeScript + Vite 7 |
+| **前端** | React 19 + TypeScript + Vite 8 |
 | **样式** | Tailwind CSS v4 + Framer Motion |
 | **数据库** | SQLite (rusqlite, bundled, 版本化迁移) |
-| **加密** | AES-256-GCM + SHA-256 (PBKDF2) |
+| **加密** | Argon2id + AES-256-GCM |
 | **AI 接口** | OpenAI 兼容 API (SSE 流式) |
 | **OCR** | Windows Media Ocr (原生, 多屏支持) |
 | **TTS** | Youdao API + OpenAI TTS |
 | **同步** | WebDAV 协议 (双向合并) |
-| **算法** | SM-2 间隔重复 (Anki 兼容) |
+| **算法** | FSRS 间隔重复 (Anki 兼容) |
 
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
-- [Node.js](https://nodejs.org/) (v18+)
+- [Node.js](https://nodejs.org/) (v20.19+)
 - [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (Windows 10/11 已预装)
 - [WiX Toolset v3.14](https://wixtoolset.org/) (MSI 构建，可选)
 
@@ -238,6 +266,7 @@
 git clone https://github.com/Longyuyeee/long_TranslateSoftware.git
 cd long_TranslateSoftware
 npm install
+npm test               # 自动化测试
 npm run tauri dev      # 开发模式
 npm run tauri build    # 生产构建
 ```

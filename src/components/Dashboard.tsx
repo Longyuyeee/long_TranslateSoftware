@@ -432,12 +432,16 @@ export default function Dashboard() {
 
   const checkUpdate = async () => {
     try {
+      if (!await invoke<boolean>("updater_configured")) {
+        toast("warning", t.updateNotConfigured);
+        addNotification(t.updateNotConfigured);
+        return;
+      }
       const update = await check();
       if (update) {
         toast("info", t.versionDownloading.replace("{version}", update.version));
         addNotification(t.versionDownloading.replace("{version}", update.version));
         await update.downloadAndInstall();
-        await update.install();
       } else {
         toast("success", t.upToDate);
         addNotification(t.upToDate);

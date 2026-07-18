@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { OpenAiSseParser } from "./sse";
 
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds
 
@@ -59,25 +60,14 @@ async function doTranslate(
   if (!response.ok) throw new Error(`API ${response.status}`);
   const reader = response.body?.getReader();
   if (!reader) return false;
-  const decoder = new TextDecoder();
+  const parser = new OpenAiSseParser();
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    const chunk = decoder.decode(value);
-    const lines = chunk.split("\n");
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === "data: [DONE]") continue;
-      if (trimmed.startsWith("data: ")) {
-        try {
-          const data = JSON.parse(trimmed.slice(6));
-          const content = data.choices[0].delta?.content;
-          if (content) onChunk(content);
-        } catch (e) { /* skip parse errors */ }
-      }
-    }
+    for (const content of parser.push(value)) onChunk(content);
   }
+  for (const content of parser.finish()) onChunk(content);
   return true;
 }
 

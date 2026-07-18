@@ -16,6 +16,7 @@ use rusqlite::OptionalExtension;
 use std::io::Write;
 use std::sync::Mutex;
 use aes_gcm::{Aes256Gcm, AeadCore, Nonce, aead::{Aead, KeyInit, OsRng}};
+use argon2::Argon2;
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{
     connect_async, 
@@ -25,8 +26,9 @@ use tokio_tungstenite::{
     }
 };
 const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
+const BACKUP_V3_MAGIC: &[u8; 4] = b"TLB3";
 
-fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
+fn derive_legacy_key(password: &str, salt: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(password.as_bytes());
     hasher.update(salt);
@@ -34,6 +36,64 @@ fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
     let mut key = [0u8; 32];
     key.copy_from_slice(&result[..32]);
     key
+}
+
+fn derive_backup_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|e| format!("Key derivation failed: {e}"))?;
+    Ok(key)
+}
+
+fn encrypt_backup_payload(payload: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    let salt = uuid::Uuid::new_v4();
+    let key = derive_backup_key(password, salt.as_bytes())?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+    let mut rng = OsRng;
+    let nonce = Aes256Gcm::generate_nonce(&mut rng);
+    let mut ciphertext = cipher.encrypt(&nonce, payload).map_err(|e| format!("Encryption error: {e}"))?;
+
+    let mut output = Vec::with_capacity(4 + 16 + 12 + ciphertext.len());
+    output.extend_from_slice(BACKUP_V3_MAGIC);
+    output.extend_from_slice(salt.as_bytes());
+    output.extend_from_slice(&nonce);
+    output.append(&mut ciphertext);
+    Ok(output)
+}
+
+fn decrypt_backup_payload(file_data: &[u8], password: &str) -> Result<Vec<u8>, String> {
+    if file_data.starts_with(BACKUP_V3_MAGIC) {
+        if file_data.len() < 48 { return Err("Invalid v3 backup file".to_string()); }
+        let salt = &file_data[4..20];
+        let nonce = Nonce::from_slice(&file_data[20..32]);
+        let key = derive_backup_key(password, salt)?;
+        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+        return cipher.decrypt(nonce, &file_data[32..])
+            .map_err(|_| "Decryption failed: invalid password or damaged backup".to_string());
+    }
+
+    // v2 backups used salt(16) + nonce(12) + AES-GCM with a single SHA-256 KDF.
+    let v2_plaintext = if file_data.len() >= 28 {
+        let salt = &file_data[..16];
+        let nonce = Nonce::from_slice(&file_data[16..28]);
+        let key = derive_legacy_key(password, salt);
+        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+        cipher.decrypt(nonce, &file_data[28..]).ok()
+    } else { None };
+    if let Some(plaintext) = v2_plaintext { return Ok(plaintext); }
+
+    // v0/v1 compatibility: historical backups used a bundled application key.
+    let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
+    let plaintext = if file_data.len() >= 12 {
+        let nonce = Nonce::from_slice(&file_data[..12]);
+        cipher.decrypt(nonce, &file_data[12..]).ok()
+    } else { None }
+    .or_else(|| {
+        let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
+        cipher.decrypt(nonce, file_data).ok()
+    });
+    plaintext.ok_or_else(|| "Decryption failed: invalid password or file format".to_string())
 }
 
 const SENSITIVE_KEYS: &[&str] = &["trans_api_key", "openai_api_key", "backup_api_key", "tts_api_key", "webdav_pass"];
@@ -120,6 +180,14 @@ fn hide_floating_window(app: AppHandle) {
     if let Some(win) = app.get_webview_window("floating") { let _ = win.hide(); }
 }
 
+#[tauri::command]
+fn updater_configured(app: AppHandle) -> bool {
+    app.config().plugins.0.get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(|key| key.as_str())
+        .is_some_and(|key| !key.trim().is_empty() && !key.contains("REPLACE_WITH"))
+}
+
 fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
     let parts: Vec<&str> = shortcut_str.split('+').collect();
     let mut mods = Modifiers::empty();
@@ -172,7 +240,7 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
         }
     }
 
-    let new_s = parse_shortcut(&shortcut_str).map_err(|e| e)?;
+    let new_s = parse_shortcut(&shortcut_str)?;
     let name_for_closure = name.clone();
     app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
         let state = app.state::<AppState>();
@@ -204,7 +272,12 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
     let config_rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
         .map_err(|e| e.to_string())?;
     for row in config_rows {
-        let (k, v) = row.map_err(|e| e.to_string())?;
+        let (k, mut v) = row.map_err(|e| e.to_string())?;
+        if is_sensitive_key(&k) && v.starts_with("ENC:") {
+            let device_key = get_device_key(&app_dir);
+            v = decrypt_value(&v, &device_key)
+                .map_err(|_| format!("Cannot export protected setting '{k}' on this device"))?;
+        }
         config_data.insert(k, v);
     }
 
@@ -235,23 +308,12 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
     let full_json = serde_json::json!({
         "config": config_data,
         "wordbook": wordbook_data,
-        "export_version": "2.0",
+        "export_version": "3.0",
         "export_time": chrono::Local::now().to_rfc3339()
     });
     let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
 
-    // Generate random salt via UUID v4 (16 bytes), derive key via SHA-256
-    let salt = uuid::Uuid::new_v4();
-    let key = derive_key(&password, salt.as_bytes());
-
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-    let mut rng = OsRng;
-    let nonce = Aes256Gcm::generate_nonce(&mut rng);
-    let mut ciphertext = cipher.encrypt(&nonce, json_str.as_bytes()).map_err(|e| format!("Encryption error: {}", e))?;
-    // Output format: salt (16) + nonce (12) + ciphertext
-    let mut output = salt.as_bytes().to_vec();
-    output.extend_from_slice(&nonce);
-    output.append(&mut ciphertext);
+    let output = encrypt_backup_payload(json_str.as_bytes(), &password)?;
 
     use tauri_plugin_dialog::DialogExt;
     let file_path = app.dialog().file().set_title("Export LongTranslate Backup").add_filter("LongTranslate Backup (*.TLong)", &["TLong"]).set_file_name("LongTranslate_Backup.TLong").blocking_save_file();
@@ -280,35 +342,11 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
         };
         let file_data = std::fs::read(actual_path).map_err(|e| e.to_string())?;
 
-        // Detect format: v2.0 has salt(16) + nonce(12), v1.x has nonce(12) only, v0.x has no nonce
-        let plaintext = if file_data.len() >= 28 {
-            // Try v2.x: salt(16) + nonce(12) + ciphertext
-            let salt = &file_data[..16];
-            let (nonce_bytes, ct) = file_data[16..].split_at(12);
-            let key = derive_key(&password, salt);
-            let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-            cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).ok()
-        } else { None };
-
-        let plaintext = match plaintext {
-            Some(pt) => pt,
-            None => {
-                // Fallback: try v1.x (hardcoded key + nonce prefix) or v0.x (hardcoded key + fixed nonce)
-                let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
-                if file_data.len() >= 12 {
-                    let (nonce_bytes, ct) = file_data.split_at(12);
-                    cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).ok()
-                } else { None }
-                .or_else(|| {
-                    let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
-                    cipher.decrypt(nonce, file_data.as_ref()).ok()
-                })
-                .ok_or("Decryption failed: invalid password or file format".to_string())?
-            }
-        };
+        let plaintext = decrypt_backup_payload(&file_data, &password)?;
         let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
 
         let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        let is_portable_v3 = full_json["export_version"].as_str() == Some("3.0");
 
         let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
         {
@@ -320,7 +358,12 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
 
             if let Some(configs) = full_json["config"].as_object() {
                 for (k, v) in configs {
-                    tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, v.as_str().unwrap_or_default()]).map_err(|e| e.to_string())?;
+                    let mut value = v.as_str().unwrap_or_default().to_string();
+                    if is_portable_v3 && is_sensitive_key(k) && !value.is_empty() {
+                        let device_key = get_device_key(&app_dir);
+                        value = encrypt_value(&value, &device_key)?;
+                    }
+                    tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, &value]).map_err(|e| e.to_string())?;
                 }
             }
 
@@ -397,7 +440,7 @@ fn check_word_exists(app: AppHandle, word: String) -> Result<bool, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT 1 FROM wordbook WHERE word = ?1 AND is_deleted = 0").map_err(|e| e.to_string())?;
-    Ok(stmt.exists([word]).map_err(|e| e.to_string())?)
+    stmt.exists([word]).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -756,7 +799,7 @@ fn export_anki(app: AppHandle) -> Result<String, String> {
                 (String::new(), String::new(), String::new(), String::new())
             };
 
-        let flds = vec![
+        let flds = [
             word.clone(),
             phonetic.clone(),
             meaning.clone(),
@@ -944,7 +987,7 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
     let file_path = app.dialog().file()
         .set_title("Export Wordbook")
         .add_filter(filter_name, &[ext])
-        .set_file_name(&format!("wordbook_export.{}", ext))
+        .set_file_name(format!("wordbook_export.{}", ext))
         .blocking_save_file();
 
     if let Some(path) = file_path {
@@ -1677,6 +1720,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             run_ocr, capture_and_ocr, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
+            updater_configured,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
@@ -1688,4 +1732,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decrypt_backup_payload, encrypt_backup_payload, BACKUP_V3_MAGIC};
+
+    #[test]
+    fn v3_backup_round_trip_uses_authenticated_encryption() {
+        let plaintext = br#"{"config":{"trans_api_key":"secret"}}"#;
+        let encrypted = encrypt_backup_payload(plaintext, "correct horse battery staple").unwrap();
+
+        assert!(encrypted.starts_with(BACKUP_V3_MAGIC));
+        assert!(!encrypted.windows(b"secret".len()).any(|part| part == b"secret"));
+        assert_eq!(decrypt_backup_payload(&encrypted, "correct horse battery staple").unwrap(), plaintext);
+    }
+
+    #[test]
+    fn v3_backup_rejects_wrong_password_and_truncated_files() {
+        let encrypted = encrypt_backup_payload(b"payload", "right-password").unwrap();
+
+        assert!(decrypt_backup_payload(&encrypted, "wrong-password").is_err());
+        assert!(decrypt_backup_payload(BACKUP_V3_MAGIC, "right-password").is_err());
+    }
 }

@@ -1,7 +1,6 @@
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
 use uuid::Uuid;
-use chrono;
 
 fn get_schema_version(conn: &Connection) -> i32 {
     conn.query_row(
@@ -70,11 +69,9 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
             conn.execute("ALTER TABLE wordbook ADD COLUMN uuid TEXT", [])?;
             let mut stmt = conn.prepare("SELECT id FROM wordbook WHERE uuid IS NULL")?;
             let rows = stmt.query_map([], |row| row.get::<_, i32>(0))?;
-            for row in rows {
-                if let Ok(id) = row {
-                    conn.execute("UPDATE wordbook SET uuid = ?1 WHERE id = ?2",
-                        [Uuid::new_v4().to_string(), id.to_string()])?;
-                }
+            for id in rows.flatten() {
+                conn.execute("UPDATE wordbook SET uuid = ?1 WHERE id = ?2",
+                    [Uuid::new_v4().to_string(), id.to_string()])?;
             }
         }
         if !pragma_info.contains(&"is_deleted".to_string()) {

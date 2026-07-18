@@ -181,6 +181,7 @@ export const translations: Record<Lang, any> = {
     shortcutFailed: "快捷键设置失败",
     versionDownloading: "发现新版本 {version}，正在下载...",
     updateCheckFailed: "更新检查失败",
+    updateNotConfigured: "自动更新尚未配置发布签名，请从发布页手动下载新版",
     autoLaunchDenied: "权限被拒：系统阻止了开机自启更改。",
     autoLaunchFailed: "开机自启更改失败。请尝试以管理员身份运行。",
   },
@@ -364,6 +365,7 @@ export const translations: Record<Lang, any> = {
     shortcutFailed: "Failed to set shortcut",
     versionDownloading: "New version {version} available! Downloading...",
     updateCheckFailed: "Update check failed",
+    updateNotConfigured: "Automatic updates are not signed yet; please download releases manually",
     autoLaunchDenied: "Permission Denied: System blocked auto-launch change.",
     autoLaunchFailed: "Auto-launch change failed. Try running as Admin.",
   }
