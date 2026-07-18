@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.0 体验打磨更新**：翻译主链路支持明确状态、取消重试与主备隔离；OCR 可先校对再翻译；生词收藏保留上下文；复习与设置流程完成键盘化和分层优化。
+> **v0.4.1 安全自动更新**：新增启动静默检测、手动检查、版本说明、下载进度、签名校验、静默安装与自动重启；后续版本可直接在软件内完成升级。
 
 ---
 
@@ -100,7 +100,7 @@
 - **通知历史**: 铃铛图标保留最近 10 条系统消息
 - **全局字号缩放**: 10-24px 自由调节
 - **完整双语界面**: 中文 / English，140+ 翻译键全覆盖
-- **版本检查**: 支持应用内检查更新；发布签名未配置时会引导前往 Release 手动下载
+- **安全自动更新**: 启动后自动检测新版本，也可在设置中手动检查；展示版本说明和下载进度，安装包通过签名校验后静默安装并重启
 - **开机自启**: 可配置随系统启动
 - **React ErrorBoundary**: 组件崩溃保护，一键刷新
 
@@ -112,14 +112,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.0 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_Setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.0 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_zh-CN.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.1 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.1 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.0 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_zh-CN.msi) |
 | v0.3.7 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_zh-CN.msi) |
 | v0.3.6 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.6/LongTranslate_0.3.6_x64_zh-CN.msi) |
 | v0.3.5 | 2026-06 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.5/LongTranslate_0.3.5_x64_zh-CN.msi) |
@@ -133,6 +134,23 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.1 — Secure In-App Updates</strong></summary>
+
+**安全更新链路**
+- 启动后静默检测新版本，也可在设置页手动检查
+- 更新弹窗展示目标版本、发布说明、下载进度、安装状态与失败重试
+- 使用 minisign 强制校验更新包签名，校验通过后才允许安装
+- Windows 使用被动安装模式，完成后自动重启应用
+
+**自动发布工程**
+- 新增 GitHub Actions 发布工作流，版本标签触发测试、构建、签名和 Release 发布
+- 自动生成 NSIS / MSI 安装包、对应 `.sig` 签名及 Updater 所需的 `latest.json`
+- 私钥保存在 Git 忽略目录，并通过 GitHub Secrets 注入云端构建
+
+> v0.4.1 是自动更新桥接版本。v0.4.0 及更早用户需要手动安装本版本一次，之后即可在应用内升级。
+</details>
+
+<details>
 <summary><strong>v0.4.0 — Experience Refinement Update</strong></summary>
 
 **翻译体验**
@@ -297,6 +315,10 @@ npm test               # 自动化测试
 npm run tauri dev      # 开发模式
 npm run tauri build    # 生产构建
 ```
+
+### 发布与自动更新
+
+推送形如 `v0.4.1` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

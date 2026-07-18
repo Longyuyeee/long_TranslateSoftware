@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Long翻译",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "identifier": "com.long.translate",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -56,6 +56,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -71,10 +72,13 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REPLACE_WITH_YOUR_PUBLIC_KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaW5pIHB1YmxpYyBrZXk6IEI5MDYzM0VFODYyODc0QzIKUldUQ2RDaUc3ak1HdVNaTzdjTjVheG1PTDFPZ2xrUkdSdnFlMHI4a0FxZXJSNVVMV2V1cC9oZUQK",
       "endpoints": [
         "https://github.com/Longyuyeee/long_TranslateSoftware/releases/latest/download/latest.json"
-      ]
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

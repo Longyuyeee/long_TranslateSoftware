@@ -1,6 +1,6 @@
 [package]
 name = "long-translate"
-version = "0.4.0"
+version = "0.4.1"
 description = "Long翻译 · 智能助手"
 authors = ["longyuye"]
 edition = "2021"
@@ -41,6 +41,7 @@ tokio-tungstenite = { version = "0.28.0", features = ["native-tls"] }
 futures-util = "0.3.32"
 url = "2.5.8"
 zip = "4"
+tauri-plugin-process = "2.3.1"
 
 [dependencies.windows]
 version = "0.58"

@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/settings.local.json
+
+# Local Tauri updater signing keys — never commit or publish
+.updater-keys/

@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
@@ -10,6 +11,7 @@ import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
 import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
+import UpdateDialog, { UpdatePhase } from "./UpdateDialog";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -103,6 +105,12 @@ export default function Dashboard() {
   const [configHydrated, setConfigHydrated] = useState(false);
   const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updatePhase, setUpdatePhase] = useState<UpdatePhase>("available");
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const [updateError, setUpdateError] = useState("");
 
   // Glossary state
   interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
@@ -500,27 +508,79 @@ export default function Dashboard() {
     finally { setConfigHydrated(true); }
   };
 
-  const checkUpdate = async () => {
+  const checkUpdate = async (manual = true) => {
+    if (isCheckingUpdate) return;
+    setIsCheckingUpdate(true);
     try {
       if (!await invoke<boolean>("updater_configured")) {
-        toast("warning", t.updateNotConfigured);
-        addNotification(t.updateNotConfigured);
+        if (manual) {
+          toast("warning", t.updateNotConfigured);
+          addNotification(t.updateNotConfigured);
+        }
         return;
       }
-      const update = await check();
+      const update = await check({ timeout: 15000 });
       if (update) {
-        toast("info", t.versionDownloading.replace("{version}", update.version));
-        addNotification(t.versionDownloading.replace("{version}", update.version));
-        await update.downloadAndInstall();
-      } else {
+        setPendingUpdate(update);
+        setUpdatePhase("available");
+        setUpdateProgress(null);
+        setUpdateError("");
+        setUpdateDialogOpen(true);
+        addNotification(t.newVersion.replace("{version}", update.version));
+      } else if (manual) {
         toast("success", t.upToDate);
         addNotification(t.upToDate);
       }
     } catch (e) {
-      toast("error", `${t.updateCheckFailed}: ${e}`);
-      addNotification(`${t.updateCheckFailed}: ${e}`);
+      console.error("Update check failed", e);
+      if (manual) {
+        toast("error", t.updateCheckFailed);
+        addNotification(t.updateCheckFailed);
+      }
+    } finally {
+      setIsCheckingUpdate(false);
     }
   };
+
+  const installPendingUpdate = async () => {
+    if (!pendingUpdate || updatePhase === "downloading" || updatePhase === "installing") return;
+    setUpdatePhase("downloading");
+    setUpdateProgress(0);
+    setUpdateError("");
+    let downloaded = 0;
+    let total: number | undefined;
+    try {
+      await pendingUpdate.downloadAndInstall(event => {
+        if (event.event === "Started") {
+          total = event.data.contentLength;
+          setUpdateProgress(total ? 0 : null);
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          if (total) setUpdateProgress(Math.min(100, Math.round(downloaded / total * 100)));
+        } else if (event.event === "Finished") {
+          setUpdateProgress(100);
+          setUpdatePhase("installing");
+        }
+      }, { timeout: 120000 });
+      await relaunch();
+    } catch (error) {
+      console.error("Update installation failed", error);
+      setUpdatePhase("error");
+      setUpdateError(t.updateInstallFailed);
+    }
+  };
+
+  const dismissUpdate = () => {
+    if (updatePhase === "downloading" || updatePhase === "installing") return;
+    setUpdateDialogOpen(false);
+    pendingUpdate?.close().catch(() => {});
+    setPendingUpdate(null);
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void checkUpdate(false); }, 8000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const toggleAutoLaunch = async () => {
     const prevState = autoLaunch;
@@ -870,7 +930,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.days_active}d</span>
                 </div>
-                <button onClick={checkUpdate} className="w-full py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-[9px] font-black hover:bg-accent/20 transition-all mt-1">{t.checkUpdate}</button>
+                <button onClick={() => void checkUpdate(true)} disabled={isCheckingUpdate} className="w-full py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-[9px] font-black hover:bg-accent/20 transition-all mt-1 disabled:opacity-50">{isCheckingUpdate ? t.updateChecking : t.checkUpdate}</button>
             </div>
         </div>
       </div>
@@ -1672,6 +1732,17 @@ export default function Dashboard() {
             </AnimatePresence>
         </main>
       </div>
+      <UpdateDialog
+        open={updateDialogOpen}
+        version={pendingUpdate?.version || ""}
+        notes={pendingUpdate?.body}
+        phase={updatePhase}
+        progress={updateProgress}
+        error={updateError}
+        labels={t}
+        onInstall={() => void installPendingUpdate()}
+        onClose={dismissUpdate}
+      />
     </div>
   );
 }
