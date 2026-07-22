@@ -26,3 +26,7 @@ dist-ssr
 
 # Local Tauri updater signing keys — never commit or publish
 .updater-keys/
+
+# Local image-generation intermediates
+tmp/imagegen/
+public/logo-v*-concept.png

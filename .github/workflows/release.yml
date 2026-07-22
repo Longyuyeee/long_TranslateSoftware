@@ -49,7 +49,15 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Long翻译 v__VERSION__"
-          releaseBody: "发现新的正式版本。应用将验证更新包签名后再安装，完整更新内容请查看本 Release 页面。"
+          releaseBody: |
+            ## v0.4.2 品牌图标焕新
+
+            - 启用全新的扁平化 L 翻译图标
+            - 双对话框以阴阳式 S 曲线融合，表达语言转换
+            - 使用蓝色主体与琥珀橙/珊瑚橙互补色双向箭头
+            - 统一更新应用、任务栏、托盘、安装程序与各平台图标资源
+
+            应用会在安装前验证更新包签名。完整说明见 `docs/releases/v0.4.2.md`。
           generateReleaseNotes: true
           releaseDraft: false
           prerelease: false
