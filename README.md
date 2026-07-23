@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.2 品牌图标焕新**：启用全新的扁平化 `L` 翻译图标，以双对话框、互补色双向箭头和阴阳式交汇表达语言之间的转换与融合。
+> **v0.4.3 启动与界面体验修复**：启用单实例运行，首次手动启动直接显示主界面，并改善低高度窗口适配与通知已读/清除体验。
 
 ---
 
@@ -112,14 +112,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.2 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.2 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.3 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.3 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.2 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64.msi) |
 | v0.4.1 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64.msi) |
 | v0.4.0 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.0/LongTranslate_0.4.0_x64_zh-CN.msi) |
 | v0.3.7 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_Setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.3.7/LongTranslate_0.3.7_x64_zh-CN.msi) |
@@ -135,6 +136,21 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.3 — Startup & Interface Reliability</strong></summary>
+
+**启动与托盘**
+- 启用桌面端单实例保护，连续点击快捷方式只保留一个进程和一个托盘图标
+- 第二次手动启动会唤醒、取消最小化并聚焦已有主窗口
+- 手动首次启动直接显示设置主界面，开机自启仍保持静默托盘模式
+
+**界面与通知**
+- 优化低高度窗口下的侧栏滚动、标题栏高度、内容间距和统计区域显示
+- 通知角标在打开面板后立即标记已读，支持逐条移除和全部清除
+- 点击通知面板外部即可关闭，避免空面板和残留未读状态
+
+</details>
+
+<details>
 <summary><strong>v0.4.2 — Brand Icon Refresh</strong></summary>
 
 **全新品牌图标**
@@ -333,7 +349,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.4.2` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.4.3` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

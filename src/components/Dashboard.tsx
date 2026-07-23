@@ -51,11 +51,39 @@ export default function Dashboard() {
   const [accentColor, setAccentColor] = useState("#007aff");
   const [fontSize, setFontSize] = useState(14);
   const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const isNotificationsOpenRef = useRef(false);
 
   const addNotification = (msg: string) => {
     if (!msg) return;
     const time = new Date().toLocaleTimeString();
     setNotifications(prev => [{msg, time}, ...prev].slice(0, 10));
+    if (!isNotificationsOpenRef.current) {
+      setUnreadNotificationCount(prev => Math.min(prev + 1, 99));
+    }
+  };
+
+  const toggleNotifications = () => {
+    const next = notifications.length > 0 && !isNotificationsOpenRef.current;
+    isNotificationsOpenRef.current = next;
+    setIsNotificationsOpen(next);
+    if (next || notifications.length === 0) setUnreadNotificationCount(0);
+  };
+
+  const dismissNotification = (index: number) => {
+    setNotifications(prev => prev.filter((_, itemIndex) => itemIndex !== index));
+    if (notifications.length <= 1) {
+      isNotificationsOpenRef.current = false;
+      setIsNotificationsOpen(false);
+    }
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
+    setUnreadNotificationCount(0);
+    isNotificationsOpenRef.current = false;
+    setIsNotificationsOpen(false);
   };
   const [isSyncing, setIsSyncing] = useState(false);
   const [autoLaunch, setAutoLaunch] = useState(false);
@@ -836,12 +864,17 @@ export default function Dashboard() {
 
   const [isLangOpen, setIsLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
   const prevActiveTab = useRef("general");
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (langRef.current && !langRef.current.contains(event.target as Node)) {
         setIsLangOpen(false);
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        isNotificationsOpenRef.current = false;
+        setIsNotificationsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -866,15 +899,15 @@ export default function Dashboard() {
   prevActiveTab.current = activeTab;
 
   return (
-    <div className="flex h-screen apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
+    <div className="dashboard-shell flex h-dvh min-h-0 apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
       <ToastContainer />
       {/* Sidebar */}
       <div 
-        className="glass border-r border-black/5 dark:border-white/5 flex flex-col z-20 shadow-xl shrink-0" 
+        className="dashboard-sidebar glass border-r border-black/5 dark:border-white/5 flex flex-col min-h-0 z-20 shadow-xl shrink-0"
         style={{ width: '180px', minWidth: '160px' }}
       >
-        <div className="p-6">
-            <div className="flex items-center gap-3 mb-8 group">
+        <div className="dashboard-sidebar-main flex-1 min-h-0 overflow-y-auto custom-scrollbar p-6">
+            <div className="dashboard-brand flex items-center gap-3 mb-8 group">
               <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 via-blue-600 to-blue-700 rounded-xl flex items-center justify-center text-white text-lg font-black shadow-lg shadow-accent group-hover:rotate-12 transition-transform duration-500">
                 <Sparkles size={20} className="text-white/90" />
               </div>
@@ -890,7 +923,7 @@ export default function Dashboard() {
                     <button 
                     key={tab.id} 
                     onClick={() => setActiveTab(tab.id)}
-                    className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all relative ${
+                    className={`dashboard-nav-item group w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all relative ${
                         activeTab === tab.id ? "text-white" : "hover:bg-black/5 dark:hover:bg-white/5 text-zinc-500"
                     }`}
                     style={{ fontSize: '0.85em' }}
@@ -912,21 +945,21 @@ export default function Dashboard() {
             </nav>
         </div>
         
-        <div className="mt-auto p-4 border-t border-black/5 dark:border-white/5">
-            <div className="p-4 bg-white/40 dark:bg-white/5 rounded-2xl border border-white/40 dark:border-white/5 space-y-3">
-                <div className="flex items-center justify-between">
+        <div className="dashboard-sidebar-footer shrink-0 p-4 border-t border-black/5 dark:border-white/5">
+            <div className="dashboard-stats-card p-4 bg-white/40 dark:bg-white/5 rounded-2xl border border-white/40 dark:border-white/5 space-y-3">
+                <div className="dashboard-stat-row flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Book size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Words</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.word_count}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="dashboard-stat-row flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Languages size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Trans</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.trans_count}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="dashboard-stat-row flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Brain size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Due</span></div>
                     <span className="text-[10px] font-black text-amber-500">{appStats.due_today || 0}</span>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="dashboard-stat-row flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.days_active}d</span>
                 </div>
@@ -937,7 +970,7 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden bg-transparent relative">
-        <header className="h-20 flex items-center justify-between px-10 shrink-0 border-b border-black/5 dark:border-white/5 backdrop-blur-3xl bg-white/30 dark:bg-black/20 z-10">
+        <header className="dashboard-header h-20 flex items-center justify-between px-10 shrink-0 border-b border-black/5 dark:border-white/5 backdrop-blur-3xl bg-white/30 dark:bg-black/20 z-10">
             <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                     <h1 className="text-xl font-black tracking-tighter bg-gradient-to-r from-zinc-800 to-zinc-500 dark:from-white dark:to-zinc-400 bg-clip-text text-transparent">
@@ -946,29 +979,30 @@ export default function Dashboard() {
                     <span className="w-1 h-1 rounded-full bg-accent/40" />
                     <span className="text-[10px] font-black text-accent/60 dark:text-accent/60 tracking-widest uppercase italic">LONG AI</span>
                 </div>
-                <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">Long翻译 · 智能助手</p>
+                <p className="dashboard-subtitle text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">Long翻译 · 智能助手</p>
             </div>
             <div className="flex items-center gap-4">
                 {/* Notification Bell */}
-                <div className="relative group">
-                    <button className="relative p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
+                <div ref={notificationsRef} className="relative">
+                    <button onClick={toggleNotifications} aria-expanded={isNotificationsOpen} aria-label={t.notifications} className="relative p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
                         <Bell size={16} className="text-zinc-400" />
-                        {notifications.length > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent rounded-full text-[8px] text-white font-black flex items-center justify-center">{notifications.length}</span>
+                        {unreadNotificationCount > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-accent rounded-full text-[8px] text-white font-black flex items-center justify-center">{unreadNotificationCount}</span>
                         )}
                     </button>
-                    {notifications.length > 0 && (
-                        <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-black/5 dark:border-white/10 z-50 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                            <div className="p-2 border-b border-black/5 dark:border-white/5">
+                    {isNotificationsOpen && notifications.length > 0 && (
+                        <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-black/5 dark:border-white/10 z-50 overflow-hidden">
+                            <div className="p-2 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
                                 <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider px-2">{t.notifications}</span>
+                                <button onClick={clearNotifications} className="text-[8px] font-black text-zinc-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">{t.clearAll}</button>
                             </div>
                             <div className="max-h-48 overflow-y-auto">
                                 {notifications.map((n, i) => (
-                                    <div key={i} className="px-3 py-2 text-[10px] text-zinc-600 dark:text-zinc-300 font-medium hover:bg-black/5 dark:hover:bg-white/5 flex items-start gap-2">
+                                    <button key={`${n.time}-${i}`} onClick={() => dismissNotification(i)} className="w-full text-left px-3 py-2 text-[10px] text-zinc-600 dark:text-zinc-300 font-medium hover:bg-black/5 dark:hover:bg-white/5 flex items-start gap-2">
                                         <CheckCircle size={10} className="mt-0.5 text-green-500 shrink-0" />
                                         <span className="flex-1">{n.msg}</span>
                                         <span className="text-[8px] text-zinc-400 shrink-0">{n.time}</span>
-                                    </div>
+                                    </button>
                                 ))}
                             </div>
                         </div>
@@ -983,9 +1017,9 @@ export default function Dashboard() {
             </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto custom-scrollbar px-10 py-8 relative">
+        <main className="dashboard-main flex-1 min-h-0 overflow-y-auto custom-scrollbar px-10 py-8 relative">
             <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, x: slideDirection * 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: slideDirection * -24 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="h-full flex flex-col">
+                <motion.div key={activeTab} initial={{ opacity: 0, x: slideDirection * 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: slideDirection * -24 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="h-full min-h-0 flex flex-col">
                     {activeTab === "general" && (
                         <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">

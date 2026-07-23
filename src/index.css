@@ -139,6 +139,54 @@ textarea:disabled {
   background: linear-gradient(145deg, #1c1c1e 0%, #000000 100%);
 }
 
+.dashboard-shell {
+  height: 100dvh;
+}
+
+@media (max-height: 720px) {
+  .dashboard-sidebar-main {
+    padding: 1rem !important;
+  }
+
+  .dashboard-brand {
+    margin-bottom: 1rem !important;
+  }
+
+  .dashboard-nav-item {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  .dashboard-sidebar-footer {
+    padding: 0.75rem !important;
+  }
+
+  .dashboard-stats-card {
+    padding: 0.75rem !important;
+  }
+
+  .dashboard-header {
+    height: 4rem !important;
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+  }
+
+  .dashboard-main {
+    padding: 1rem 1.5rem !important;
+  }
+}
+
+@media (max-height: 620px) {
+  .dashboard-stat-row,
+  .dashboard-subtitle {
+    display: none !important;
+  }
+
+  .dashboard-header {
+    height: 3.5rem !important;
+  }
+}
+
 /* Flashcard 3D flip utilities */
 .perspective-1000 { perspective: 1000px; }
 .preserve-3d { transform-style: preserve-3d; }

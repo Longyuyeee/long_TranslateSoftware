@@ -1768,7 +1768,18 @@ fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Pat
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if should_show_main_window(&args) {
+                tray::show_main_window(app);
+            }
+        }));
+    }
+
+    builder
         .manage(AppState { shortcuts_paused: Mutex::new(false), clipboard_lock: Mutex::new(false) })
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
@@ -1795,6 +1806,11 @@ pub fn run() {
                     let _ = main_win_clone.hide();
                 }
             });
+
+            let launch_args = std::env::args().collect::<Vec<_>>();
+            if should_show_main_window(&launch_args) {
+                tray::show_main_window(&app_handle);
+            }
 
             let q_shortcut_str = db::get_config(&conn, "shortcut_q").unwrap_or_else(|_| "Alt+Q".to_string());
             let w_shortcut_str = db::get_config(&conn, "shortcut_w").unwrap_or_else(|_| "Alt+W".to_string());
@@ -1843,9 +1859,13 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+fn should_show_main_window(args: &[String]) -> bool {
+    !args.iter().any(|arg| arg == "--autostart")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{decrypt_backup_payload, encrypt_backup_payload, BACKUP_V3_MAGIC};
+    use super::{decrypt_backup_payload, encrypt_backup_payload, should_show_main_window, BACKUP_V3_MAGIC};
 
     #[test]
     fn v3_backup_round_trip_uses_authenticated_encryption() {
@@ -1863,6 +1883,15 @@ mod tests {
 
         assert!(decrypt_backup_payload(&encrypted, "wrong-password").is_err());
         assert!(decrypt_backup_payload(BACKUP_V3_MAGIC, "right-password").is_err());
+    }
+
+    #[test]
+    fn manual_launch_shows_main_window_but_autostart_stays_in_tray() {
+        assert!(should_show_main_window(&["long-translate.exe".into()]));
+        assert!(!should_show_main_window(&[
+            "long-translate.exe".into(),
+            "--autostart".into(),
+        ]));
     }
 }
 
