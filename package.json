@@ -28,6 +28,8 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@emnapi/core": "1.11.2",
+    "@emnapi/runtime": "1.11.2",
     "@tailwindcss/postcss": "^4.2.1",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^7.0.0",
