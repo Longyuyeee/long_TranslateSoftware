@@ -104,8 +104,9 @@ struct AppState {
 
 #[tauri::command]
 fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
-    let mut p = state.shortcuts_paused.lock().unwrap();
-    *p = paused;
+    if let Ok(mut current) = state.shortcuts_paused.lock() {
+        *current = paused;
+    }
 }
 
 #[tauri::command]
@@ -207,7 +208,7 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
     let name_for_closure = name.clone();
     app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
         let state = app.state::<AppState>();
-        let paused = state.shortcuts_paused.lock().unwrap();
+        let Ok(paused) = state.shortcuts_paused.lock() else { return; };
         if *paused { return; }
 
         if event.state() == ShortcutState::Pressed {
@@ -385,8 +386,8 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
             tx.commit().map_err(|e| e.to_string())?;
         }
 
-        app.emit("wordbook-updated", "import").unwrap();
-        app.emit("config-updated", "import").unwrap();
+        app.emit("wordbook-updated", "import").map_err(|e| e.to_string())?;
+        app.emit("config-updated", "import").map_err(|e| e.to_string())?;
         return Ok(());
     }
 
@@ -488,7 +489,7 @@ fn add_to_wordbook(
             ).map_err(|e| e.to_string())?;
         }
     }
-    app.emit("wordbook-updated", "local").unwrap();
+    app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -500,7 +501,7 @@ fn update_word_analysis(app: AppHandle, word: String, phonetic: String, meaning:
         "UPDATE wordbook SET phonetic = ?1, meaning = ?2, analysis_json = ?3, updated_at = CURRENT_TIMESTAMP WHERE word = ?4",
         [phonetic, meaning, analysis, word],
     ).map_err(|e| e.to_string())?;
-    app.emit("wordbook-updated", "local").unwrap();
+    app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -664,7 +665,7 @@ fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_jso
         rusqlite::params![new_s, new_d, interval_days, &next_str, &now, word_id],
     ).map_err(|e| e.to_string())?;
 
-    app.emit("wordbook-updated", "local").unwrap();
+    app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "interval": interval_days,
         "stability": new_s,
@@ -926,7 +927,7 @@ fn delete_word(app: AppHandle, id: i32) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("UPDATE wordbook SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
-    app.emit("wordbook-updated", "local").unwrap();
+    app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -938,7 +939,7 @@ fn save_translation(app: AppHandle, source_text: String, translated_text: String
         "INSERT INTO translation_history (source_text, translated_text, source_lang, target_lang, model) VALUES (?1, ?2, ?3, ?4, ?5)",
         [&source_text, &translated_text, &source_lang.unwrap_or_default(), &target_lang.unwrap_or_default(), &model.unwrap_or_default()],
     ).map_err(|e| e.to_string())?;
-    app.emit("history-updated", "").unwrap();
+    app.emit("history-updated", "").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1048,7 +1049,7 @@ fn clear_translation_history(app: AppHandle) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM translation_history", []).map_err(|e| e.to_string())?;
-    app.emit("history-updated", "").unwrap();
+    app.emit("history-updated", "").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1094,7 +1095,7 @@ fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
 
 #[tauri::command]
 fn save_audio_cache(app: AppHandle, cache_key: String, audio_data: Vec<u8>) -> Result<(), String> {
-    let cache_dir = get_audio_cache_dir(&app);
+    let cache_dir = get_audio_cache_dir(&app)?;
     let mut hasher = Sha256::new();
     hasher.update(cache_key.as_bytes());
     let hash = hex::encode(hasher.finalize());
@@ -1145,18 +1146,18 @@ fn show_ocr_overlay(app: &AppHandle) {
     }
 }
 
-fn get_audio_cache_dir(app: &AppHandle) -> PathBuf {
-    let mut path = app.path().app_cache_dir().expect("Failed to get cache dir");
+fn get_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let mut path = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     path.push("audio_cache");
     if !path.exists() {
-        let _ = fs::create_dir_all(&path);
+        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     }
-    path
+    Ok(path)
 }
 
 #[tauri::command]
 fn check_audio_cache(app: AppHandle, cache_key: String) -> Result<bool, String> {
-    let cache_dir = get_audio_cache_dir(&app);
+    let cache_dir = get_audio_cache_dir(&app)?;
     let mut hasher = Sha256::new();
     hasher.update(cache_key.as_bytes());
     let hash = hex::encode(hasher.finalize());
@@ -1167,7 +1168,10 @@ fn check_audio_cache(app: AppHandle, cache_key: String) -> Result<bool, String> 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn generate_sec_ms_gec_token() -> String {
-    let ticks = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time flew backwards").as_secs();
+    let ticks = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     let rounded_ticks = ticks / 3000 * 3000;
     let str_to_hash = format!("{}6A5AA1D4EAFF4E9FB37E23D68491D6F4", rounded_ticks);
     let mut hasher = Sha256::new();
@@ -1230,7 +1234,7 @@ async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> 
 
 #[tauri::command]
 async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>, engine: Option<String>, voice: Option<String>) -> Result<Vec<u8>, String> {
-    let cache_dir = get_audio_cache_dir(&app);
+    let cache_dir = get_audio_cache_dir(&app)?;
     let key_to_hash = cache_key.clone().unwrap_or_else(|| url.clone());
     let mut hasher = Sha256::new();
     hasher.update(key_to_hash.as_bytes());
@@ -1285,7 +1289,7 @@ fn evict_cache_if_needed(cache_dir: &PathBuf, max_size: u64) {
 
 #[tauri::command]
 fn get_audio_cache_size(app: AppHandle) -> Result<String, String> {
-    let cache_dir = get_audio_cache_dir(&app);
+    let cache_dir = get_audio_cache_dir(&app)?;
     let mut size = 0u64;
     if let Ok(entries) = fs::read_dir(cache_dir) {
         for entry in entries.flatten() {
@@ -1300,9 +1304,11 @@ fn get_audio_cache_size(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn clear_audio_cache(app: AppHandle) -> Result<(), String> {
-    let cache_dir = get_audio_cache_dir(&app);
-    let _ = fs::remove_dir_all(&cache_dir);
-    let _ = fs::create_dir_all(&cache_dir);
+    let cache_dir = get_audio_cache_dir(&app)?;
+    if cache_dir.exists() {
+        fs::remove_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    }
+    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1311,7 +1317,7 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
     let app_handle = app.clone();
     {
         let state = app.state::<AppState>();
-        let mut lock = state.clipboard_lock.lock().unwrap();
+        let Ok(mut lock) = state.clipboard_lock.lock() else { return; };
         if *lock {
             return; // Another translation is in progress
         }
@@ -1330,7 +1336,9 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
             Err(_) => {
                 // Failed to init Enigo, restore clipboard and unlock
                 let _ = clipboard.write_text(original_text);
-                *app_handle.state::<AppState>().clipboard_lock.lock().unwrap() = false;
+                if let Ok(mut lock) = app_handle.state::<AppState>().clipboard_lock.lock() {
+                    *lock = false;
+                }
                 return;
             }
         };
@@ -1369,7 +1377,9 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
         }
 
         // Release lock
-        *app_handle.state::<AppState>().clipboard_lock.lock().unwrap() = false;
+        if let Ok(mut lock) = app_handle.state::<AppState>().clipboard_lock.lock() {
+            *lock = false;
+        }
     });
 }
 
@@ -1572,7 +1582,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         db::set_config(&conn, "last_sync_time", &now).map_err(|e| e.to_string())?;
     }
 
-    app.emit("wordbook-updated", "sync").unwrap();
+    app.emit("wordbook-updated", "sync").map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1772,7 +1782,13 @@ pub fn run() {
             
             if let Ok(s) = parse_shortcut(&q_shortcut_str) {
                 let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
-                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    let paused = app
+                        .state::<AppState>()
+                        .shortcuts_paused
+                        .lock()
+                        .map(|value| *value)
+                        .unwrap_or(true);
+                    if paused { return; }
                     if event.state() == ShortcutState::Pressed {
                         handle_translate_request(app);
                     }
@@ -1781,7 +1797,13 @@ pub fn run() {
 
             if let Ok(s) = parse_shortcut(&w_shortcut_str) {
                 let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
-                    if *app.state::<AppState>().shortcuts_paused.lock().unwrap() { return; }
+                    let paused = app
+                        .state::<AppState>()
+                        .shortcuts_paused
+                        .lock()
+                        .map(|value| *value)
+                        .unwrap_or(true);
+                    if paused { return; }
                     if event.state() == ShortcutState::Pressed {
                         if let Some(overlay) = app.get_webview_window("ocr-overlay") {
                             let _ = overlay.show();
