@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.4 多语言与主题界面优化**：统一全部下拉选择器的视觉与交互，完善中英文界面适配，并改善窄窗口下的批量翻译和生词本布局。
+> **v0.4.5 安全存储与质量收口**：敏感配置升级为 Windows DPAPI 保护，修复 WebDAV 认证读取，并强化更新交互、自动化测试和发布质量门槛。
 
 ---
 
@@ -86,7 +86,7 @@
 - **密码加密**: Argon2id 密钥派生 + AES-256-GCM 认证加密
 - 导出 `.TLong` 文件，跨设备一键迁移配置与生词本（含复习进度）
 - 兼容旧版备份格式，无缝升级
-- **静态数据加密**: API 密钥与 WebDAV 密码在 SQLite 中 AES-256-GCM 加密存储
+- **系统级静态保护**: API 密钥与 WebDAV 密码由 Windows DPAPI 加密并绑定当前 Windows 用户；旧数据首次读取时自动迁移
 
 ### 🎨 视觉与体验
 - 精美毛玻璃 Apple Style 设计，深色/浅色/跟随系统三种主题
@@ -112,14 +112,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.4 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.4 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.5 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.5 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.4 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
 | v0.4.3 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64.msi) |
 | v0.4.2 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64.msi) |
 | v0.4.1 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.1/LongTranslate_0.4.1_x64.msi) |
@@ -137,6 +138,22 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.5 — Secure Storage & Quality Closure</strong></summary>
+
+**安全与同步**
+- 敏感配置升级为 Windows DPAPI 用户级保护，旧明文和旧加密格式首次读取时自动迁移
+- 修复 WebDAV 同步读取加密密码而导致认证失败的问题
+- 跨设备加密备份导入后会使用新电脑的 Windows 用户密钥重新保护配置
+
+**体验与工程质量**
+- 更新弹窗新增主操作自动聚焦和 Escape 关闭，更新状态机从 Dashboard 独立拆分
+- 主题选择器与更新弹窗增加真实键盘和可访问性组件测试
+- 新增持续集成质量门槛，发布正文按版本文档自动生成
+- 清理事件广播、音频缓存和互斥锁等用户路径中的可恢复崩溃点
+
+</details>
+
+<details>
 <summary><strong>v0.4.4 — Localization & Themed Selectors</strong></summary>
 
 **多语言与主题**
@@ -365,7 +382,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.4.4` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.4.5` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 
