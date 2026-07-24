@@ -37,8 +37,32 @@ jobs:
       - name: Run frontend tests
         run: npm test
 
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+
+      - name: Build frontend
+        run: npm run build
+
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Run strict Rust lint
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Load versioned release notes
+        id: release_notes
+        shell: pwsh
+        run: |
+          $version = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          $notesPath = "docs/releases/v$version.md"
+          if (-not (Test-Path -LiteralPath $notesPath)) {
+            throw "Missing versioned release notes: $notesPath"
+          }
+
+          $delimiter = "RELEASE_NOTES_$([guid]::NewGuid().ToString('N'))"
+          "body<<$delimiter" >> $env:GITHUB_OUTPUT
+          Get-Content -LiteralPath $notesPath -Raw >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
 
       - name: Build, sign and publish
         uses: tauri-apps/tauri-action@v1
@@ -49,15 +73,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Long翻译 v__VERSION__"
-          releaseBody: |
-            ## v0.4.4 多语言与主题界面优化
-
-            - 全部下拉选择器统一为支持深色与浅色主题的现代样式
-            - 完善界面、语言名称、状态提示及后台通知的中英文适配
-            - 优化窄窗口下批量翻译、生词本搜索与排序区域的布局
-            - 增强下拉菜单键盘操作、视口定位和滚动体验
-
-            应用会在安装前验证更新包签名。完整说明见 `docs/releases/v0.4.4.md`。
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           generateReleaseNotes: true
           releaseDraft: false
           prerelease: false

@@ -8,6 +8,7 @@ Long翻译使用 Tauri Updater 和 minisign 对更新包进行强制签名校验
 - 本地私钥目录为项目根目录下的 `.updater-keys/`，已由 `.gitignore` 整目录忽略。
 - GitHub Actions 使用仓库 Secrets `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，无需把私钥提交到 Git。
 - 发布工作流位于 `.github/workflows/release.yml`，推送 `v*` 标签时自动运行测试、构建、签名并创建 Release。
+- 发布正文自动读取 `docs/releases/v<版本号>.md`；缺少对应文档时工作流会停止，避免发布错误或过期的说明。
 - 更新地址固定为 GitHub 最新 Release 的 `latest.json`。
 
 ## 私钥保管
@@ -25,12 +26,13 @@ v0.4.0 及更早版本没有内置本次生成的有效公钥，因此它们不�
 ## 正常发版
 
 1. 同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 中的版本号。
-2. 执行 `npm test`、`npm run build`、`cargo test --manifest-path src-tauri/Cargo.toml` 和严格 Clippy。
-3. 提交并推送代码。
-4. 创建与配置版本完全一致的标签，例如 `git tag v0.4.2`，然后推送该标签。
-5. 在 GitHub Actions 中确认发布任务成功。
-6. 在 Release 中确认至少存在 NSIS 安装包、对应 `.sig` 文件以及 `latest.json`。
-7. 使用上一正式版本点击“检查更新”，完成一次真实升级验收。
+2. 新建 `docs/releases/v<版本号>.md`，写清用户可感知的变化、兼容性与安全说明。
+3. 执行 `npm test`、`npm audit --audit-level=high`、`npm run build`、`cargo test --manifest-path src-tauri/Cargo.toml` 和严格 Clippy。
+4. 提交并推送代码，确认持续集成工作流成功。
+5. 创建与配置版本完全一致的标签，例如 `git tag v0.4.5`，然后推送该标签。
+6. 在 GitHub Actions 中确认发布任务成功。
+7. 在 Release 中确认正文来自对应版本文档，并且至少存在 NSIS 安装包、对应 `.sig` 文件以及 `latest.json`。
+8. 使用上一正式版本点击“检查更新”，完成一次真实升级验收。
 
 不要手工编辑 `latest.json`，也不要单独替换 Release 中的安装包；安装包、签名和更新清单必须来自同一次构建。
 
