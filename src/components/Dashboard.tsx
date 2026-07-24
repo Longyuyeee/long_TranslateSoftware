@@ -12,6 +12,7 @@ import { startTranslationTask, startTranslationComparisonTask, testTranslationCo
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog, { UpdatePhase } from "./UpdateDialog";
+import ThemedSelect from "./ThemedSelect";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -30,6 +31,24 @@ const TRANSLATION_PROVIDERS = [
   { id: "custom", label: "Custom", baseUrl: "", model: "" },
 ] as const;
 
+const LANGUAGES = [
+  "Chinese", "English", "Japanese", "Korean", "French", "German",
+  "Spanish", "Portuguese", "Russian", "Arabic", "Italian", "Dutch",
+  "Thai", "Vietnamese", "Indonesian", "Hindi", "Turkish", "Polish",
+  "Swedish", "Danish", "Norwegian", "Finnish", "Greek", "Czech",
+  "Romanian", "Hungarian", "Hebrew", "Ukrainian", "Catalan", "Slovak",
+] as const;
+
+const OCR_LANGUAGES = [
+  { value: "zh-Hans", language: "Chinese" },
+  { value: "en", language: "English" },
+  { value: "ja", language: "Japanese" },
+  { value: "ko", language: "Korean" },
+  { value: "fr", language: "French" },
+  { value: "de", language: "German" },
+  { value: "es", language: "Spanish" },
+] as const;
+
 type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
 
 export default function Dashboard() {
@@ -38,13 +57,6 @@ export default function Dashboard() {
   const [targetLang, setTargetLang] = useState("Chinese");
   const [sourceLang, setSourceLang] = useState("auto");
 
-  const LANGUAGES = [
-    "Chinese", "English", "Japanese", "Korean", "French", "German",
-    "Spanish", "Portuguese", "Russian", "Arabic", "Italian", "Dutch",
-    "Thai", "Vietnamese", "Indonesian", "Hindi", "Turkish", "Polish",
-    "Swedish", "Danish", "Norwegian", "Finnish", "Greek", "Czech",
-    "Romanian", "Hungarian", "Hebrew", "Ukrainian", "Catalan", "Slovak",
-  ];
   const [autoCopy, setAutoCopy] = useState(false);
   const [clipboardMonitor, setClipboardMonitor] = useState(false);
   const [theme, setTheme] = useState("system");
@@ -223,6 +235,31 @@ export default function Dashboard() {
   const syncTimerRef = useRef<any>(null);
   const webdavEnabledRef = useRef(webdavEnabled);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const translationRef = useRef(t);
+  useEffect(() => {
+    translationRef.current = t;
+  }, [t]);
+  const languageOptions = useMemo(
+    () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
+    [t],
+  );
+  const interfaceLanguageOptions = useMemo(
+    () => [
+      { value: "zh" as Lang, label: t.simplifiedChinese },
+      { value: "en" as Lang, label: "English" },
+    ],
+    [t],
+  );
+  const ocrLanguageOptions = useMemo(
+    () => [
+      { value: "auto", label: t.systemDefault },
+      ...OCR_LANGUAGES.map(option => ({
+        value: option.value,
+        label: t.languageNames[option.language] || option.language,
+      })),
+    ],
+    [t],
+  );
   const settingsFingerprint = useMemo(() => JSON.stringify({
     transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
     accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
@@ -298,14 +335,14 @@ export default function Dashboard() {
     });
 
     const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
-        toast("error", `错误: ${event.payload}`);
+        toast("error", `${translationRef.current.runtimeError}: ${event.payload}`);
     });
 
     const unlistenConfigImport = listen("config-updated", () => {
         loadConfig();
         loadWordbook();
         refreshStats();
-        toast("success", t.importSuccess);
+        toast("success", translationRef.current.importSuccess);
     });
 
     return () => {
@@ -319,7 +356,7 @@ export default function Dashboard() {
 
   const handleExport = async () => {
     try {
-        const pw = window.prompt("Enter a password to encrypt the backup:");
+        const pw = window.prompt(t.exportPassword);
         if (pw === null) return; // User cancelled
         if (!pw.trim()) { toast("warning", t.passwordEmpty); return; }
         await invoke<string>("export_data", { password: pw });
@@ -335,7 +372,7 @@ export default function Dashboard() {
 
   const handleImport = async () => {
     try {
-        const pw = window.prompt("Enter the backup password:");
+        const pw = window.prompt(t.importPassword);
         if (pw === null) return;
         await invoke("import_data", { password: pw || "" });
         setTimeout(() => window.location.reload(), 500);
@@ -862,16 +899,11 @@ export default function Dashboard() {
     await analyzeAndSaveWord(wordToAdd);
   };
 
-  const [isLangOpen, setIsLangOpen] = useState(false);
-  const langRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const prevActiveTab = useRef("general");
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (langRef.current && !langRef.current.contains(event.target as Node)) {
-        setIsLangOpen(false);
-      }
       if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
         isNotificationsOpenRef.current = false;
         setIsNotificationsOpen(false);
@@ -948,19 +980,19 @@ export default function Dashboard() {
         <div className="dashboard-sidebar-footer shrink-0 p-4 border-t border-black/5 dark:border-white/5">
             <div className="dashboard-stats-card p-4 bg-white/40 dark:bg-white/5 rounded-2xl border border-white/40 dark:border-white/5 space-y-3">
                 <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Book size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Words</span></div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Book size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.words}</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.word_count}</span>
                 </div>
                 <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Languages size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Trans</span></div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Languages size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.translations}</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.trans_count}</span>
                 </div>
                 <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Brain size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Due</span></div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Brain size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.dueToday}</span></div>
                     <span className="text-[10px] font-black text-amber-500">{appStats.due_today || 0}</span>
                 </div>
                 <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">Days</span></div>
+                    <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.streak}</span></div>
                     <span className="text-[10px] font-black text-accent">{appStats.days_active}d</span>
                 </div>
                 <button onClick={() => void checkUpdate(true)} disabled={isCheckingUpdate} className="w-full py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-[9px] font-black hover:bg-accent/20 transition-all mt-1 disabled:opacity-50">{isCheckingUpdate ? t.updateChecking : t.checkUpdate}</button>
@@ -1023,71 +1055,51 @@ export default function Dashboard() {
                     {activeTab === "general" && (
                         <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Core</h3>
+                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.coreSettings}</h3>
                                 {[
-                                    { label: t.language, desc: "Interface Language", component: (
-                                        <div className="relative" ref={langRef}>
-                                            <button 
-                                                onClick={() => setIsLangOpen(!isLangOpen)}
-                                                className="flex items-center justify-between bg-white/60 dark:bg-white/10 px-6 py-2.5 rounded-2xl font-black text-[12px] w-40 outline-none border border-black/5 dark:border-white/10 hover:bg-white dark:hover:bg-white/20 transition-all group"
-                                            >
-                                                <span>{lang === 'zh' ? '简体中文' : 'English'}</span>
-                                                <ChevronRight size={14} className={`text-zinc-400 group-hover:text-accent transition-all ${isLangOpen ? 'rotate-90' : ''}`} />
-                                            </button>
-                                            <AnimatePresence>
-                                                {isLangOpen && (
-                                                    <motion.div 
-                                                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                        animate={{ opacity: 1, y: 5, scale: 1 }}
-                                                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                        className="absolute right-0 top-full w-40 glass-card rounded-2xl border border-white/50 dark:border-white/10 shadow-2xl z-50 overflow-hidden py-1.5 backdrop-blur-3xl"
-                                                    >
-                                                        {[
-                                                            { id: 'zh', label: '简体中文' },
-                                                            { id: 'en', label: 'English' }
-                                                        ].map(opt => (
-                                                            <button 
-                                                                key={opt.id}
-                                                                onClick={() => { setLang(opt.id as Lang); setIsLangOpen(false); }}
-                                                                className={`w-full text-left px-5 py-2.5 text-[11px] font-black transition-all ${lang === opt.id ? 'bg-accent text-white' : 'hover:bg-black/5 dark:hover:bg-white/5 text-zinc-500'}`}
-                                                            >
-                                                                {opt.label}
-                                                            </button>
-                                                        ))}
-                                                    </motion.div>
-                                                )}
-                                            </AnimatePresence>
-                                        </div>
+                                    { label: t.language, desc: t.interfaceLangDesc, component: (
+                                        <ThemedSelect
+                                            value={lang}
+                                            options={interfaceLanguageOptions}
+                                            onChange={setLang}
+                                            ariaLabel={t.language}
+                                            className="w-44"
+                                        />
                                     )},
-                                    { label: t.autoLaunch, desc: "Run on Startup", component: (
+                                    { label: t.autoLaunch, desc: t.autoLaunchDesc, component: (
                                         <div onClick={toggleAutoLaunch} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoLaunch ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
                                             <motion.div animate={{ left: autoLaunch ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
                                         </div>
                                     )},
                                     { label: t.sourceLang, desc: t.autoDetect, component: (
-                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
-                                            <option value="auto" className="dark:bg-zinc-800 dark:text-white">Auto Detect</option>
-                                            {LANGUAGES.map(l => <option key={l} value={l} className="dark:bg-zinc-800 dark:text-white">{l}</option>)}
-                                        </select>
+                                        <ThemedSelect
+                                            value={sourceLang}
+                                            options={[{ value: "auto", label: t.autoDetect }, ...languageOptions]}
+                                            onChange={setSourceLang}
+                                            ariaLabel={t.sourceLang}
+                                            className="w-44"
+                                        />
                                     )},
-                                    { label: t.targetLang, desc: "Translation Output", component: (
-                                        <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
-                                            {LANGUAGES.map(l => <option key={l} value={l} className="dark:bg-zinc-800 dark:text-white">{l}</option>)}
-                                        </select>
+                                    { label: t.targetLang, desc: t.translationOutput, component: (
+                                        <ThemedSelect
+                                            value={targetLang}
+                                            options={languageOptions}
+                                            onChange={setTargetLang}
+                                            ariaLabel={t.targetLang}
+                                            className="w-44"
+                                            accent
+                                        />
                                     )},
                                     { label: t.ocrLang, desc: t.ocrLangDesc, component: (
-                                        <select value={ocrLang} onChange={(e) => setOcrLang(e.target.value)} className="bg-white/60 dark:bg-zinc-800 dark:text-white px-4 py-2.5 rounded-2xl border border-black/5 dark:border-zinc-600 font-black text-[11px] text-zinc-800 w-40 outline-none text-right focus:ring-4 ring-blue-500/10 transition-all appearance-none cursor-pointer">
-                                            <option value="auto" className="dark:bg-zinc-800 dark:text-white">System Default</option>
-                                            <option value="zh-Hans" className="dark:bg-zinc-800 dark:text-white">中文 (Chinese)</option>
-                                            <option value="en" className="dark:bg-zinc-800 dark:text-white">English</option>
-                                            <option value="ja" className="dark:bg-zinc-800 dark:text-white">日本語</option>
-                                            <option value="ko" className="dark:bg-zinc-800 dark:text-white">한국어</option>
-                                            <option value="fr" className="dark:bg-zinc-800 dark:text-white">Français</option>
-                                            <option value="de" className="dark:bg-zinc-800 dark:text-white">Deutsch</option>
-                                            <option value="es" className="dark:bg-zinc-800 dark:text-white">Español</option>
-                                        </select>
+                                        <ThemedSelect
+                                            value={ocrLang}
+                                            options={ocrLanguageOptions}
+                                            onChange={setOcrLang}
+                                            ariaLabel={t.ocrLang}
+                                            className="w-44"
+                                        />
                                     )},
-                                    { label: t.autoCopy, desc: "Clipboard Integration", component: (
+                                    { label: t.autoCopy, desc: t.autoCopyDesc, component: (
                                         <div onClick={() => setAutoCopy(!autoCopy)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoCopy ? 'bg-accent shadow-lg shadow-accent' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
                                             <motion.div animate={{ left: autoCopy ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
                                         </div>
@@ -1098,33 +1110,33 @@ export default function Dashboard() {
                                         </div>
                                     )}
                                 ].map((item, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5 transition-all hover:bg-white/40 dark:hover:bg-white/10">
-                                        <div><label className="text-[0.9em] font-black block">{item.label}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{item.desc}</span></div>
-                                        {item.component}
+                                    <div key={idx} className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5 transition-all hover:bg-white/40 dark:hover:bg-white/10">
+                                        <div className="min-w-0"><label className="text-[0.9em] font-black block leading-snug">{item.label}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-70 leading-snug">{item.desc}</span></div>
+                                        <div className="shrink-0">{item.component}</div>
                                     </div>
                                 ))}
                             </div>
 
                             <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Shortcuts</h3>
+                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.shortcuts}</h3>
                                 {[
-                                    { label: "快速翻译", desc: "自动抓取并翻译选中文本", value: shortcutQ, id: 'q' as const },
-                                    { label: "截图识别", desc: "唤起截图区域识别并翻译", value: shortcutW, id: 'w' as const }
+                                    { label: t.shortcutLabelQ, desc: t.shortcutDescQ, value: shortcutQ, id: 'q' as const },
+                                    { label: t.shortcutLabelW, desc: t.shortcutDescW, value: shortcutW, id: 'w' as const }
                                 ].map((item) => (
-                                    <div key={item.id} className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                        <div>
-                                            <label className="text-[0.9em] font-black block">{item.label}</label>
-                                            <span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{item.desc}</span>
+                                    <div key={item.id} className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                        <div className="min-w-0">
+                                            <label className="text-[0.9em] font-black block leading-snug">{item.label}</label>
+                                            <span className="text-[0.7em] text-zinc-400 font-bold opacity-70 leading-snug">{item.desc}</span>
                                         </div>
                                         <button 
                                             onClick={() => setRecordingKey(recordingKey === item.id ? null : item.id)}
-                                            className={`min-w-[120px] px-4 py-2.5 rounded-2xl font-black text-[11px] border transition-all ${
+                                            className={`min-w-[130px] shrink-0 px-4 py-2.5 rounded-2xl font-black text-[11px] border transition-all ${
                                                 recordingKey === item.id 
                                                 ? 'bg-accent text-white border-accent animate-pulse' 
                                                 : 'bg-white/60 dark:bg-white/10 border-black/5 dark:border-white/10 hover:border-accent/50'
                                             }`}
                                         >
-                                            {recordingKey === item.id ? "请按下组合键..." : item.value}
+                                            {recordingKey === item.id ? t.shortcutRecording : item.value}
                                         </button>
                                     </div>
                                 ))}
@@ -1179,9 +1191,9 @@ export default function Dashboard() {
                             </div>
 
                             <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50`}>
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">Storage</h3>
+                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.storage}</h3>
                                 <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                    <div><label className="text-[0.9em] font-black block">{t.cacheSize}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">Cached audio files</span></div>
+                                    <div><label className="text-[0.9em] font-black block">{t.cacheSize}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{t.storageDesc}</span></div>
                                     <div className="flex items-center gap-4">
                                         <span className="text-[11px] font-black text-zinc-500">{cacheSize}</span>
                                         <button onClick={handleClearCache} className="px-4 py-1.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.clearCache}</button>
@@ -1204,10 +1216,14 @@ export default function Dashboard() {
                                 <div className="flex flex-col gap-4">
                                     <div className="flex items-center justify-between pl-4 pr-2">
                                         <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.inputText}</h3>
-                                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[10px] text-zinc-600 dark:text-zinc-300 outline-none cursor-pointer focus:border-accent/50 transition-all appearance-none">
-                                            <option value="auto">{t.autoDetect}</option>
-                                            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-                                        </select>
+                                        <ThemedSelect
+                                            value={sourceLang}
+                                            options={[{ value: "auto", label: t.autoDetect }, ...languageOptions]}
+                                            onChange={setSourceLang}
+                                            ariaLabel={t.sourceLang}
+                                            className="w-32"
+                                            compact
+                                        />
                                     </div>
                                     <div className="flex-1 glass-card rounded-[28px] overflow-hidden p-6 border-white/50 relative">
                                         <textarea value={batchInput} onChange={(e) => setBatchInput(e.target.value)} placeholder={t.inputPlaceholder} className="w-full h-full bg-transparent outline-none resize-none font-medium custom-scrollbar text-[0.9em] leading-relaxed dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
@@ -1219,14 +1235,20 @@ export default function Dashboard() {
                                     </div>
                                 </div>
                                 <div className="flex flex-col gap-4">
-                                    <div className="flex justify-between items-center px-4">
-                                        <div className="flex items-center gap-3">
+                                    <div className="flex flex-wrap justify-between items-center gap-2 px-2">
+                                        <div className="flex min-w-0 items-center gap-2">
                                             <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.output}</h3>
-                                            <select value={targetLang} onChange={(e) => setTargetLang(e.target.value)} className="bg-white/60 dark:bg-white/10 px-3 py-1.5 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[10px] text-accent outline-none cursor-pointer focus:border-accent/50 transition-all appearance-none">
-                                                {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-                                            </select>
+                                            <ThemedSelect
+                                                value={targetLang}
+                                                options={languageOptions}
+                                                onChange={setTargetLang}
+                                                ariaLabel={t.targetLang}
+                                                className="w-28"
+                                                compact
+                                                accent
+                                            />
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                                             {batchOutput && !compareMode && <button onClick={() => navigator.clipboard.writeText(batchOutput)} className="text-[10px] font-bold text-accent hover:bg-accent/10 px-3 py-1 rounded-full flex items-center gap-1.5 transition-all"><Copy size={12} /> {t.copy}</button>}
                                             {batchOutput && !compareMode && (
                                                 <button onClick={startBatchBackTranslate} disabled={isBatchBackTranslating} className={`text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 transition-all ${isBatchBackTranslating ? 'text-zinc-300' : 'text-amber-500 hover:bg-amber-500/10'}`}>
@@ -1368,7 +1390,7 @@ export default function Dashboard() {
                             <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
                                 <div className="flex items-center gap-5 mb-4">
                                     <div className="w-14 h-14 bg-zinc-200 dark:bg-white/10 rounded-[20px] flex items-center justify-center text-zinc-600 dark:text-zinc-300 shadow-inner"><Cpu size={28} /></div>
-                                    <div><h3 className="text-lg font-black tracking-tight">{t.transModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">Translation Intelligence</p></div>
+                                    <div><h3 className="text-lg font-black tracking-tight">{t.transModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">{t.transIntelligence}</p></div>
                                 </div>
                                 <div className="space-y-5">
                                     <div>
@@ -1445,7 +1467,7 @@ export default function Dashboard() {
                             <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50`}>
                                 <div className="flex items-center gap-5 mb-4">
                                     <div className="w-14 h-14 bg-accent/10 rounded-[20px] flex items-center justify-center text-accent shadow-inner"><Volume2 size={28} /></div>
-                                    <div><h3 className="text-lg font-black tracking-tight">{t.audioModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">Voice Synthesis Engine</p></div>
+                                    <div><h3 className="text-lg font-black tracking-tight">{t.audioModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">{t.voiceEngine}</p></div>
                                 </div>
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
@@ -1484,7 +1506,7 @@ export default function Dashboard() {
                     {activeTab === "appearance" && (
                         <div className="space-y-6 max-w-3xl mx-auto w-full">
                             <div className="glass-card rounded-[28px] p-8 space-y-8 shadow-apple border-white/50">
-                                <div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-6 pl-2">Theme Mode</h3>
+                                <div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-6 pl-2">{t.themeMode}</h3>
                                     <div className="grid grid-cols-3 gap-5">
                                         {[
                                             { id: "light", icon: Sun, label: t.themeLight, color: "from-orange-400 to-orange-500" },
@@ -1519,9 +1541,9 @@ export default function Dashboard() {
                                     </div>
                                 </div>
 
-                                <div className="pt-4"><div className="flex items-center justify-between mb-8 px-2"><div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">Interface Scale</h3><p className="text-[10px] text-zinc-400 font-bold opacity-60">Global UI Scaling Engine</p></div><div className="px-5 py-2.5 bg-accent rounded-2xl text-white font-black text-[12px] shadow-xl shadow-accent">{fontSize}px</div></div>
+                                <div className="pt-4"><div className="flex items-center justify-between mb-8 px-2"><div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.interfaceScale}</h3><p className="text-[10px] text-zinc-400 font-bold opacity-60">{t.scaleDesc}</p></div><div className="px-5 py-2.5 bg-accent rounded-2xl text-white font-black text-[12px] shadow-xl shadow-accent">{fontSize}px</div></div>
                                     <div className="px-4"><input type="range" min="10" max="24" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full accent-[var(--accent)] cursor-pointer h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full appearance-none mb-10" />
-                                        <div className="p-8 bg-black/5 dark:bg-white/5 rounded-[28px] border border-black/5 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[10px] font-black text-zinc-300 uppercase tracking-[0.4em] mb-4 opacity-60">Scaling Preview</p><p className="font-bold leading-relaxed max-w-sm transition-all duration-300">Everything is designed, but few things are designed well.</p></div>
+                                        <div className="p-8 bg-black/5 dark:bg-white/5 rounded-[28px] border border-black/5 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[10px] font-black text-zinc-300 uppercase tracking-[0.4em] mb-4 opacity-60">{t.scalePreview}</p><p className="font-bold leading-relaxed max-w-sm transition-all duration-300">{t.scalePreviewText}</p></div>
                                     </div>
                                 </div>
                             </div>
@@ -1532,7 +1554,7 @@ export default function Dashboard() {
                         <div className="flex h-full gap-8 relative overflow-hidden">
                             <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-3 shrink-0" style={{ width: 'min(30%, 260px)', minWidth: '160px' }}>
                                 {/* Search & Sort */}
-                                <div className="flex gap-2">
+                                <div className="flex flex-col gap-2">
                                     <div className="flex-1 relative">
                                         <input
                                             type="text"
@@ -1548,18 +1570,18 @@ export default function Dashboard() {
                                             </button>
                                         )}
                                     </div>
-                                    <div className="relative">
-                                        <select
-                                            value={wordbookSort}
-                                            onChange={(e) => setWordbookSort(e.target.value as "newest" | "az" | "za")}
-                                            className="py-2.5 pl-3 pr-7 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none text-zinc-600 dark:text-zinc-300 appearance-none cursor-pointer focus:border-accent/50 transition-all"
-                                        >
-                                            <option value="newest">{t.sortNewest}</option>
-                                            <option value="az">{t.sortAZ}</option>
-                                            <option value="za">{t.sortZA}</option>
-                                        </select>
-                                        <ChevronRight size={12} className="absolute right-2 top-1/2 -translate-y-1/2 rotate-90 text-zinc-400 pointer-events-none" />
-                                    </div>
+                                    <ThemedSelect
+                                        value={wordbookSort}
+                                        onChange={setWordbookSort}
+                                        options={[
+                                            { value: "newest", label: t.sortNewest },
+                                            { value: "az", label: t.sortAZ },
+                                            { value: "za", label: t.sortZA },
+                                        ]}
+                                        ariaLabel={t.sortWords}
+                                        className="w-full"
+                                        compact
+                                    />
                                 </div>
 
                                 {/* Word count */}
@@ -1579,7 +1601,7 @@ export default function Dashboard() {
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
                                     <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-accent/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder="{t.enterWord}" className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
+                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
                                 {displayedWords.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-accent border-accent shadow-2xl' : 'glass-card border-transparent hover:border-accent/30 hover:bg-white/80'}`}>
@@ -1587,14 +1609,14 @@ export default function Dashboard() {
                                             <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
                                             <button onClick={(e) => { e.stopPropagation(); speak(w.word).then(refreshCacheSize); }} className={`p-1 rounded-lg transition-all ${selectedWord?.id === w.id ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-zinc-300 hover:text-accent hover:bg-accent/10'}`}><Volume2 size={13}/></button>
                                         </div>
-                                        <p className={`text-[0.7em] font-bold truncate opacity-80 ${selectedWord?.id === w.id ? 'text-white/70' : 'text-zinc-400'}`}>{w.meaning || "{t.analyzing}"}</p>
+                                        <p className={`text-[0.7em] font-bold truncate opacity-80 ${selectedWord?.id === w.id ? 'text-white/70' : 'text-zinc-400'}`}>{w.meaning || t.analyzing}</p>
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
                                 {filteredWords.length > wordsLimit && !wordbookSearch && (
                                     <div className="flex gap-2">
-                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all">LOAD MORE ({filteredWords.length - wordsLimit} remaining)</button>
-                                        <button onClick={() => setWordsLimit(filteredWords.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-accent transition-all">ALL</button>
+                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all">{t.loadMore} ({t.remaining} {filteredWords.length - wordsLimit})</button>
+                                        <button onClick={() => setWordsLimit(filteredWords.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-accent transition-all">{t.showAll}</button>
                                     </div>
                                 )}
                             </div>
@@ -1607,8 +1629,8 @@ export default function Dashboard() {
                                                 <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-accent" size={24} />
                                             </div>
                                             <div className="text-center">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 text-zinc-400">Neural Sync</p>
-                                                <p className="text-[10px] text-zinc-300 dark:text-zinc-500 font-bold uppercase tracking-widest animate-pulse">Processing...</p>
+                                                <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 text-zinc-400">{t.neuralSync}</p>
+                                                <p className="text-[10px] text-zinc-300 dark:text-zinc-500 font-bold uppercase tracking-widest animate-pulse">{t.processing}</p>
                                             </div>
                                             <div className="pt-4">
                                                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => deleteWord(selectedWord.id)} className="px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.abortDelete}</motion.button>
@@ -1689,7 +1711,7 @@ export default function Dashboard() {
                                             </motion.div>
                                         );
                                     })()) : (
-                                        <div className="flex-1 flex flex-col items-center justify-center text-zinc-200 dark:text-zinc-800 opacity-20"><Book size={80} className="mb-4" /><p className="font-black uppercase tracking-[0.6em] text-[10px]">Awaiting Selection</p></div>
+                                        <div className="flex-1 flex flex-col items-center justify-center text-zinc-200 dark:text-zinc-800 opacity-20"><Book size={80} className="mb-4" /><p className="font-black uppercase tracking-[0.6em] text-[10px]">{t.noWordSelected}</p></div>
                                     )}
                                 </AnimatePresence>
                             </div>

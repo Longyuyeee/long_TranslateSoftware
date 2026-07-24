@@ -9,7 +9,12 @@ function App() {
   const [windowLabel, setWindowLabel] = useState<string>("");
 
   useEffect(() => {
-    setWindowLabel(getCurrentWebviewWindow().label);
+    if ("__TAURI_INTERNALS__" in window) {
+      setWindowLabel(getCurrentWebviewWindow().label);
+    } else {
+      // Browser preview fallback for UI, theme and localization reviews.
+      setWindowLabel("main");
+    }
   }, []);
 
   const content = (() => {
