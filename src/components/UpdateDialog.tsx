@@ -29,6 +29,12 @@ export default function UpdateDialog({ open, version, notes, phase, progress, er
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-dialog-title"
+          onKeyDown={event => {
+            if (event.key === "Escape" && !busy) {
+              event.preventDefault();
+              onClose();
+            }
+          }}
         >
           <motion.section
             initial={{ opacity: 0, y: 18, scale: 0.97 }}
@@ -86,7 +92,7 @@ export default function UpdateDialog({ open, version, notes, phase, progress, er
             <footer className="flex justify-end gap-3 border-t border-black/5 bg-black/[0.02] px-7 py-5 dark:border-white/10 dark:bg-white/[0.025]">
               {!busy && <button type="button" onClick={onClose} className="rounded-xl px-5 py-2.5 text-xs font-black text-zinc-500 hover:bg-black/5 dark:hover:bg-white/10">{labels.updateLater}</button>}
               {!busy && (
-                <button type="button" onClick={onInstall} className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-xs font-black text-white shadow-lg shadow-accent/20">
+                <button type="button" autoFocus onClick={onInstall} className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-xs font-black text-white shadow-lg shadow-accent/20">
                   {phase === "error" ? <RefreshCw size={15} /> : <Download size={15} />}
                   {phase === "error" ? labels.retry : labels.updateNow}
                 </button>
