@@ -1,5 +1,6 @@
 mod db;
 mod ocr;
+mod secure_config;
 mod tray;
 
 use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
@@ -94,44 +95,6 @@ fn decrypt_backup_payload(file_data: &[u8], password: &str) -> Result<Vec<u8>, S
         cipher.decrypt(nonce, file_data).ok()
     });
     plaintext.ok_or_else(|| "Decryption failed: invalid password or file format".to_string())
-}
-
-const SENSITIVE_KEYS: &[&str] = &["trans_api_key", "openai_api_key", "backup_api_key", "tts_api_key", "webdav_pass"];
-
-fn is_sensitive_key(key: &str) -> bool {
-    SENSITIVE_KEYS.contains(&key)
-}
-
-fn get_device_key(app_dir: &std::path::Path) -> [u8; 32] {
-    let path_str = app_dir.to_string_lossy();
-    let mut hasher = Sha256::new();
-    hasher.update(path_str.as_bytes());
-    hasher.update(b"LONG-TRANS-DEVICE-SALT");
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result[..32]);
-    key
-}
-
-fn encrypt_value(value: &str, device_key: &[u8; 32]) -> Result<String, String> {
-    let cipher = Aes256Gcm::new_from_slice(device_key).map_err(|e| e.to_string())?;
-    let mut rng = OsRng;
-    let nonce = Aes256Gcm::generate_nonce(&mut rng);
-    let ciphertext = cipher.encrypt(&nonce, value.as_bytes()).map_err(|e| format!("encrypt: {}", e))?;
-    let mut output = nonce.to_vec();
-    output.extend_from_slice(&ciphertext);
-    Ok(format!("ENC:{}", general_purpose::STANDARD.encode(&output)))
-}
-
-fn decrypt_value(encrypted: &str, device_key: &[u8; 32]) -> Result<String, String> {
-    let enc_str = encrypted.strip_prefix("ENC:").ok_or("Not an encrypted value")?;
-    let data = general_purpose::STANDARD.decode(enc_str).map_err(|e| e.to_string())?;
-    if data.len() < 12 { return Err("Invalid encrypted data".to_string()); }
-    let (nonce_bytes, ciphertext) = data.split_at(12);
-    let cipher = Aes256Gcm::new_from_slice(device_key).map_err(|e| e.to_string())?;
-    let plaintext = cipher.decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
-        .map_err(|_| "Decryption failed".to_string())?;
-    String::from_utf8(plaintext).map_err(|e| e.to_string())
 }
 
 struct AppState {
@@ -273,9 +236,8 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
         .map_err(|e| e.to_string())?;
     for row in config_rows {
         let (k, mut v) = row.map_err(|e| e.to_string())?;
-        if is_sensitive_key(&k) && v.starts_with("ENC:") {
-            let device_key = get_device_key(&app_dir);
-            v = decrypt_value(&v, &device_key)
+        if secure_config::is_sensitive_key(&k) && !v.is_empty() {
+            v = secure_config::reveal_value(&v, &app_dir)
                 .map_err(|_| format!("Cannot export protected setting '{k}' on this device"))?;
         }
         config_data.insert(k, v);
@@ -376,9 +338,8 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
             if let Some(configs) = full_json["config"].as_object() {
                 for (k, v) in configs {
                     let mut value = v.as_str().unwrap_or_default().to_string();
-                    if is_portable_v3 && is_sensitive_key(k) && !value.is_empty() {
-                        let device_key = get_device_key(&app_dir);
-                        value = encrypt_value(&value, &device_key)?;
+                    if is_portable_v3 && secure_config::is_sensitive_key(k) && !value.is_empty() {
+                        value = secure_config::protect_value(&value)?;
                     }
                     tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, &value]).map_err(|e| e.to_string())?;
                 }
@@ -1120,12 +1081,7 @@ fn save_translation_memory(app: AppHandle, source_text: String, translated_text:
 fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let store_value = if is_sensitive_key(&key) && !value.is_empty() {
-        let device_key = get_device_key(&app_dir);
-        encrypt_value(&value, &device_key)?
-    } else {
-        value
-    };
+    let store_value = secure_config::prepare_value(&key, &value)?;
     db::set_config(&conn, &key, &store_value).map_err(|e| e.to_string())
 }
 
@@ -1133,13 +1089,7 @@ fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), St
 fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let value = db::get_config(&conn, &key).map_err(|e| e.to_string())?;
-    if is_sensitive_key(&key) && value.starts_with("ENC:") {
-        let device_key = get_device_key(&app_dir);
-        decrypt_value(&value, &device_key)
-    } else {
-        Ok(value)
-    }
+    secure_config::load_value(&conn, &key, &app_dir)
 }
 
 #[tauri::command]
@@ -1431,7 +1381,7 @@ async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
         let url = db::get_config(&conn, "webdav_url").unwrap_or_default();
         let user = db::get_config(&conn, "webdav_user").unwrap_or_default();
-        let pass = db::get_config(&conn, "webdav_pass").unwrap_or_default();
+        let pass = secure_config::load_value(&conn, "webdav_pass", &app_dir)?;
         let is_enabled = db::get_config(&conn, "webdav_enabled").unwrap_or_default() == "true";
         (url, user, pass, is_enabled)
     };
@@ -1899,13 +1849,9 @@ mod tests {
 fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collections::HashMap<String, String>, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let device_key = get_device_key(&app_dir);
     let mut values = std::collections::HashMap::new();
     for key in keys {
-        let mut value = db::get_config(&conn, &key).map_err(|e| e.to_string())?;
-        if is_sensitive_key(&key) && value.starts_with("ENC:") {
-            value = decrypt_value(&value, &device_key)?;
-        }
+        let value = secure_config::load_value(&conn, &key, &app_dir)?;
         values.insert(key, value);
     }
     Ok(values)
@@ -1915,14 +1861,9 @@ fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collectio
 fn set_config_values(app: AppHandle, values: std::collections::HashMap<String, String>) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let device_key = get_device_key(&app_dir);
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for (key, value) in values {
-        let stored = if is_sensitive_key(&key) && !value.is_empty() {
-            encrypt_value(&value, &device_key)?
-        } else {
-            value
-        };
+        let stored = secure_config::prepare_value(&key, &value)?;
         tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [&key, &stored])
             .map_err(|e| e.to_string())?;
     }
