@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.5 安全存储与质量收口**：敏感配置升级为 Windows DPAPI 保护，修复 WebDAV 认证读取，并强化更新交互、自动化测试和发布质量门槛。
+> **v0.4.6 识别与表达精度优化**：OCR 加入自适应图像增强，翻译缓存与术语注入更加准确，英语及多语种语音会自动匹配语言和音色。
 
 ---
 
@@ -39,20 +39,21 @@
 - **可解释任务状态**: 清晰展示准备、缓存检查、主模型、备用模型、成功、失败与取消状态
 - **取消与原地重试**: 浮窗和批量翻译均可随时取消，失败后直接使用原文重试
 - **可自定义提示词**: 自由定制 AI 翻译 Prompt，支持 `{{targetLang}}` / `{{text}}` 占位符
-- **术语表 (Glossary)**: 自定义固定术语译法，翻译时自动注入 AI 提示词
+- **术语表 (Glossary)**: 自定义固定术语译法，仅在原文命中对应术语时注入提示词
 - **多模型对比翻译**: 主备模型并行翻译，左右分屏实时对比结果
 - **回译验证**: 译文二次回译至源语言，快速校验翻译质量
 - **剪贴板监听**: 开启后复制文字自动弹出 AI 翻译浮窗，无需快捷键
 - **翻译历史**: 自动保存所有翻译记录，支持浏览、复制与删除
-- **翻译记忆**: 缓存重复翻译内容，减少 API 调用费用
+- **翻译记忆**: 缓存随模型、服务商、语言、提示词和术语表变化自动失效，避免返回过期译文
 - **30 种目标语言**: 下拉菜单选择，源语言支持自动检测
 
 ### 🔍 系统级 OCR 识别
 - 调用 Windows 原生 Media OCR 引擎，本地识别，隐私无忧
+- **自适应图像增强**: 自动放大小字号截图、增强对比度与锐度，弱结果使用二值化再次识别
 - 全屏截图、区域划选，一键提取并翻译
 - **识别结果校对**: OCR 后先编辑确认原文，空结果和识别失败可原地重新截图
 - **多显示器支持**: OCR 遮罩覆盖全部屏幕，副屏也能正常划选截图
-- **OCR 语言选择**: 支持中/英/日/韩/法/德/西 8 种识别语言
+- **OCR 语言选择**: 覆盖约 30 种语言，实际可用语言取决于 Windows 已安装的 OCR 语言包
 
 ### 🧠 FSRS 间隔重复背单词
 - **卡片模式**: 3D 翻转卡片，正面单词+音标，点击翻面看释义+例句，评分后自动安排下次复习
@@ -77,10 +78,11 @@
 - 懒加载渲染，数千单词流畅浏览
 
 ### 🎙️ 多引擎 TTS (语音合成)
-- **本地引擎**: Youdao 词典 API，快速稳定
+- **免费网络引擎**: Youdao 词典语音，适合中英文单词快速朗读
+- **Edge 智能语音**: 自动识别中、英、日、韩、俄语和阿拉伯语并匹配对应音色
 - **在线引擎**: OpenAI 兼容 TTS API，高保真语音合成
 - 智能音频缓存，200MB LRU 自动驱逐
-- 可调速、可调音色
+- 可调速、可调音色，语音失败提供明确提示
 
 ### 💾 安全备份
 - **密码加密**: Argon2id 密钥派生 + AES-256-GCM 认证加密
@@ -112,14 +114,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.5 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.5 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.6 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.6 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.5 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
 | v0.4.4 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
 | v0.4.3 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64.msi) |
 | v0.4.2 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.2/LongTranslate_0.4.2_x64.msi) |
@@ -138,6 +141,28 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.6 — Recognition & Speech Accuracy</strong></summary>
+
+**OCR 与语言适配**
+- 小字号截图自动放大并增强灰度、对比度和锐度，弱识别结果追加二值化重试
+- 自动选择原图与增强图中质量更高的识别结果
+- OCR 语言选项扩展至约 30 种，并继续使用 Windows 本地识别保护隐私
+
+**翻译准确性**
+- 翻译缓存加入模型、服务地址、源语言、提示词和术语表指纹，配置变化后不再复用旧译文
+- 术语表只注入原文实际命中的词条，并处理英文词边界、重复词条与长度限制
+- 默认提示词强化段落、数字、URL、占位符、专名和语气保真，并隔离原文中的潜在指令
+
+**英语与多语种语音**
+- 设置页开放 Edge 智能语音，自动匹配中、英、日、韩、俄语和阿拉伯语音色
+- 修复 Edge 语音语言固定为中文、语速不生效及缓存未区分语速的问题
+- 将原“本地语音”更名为“免费网络”，并补充语音播放失败提示
+
+> 升级时会清理可再生成的旧翻译缓存，翻译历史、生词本、设置和学习进度不受影响。
+
+</details>
+
+<details>
 <summary><strong>v0.4.5 — Secure Storage & Quality Closure</strong></summary>
 
 **安全与同步**
@@ -382,7 +407,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.4.5` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.4.6` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

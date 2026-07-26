@@ -46,6 +46,29 @@ const OCR_LANGUAGES = [
   { value: "fr", language: "French" },
   { value: "de", language: "German" },
   { value: "es", language: "Spanish" },
+  { value: "pt", language: "Portuguese" },
+  { value: "ru", language: "Russian" },
+  { value: "ar", language: "Arabic" },
+  { value: "it", language: "Italian" },
+  { value: "nl", language: "Dutch" },
+  { value: "th", language: "Thai" },
+  { value: "vi", language: "Vietnamese" },
+  { value: "id", language: "Indonesian" },
+  { value: "hi", language: "Hindi" },
+  { value: "tr", language: "Turkish" },
+  { value: "pl", language: "Polish" },
+  { value: "sv", language: "Swedish" },
+  { value: "da", language: "Danish" },
+  { value: "nb-NO", language: "Norwegian" },
+  { value: "fi", language: "Finnish" },
+  { value: "el", language: "Greek" },
+  { value: "cs", language: "Czech" },
+  { value: "ro", language: "Romanian" },
+  { value: "hu", language: "Hungarian" },
+  { value: "he", language: "Hebrew" },
+  { value: "uk", language: "Ukrainian" },
+  { value: "ca", language: "Catalan" },
+  { value: "sk", language: "Slovak" },
 ] as const;
 
 type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
@@ -236,6 +259,14 @@ export default function Dashboard() {
   useEffect(() => {
     translationRef.current = t;
   }, [t]);
+  useEffect(() => {
+    const handleTtsError = (event: Event) => {
+      const message = (event as CustomEvent<string>).detail;
+      toast("error", `${translationRef.current.ttsPlaybackFailed}${message ? `: ${message}` : ""}`);
+    };
+    window.addEventListener("tts-error", handleTtsError);
+    return () => window.removeEventListener("tts-error", handleTtsError);
+  }, []);
   const languageOptions = useMemo(
     () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
     [t],
@@ -1395,10 +1426,11 @@ export default function Dashboard() {
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
                                         <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">
-                                            {ttsEngine === "local" ? t.ttsLocal : t.ttsOnline}
+                                            {ttsEngine === "local" ? t.ttsLocal : ttsEngine === "edge" ? t.ttsEdge : t.ttsOnline}
                                         </span></div>
                                         <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
                                             <button onClick={() => setTtsEngine("local")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "local" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsLocal}</button>
+                                            <button onClick={() => setTtsEngine("edge")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "edge" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsEdge}</button>
                                             <button onClick={() => setTtsEngine("online")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "online" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsOnline}</button>
                                         </div>
                                     </div>

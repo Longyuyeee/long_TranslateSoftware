@@ -1054,26 +1054,42 @@ fn clear_translation_history(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn lookup_translation_memory(app: AppHandle, text: String, target_lang: String) -> Result<Option<String>, String> {
+fn lookup_translation_memory(
+    app: AppHandle,
+    text: String,
+    target_lang: String,
+    cache_context: String,
+) -> Result<Option<String>, String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+    let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
     let result: Option<String> = conn.query_row(
-        "SELECT translated_text FROM translation_memory WHERE source_hash = ?1 AND target_lang = ?2",
-        [&hash, &target_lang],
+        "SELECT translated_text FROM translation_memory
+         WHERE source_hash = ?1 AND target_lang = ?2 AND context_hash = ?3",
+        [&hash, &target_lang, &context_hash],
         |row| row.get(0),
     ).optional().map_err(|e| e.to_string())?;
     Ok(result)
 }
 
 #[tauri::command]
-fn save_translation_memory(app: AppHandle, source_text: String, translated_text: String, target_lang: String) -> Result<(), String> {
+fn save_translation_memory(
+    app: AppHandle,
+    source_text: String,
+    translated_text: String,
+    target_lang: String,
+    cache_context: String,
+) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let hash = format!("{:x}", Sha256::digest(source_text.as_bytes()));
+    let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
     conn.execute(
-        "INSERT OR REPLACE INTO translation_memory (source_hash, target_lang, source_text, translated_text) VALUES (?1, ?2, ?3, ?4)",
-        [&hash, &target_lang, &source_text, &translated_text],
+        "INSERT OR REPLACE INTO translation_memory
+         (source_hash, target_lang, context_hash, source_text, translated_text)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        [&hash, &target_lang, &context_hash, &source_text, &translated_text],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -1179,7 +1195,30 @@ fn generate_sec_ms_gec_token() -> String {
     hex::encode(hasher.finalize())
 }
 
-async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> {
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn voice_locale(voice: &str) -> &str {
+    let second_dash = voice
+        .match_indices('-')
+        .nth(1)
+        .map(|(index, _)| index)
+        .unwrap_or(voice.len());
+    let candidate = &voice[..second_dash];
+    if candidate.contains('-') { candidate } else { "en-US" }
+}
+
+fn speech_rate_percent(speed: f32) -> i32 {
+    (((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32).clamp(-50, 100)
+}
+
+async fn fetch_edge_tts(text: String, voice: String, speed: f32) -> Result<Vec<u8>, String> {
     let token = generate_sec_ms_gec_token();
     let connection_id = uuid::Uuid::new_v4().simple().to_string();
     let edge_ua_version = "131.0.2903.86";
@@ -1208,10 +1247,13 @@ async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> 
     write.send(Message::Text(config_msg.into())).await.map_err(|e| e.to_string())?;
 
     let request_id = uuid::Uuid::new_v4().simple().to_string();
-    let escaped_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    let escaped_text = xml_escape(&text);
+    let escaped_voice = xml_escape(&voice);
+    let locale = voice_locale(&voice);
+    let rate_percent = speech_rate_percent(speed);
     let ssml = format!(
-        r#"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'><voice name='{}'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>{}</prosody></voice></speak>"#,
-        voice, escaped_text
+        r#"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='{}'><voice name='{}'><prosody pitch='+0Hz' rate='{:+}%' volume='+0%'>{}</prosody></voice></speak>"#,
+        locale, escaped_voice, rate_percent, escaped_text
     );
     let ssml_msg = format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n{}", request_id, ssml);
     write.send(Message::Text(ssml_msg.into())).await.map_err(|e| e.to_string())?;
@@ -1229,11 +1271,21 @@ async fn fetch_edge_tts(text: String, voice: String) -> Result<Vec<u8>, String> 
             _ => {}
         }
     }
+    if audio_data.is_empty() {
+        return Err("Edge speech service returned empty audio".to_string());
+    }
     Ok(audio_data)
 }
 
 #[tauri::command]
-async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String>, engine: Option<String>, voice: Option<String>) -> Result<Vec<u8>, String> {
+async fn proxy_fetch_audio(
+    app: AppHandle,
+    url: String,
+    cache_key: Option<String>,
+    engine: Option<String>,
+    voice: Option<String>,
+    speed: Option<String>,
+) -> Result<Vec<u8>, String> {
     let cache_dir = get_audio_cache_dir(&app)?;
     let key_to_hash = cache_key.clone().unwrap_or_else(|| url.clone());
     let mut hasher = Sha256::new();
@@ -1248,7 +1300,16 @@ async fn proxy_fetch_audio(app: AppHandle, url: String, cache_key: Option<String
     }
 
     let bytes = if engine.as_deref() == Some("edge") {
-        fetch_edge_tts(url, voice.unwrap_or_else(|| "zh-CN-XiaoxiaoNeural".to_string())).await?
+        let speed = speed
+            .as_deref()
+            .unwrap_or("1.0")
+            .parse::<f32>()
+            .unwrap_or(1.0);
+        fetch_edge_tts(
+            url,
+            voice.unwrap_or_else(|| "en-US-AriaNeural".to_string()),
+            speed,
+        ).await?
     } else {
         if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
         let client = reqwest::Client::new();
@@ -1837,7 +1898,10 @@ fn should_show_main_window(args: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{decrypt_backup_payload, encrypt_backup_payload, should_show_main_window, BACKUP_V3_MAGIC};
+    use super::{
+        decrypt_backup_payload, encrypt_backup_payload, should_show_main_window,
+        speech_rate_percent, voice_locale, xml_escape, BACKUP_V3_MAGIC,
+    };
 
     #[test]
     fn v3_backup_round_trip_uses_authenticated_encryption() {
@@ -1864,6 +1928,21 @@ mod tests {
             "long-translate.exe".into(),
             "--autostart".into(),
         ]));
+    }
+
+    #[test]
+    fn edge_speech_uses_voice_locale_and_clamped_speed() {
+        assert_eq!(voice_locale("en-US-AriaNeural"), "en-US");
+        assert_eq!(voice_locale("zh-CN-XiaoxiaoNeural"), "zh-CN");
+        assert_eq!(voice_locale("alloy"), "en-US");
+        assert_eq!(speech_rate_percent(0.5), -50);
+        assert_eq!(speech_rate_percent(1.0), 0);
+        assert_eq!(speech_rate_percent(2.0), 100);
+    }
+
+    #[test]
+    fn edge_speech_escapes_ssml_text_and_attributes() {
+        assert_eq!(xml_escape("A&B<'\""), "A&amp;B&lt;&apos;&quot;");
     }
 }
 

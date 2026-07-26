@@ -192,6 +192,32 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         set_schema_version(&conn, 7)?;
     }
 
+    if current_version < 8 {
+        // Translation results depend on the provider, model, prompt and glossary,
+        // not only on the source text and target language. The cache is disposable,
+        // so rebuild it instead of carrying potentially stale v7 entries forward.
+        conn.execute("DROP TABLE IF EXISTS translation_memory", [])?;
+        conn.execute(
+            "CREATE TABLE translation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_hash TEXT NOT NULL,
+                target_lang TEXT NOT NULL,
+                context_hash TEXT NOT NULL,
+                source_text TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source_hash, target_lang, context_hash)
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_translation_memory_lookup
+             ON translation_memory(source_hash, target_lang, context_hash)",
+            [],
+        )?;
+        set_schema_version(&conn, 8)?;
+    }
+
     // Initialize install_date if not exists
     let install_date = get_config(&conn, "install_date").unwrap_or_default();
     if install_date.is_empty() {
@@ -225,10 +251,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migration_v7_is_repeatable_and_keeps_word_contexts() {
+    fn migration_v8_is_repeatable_and_keeps_word_contexts() {
         let test_dir = std::env::temp_dir().join(format!("long-translate-db-{}", Uuid::new_v4()));
         let conn = init_db(test_dir.clone()).unwrap();
-        assert_eq!(get_schema_version(&conn), 7);
+        assert_eq!(get_schema_version(&conn), 8);
 
         conn.execute(
             "INSERT INTO wordbook (uuid, word) VALUES ('word-1', 'context')",
@@ -247,7 +273,72 @@ mod tests {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(count, 1);
+        assert_eq!(get_schema_version(&reopened), 8);
+
+        let memory_columns: Vec<String> = reopened
+            .prepare("PRAGMA table_info(translation_memory)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(memory_columns.contains(&"context_hash".to_string()));
         drop(reopened);
+
+        std::fs::remove_dir_all(test_dir).unwrap();
+    }
+
+    #[test]
+    fn migration_v8_discards_stale_translation_cache() {
+        let test_dir = std::env::temp_dir().join(format!("long-translate-db-v7-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&test_dir).unwrap();
+        let conn = Connection::open(test_dir.join("words.db")).unwrap();
+        conn.execute(
+            "CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO schema_meta (key, value) VALUES ('version', '7')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "CREATE TABLE translation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_hash TEXT NOT NULL,
+                target_lang TEXT NOT NULL,
+                source_text TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                UNIQUE(source_hash, target_lang)
+            )",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO translation_memory
+             (source_hash, target_lang, source_text, translated_text)
+             VALUES ('old-hash', 'Chinese', 'hello', '旧译文')",
+            [],
+        ).unwrap();
+        drop(conn);
+
+        let migrated = init_db(test_dir.clone()).unwrap();
+        assert_eq!(get_schema_version(&migrated), 8);
+        let count: i32 = migrated
+            .query_row("SELECT COUNT(*) FROM translation_memory", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        let columns: Vec<String> = migrated
+            .prepare("PRAGMA table_info(translation_memory)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(columns.contains(&"context_hash".to_string()));
+        drop(migrated);
 
         std::fs::remove_dir_all(test_dir).unwrap();
     }
