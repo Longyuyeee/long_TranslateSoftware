@@ -87,6 +87,63 @@ describe("startTranslationTask", () => {
     );
   });
 
+  it("ignores a cached translation that loses source invariants", async () => {
+    invokeMock.mockImplementation((command: string, args?: { key?: string; keys?: string[] }) => {
+      if (command === "get_config_value") return Promise.resolve(config[args?.key || ""] || "");
+      if (command === "get_config_values") return Promise.resolve(Object.fromEntries((args?.keys || []).map(key => [key, config[key] || ""])));
+      if (command === "get_glossary_entries") return Promise.resolve([]);
+      if (command === "lookup_translation_memory") return Promise.resolve("访问接口");
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(sseResponse("访问 https://api.example/v1"));
+
+    const completion = await startTranslationTask("Visit https://api.example/v1").done;
+
+    expect(completion).toMatchObject({
+      status: "success",
+      result: { text: "访问 https://api.example/v1", cached: false, usedBackup: false },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("uses the backup model when the primary translation loses source invariants", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(sseResponse("部署服务"))
+      .mockResolvedValueOnce(sseResponse("部署 {{service}} 到 https://api.example/v1"));
+
+    const completion = await startTranslationTask(
+      "Deploy {{service}} to https://api.example/v1",
+    ).done;
+
+    expect(completion).toEqual({
+      status: "success",
+      result: {
+        text: "部署 {{service}} 到 https://api.example/v1",
+        model: "backup-model",
+        cached: false,
+        usedBackup: true,
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a structured error when neither model preserves source invariants", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(sseResponse("主模型省略了变量"))
+      .mockResolvedValueOnce(sseResponse("备用模型也省略了变量"));
+
+    const completion = await startTranslationTask("Keep {{request_id}}").done;
+
+    expect(completion).toMatchObject({
+      status: "error",
+      error: { code: "format-invalid" },
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "save_translation_memory",
+      expect.anything(),
+    );
+  });
+
   it("cancels an in-flight request without producing an error result", async () => {
     vi.mocked(fetch).mockImplementation((_url, options) => new Promise((_resolve, reject) => {
       options?.signal?.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true });

@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { OpenAiSseParser } from "./sse";
+import {
+  evaluateTranslationFormat,
+  summarizeTranslationFormatIssues,
+} from "./translationQuality";
 
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds
 
@@ -21,6 +25,7 @@ export type TranslationErrorCode =
   | "timeout"
   | "network"
   | "server"
+  | "format-invalid"
   | "unknown";
 
 export interface TranslationTaskState {
@@ -279,6 +284,22 @@ function normalizeTranslationError(error: unknown): { code: TranslationErrorCode
   return { code: "unknown", message: "Unknown translation error" };
 }
 
+function requireTranslationFormat(
+  source: string,
+  candidate: string,
+  glossary: GlossaryEntry[],
+): void {
+  const report = evaluateTranslationFormat(source, candidate, {
+    requiredTerms: selectRelevantGlossary(source, glossary).map(entry => entry.target_term),
+  });
+  if (!report.passed) {
+    throw new TranslationRequestError(
+      "format-invalid",
+      `Translation did not preserve required content (${summarizeTranslationFormatIssues(report)})`,
+    );
+  }
+}
+
 function createRequestId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `translation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -367,7 +388,12 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
         text, targetLang, cacheContext: primaryCacheContext,
       });
       if (controller.signal.aborted) return completeCancellation();
-      if (cached) {
+      const cachedReport = cached
+        ? evaluateTranslationFormat(text, cached, {
+          requiredTerms: selectRelevantGlossary(text, glossary).map(entry => entry.target_term),
+        })
+        : null;
+      if (cached && cachedReport?.passed) {
         callbacks.onText?.(cached, requestId);
         const result = { text: cached, model: primaryModel, cached: true, usedBackup: false };
         emitState({ phase: "success", model: primaryModel, cached: true, usedBackup: false });
@@ -386,6 +412,7 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
           translatedText += chunk;
           callbacks.onText?.(translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
       } catch (primaryError) {
         if (controller.signal.aborted) return completeCancellation();
 
@@ -405,6 +432,7 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
           translatedText += chunk;
           callbacks.onText?.(translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
       }
 
       if (controller.signal.aborted) return completeCancellation();
@@ -485,6 +513,7 @@ export function startTranslationComparisonTask(text: string, callbacks: Translat
           translatedText += chunk;
           callbacks.onText?.(side, translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
         if (controller.signal.aborted) {
           callbacks.onSideState?.({ requestId, side, phase: "cancelled", model });
           return undefined;
