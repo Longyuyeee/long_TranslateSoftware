@@ -2,6 +2,7 @@ mod db;
 mod diagnostics;
 mod history;
 mod ocr;
+mod review;
 mod secure_config;
 mod tray;
 mod webdav;
@@ -590,138 +591,6 @@ fn get_wordbook(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
 }
 
 #[tauri::command]
-fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json::Value>, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let mut stmt = conn.prepare(
-        "SELECT id, word, phonetic, meaning, analysis_json, stability, difficulty, interval_days, repetitions, next_review FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1) ORDER BY next_review ASC LIMIT ?2"
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([&now, &limit.unwrap_or(50).to_string()], |row| {
-        Ok(serde_json::json!({
-            "id": row.get::<_, i32>(0)?,
-            "word": row.get::<_, String>(1)?,
-            "phonetic": row.get::<_, String>(2)?,
-            "meaning": row.get::<_, String>(3)?,
-            "analysis": row.get::<_, String>(4)?,
-            "stability": row.get::<_, f64>(5)?,
-            "difficulty": row.get::<_, f64>(6)?,
-            "interval_days": row.get::<_, i32>(7)?,
-            "repetitions": row.get::<_, i32>(8)?,
-            "next_review": row.get::<_, Option<String>>(9)?,
-        }))
-    }).map_err(|e| e.to_string())?;
-    let mut items = Vec::new();
-    for row in rows { items.push(row.map_err(|e| e.to_string())?); }
-    Ok(items)
-}
-
-// ── FSRS (Free Spaced Repetition Scheduler) ──
-
-// Standard FSRS-5 parameters from open-spaced-repetition project
-const W: [f64; 19] = [
-    0.4027, 0.5904, 0.9180, 0.4325,  // w0-w3: init stability per rating 1-4
-    3.4615, 0.7028,                    // w4-w5: init difficulty params
-    0.9264,                            // w6: difficulty delta
-    0.0232, 0.8851, 0.3068, 0.6761,   // w7-w10: short-term stability
-    2.1960, 0.0469, 0.3361, 1.2586,   // w11-w14: long-term stability
-    0.2864, 2.5646, 0.2845, 0.3494,   // w15-w18: rating modifiers
-];
-
-fn retrievability(elapsed_days: f64, stability: f64) -> f64 {
-    if stability <= 0.0 { return 1.0; }
-    (0.9_f64).powf(elapsed_days.max(0.0) / stability)
-}
-
-fn init_stability(rating: u8) -> f64 {
-    match rating {
-        1 => W[0],
-        2 => W[1],
-        3 => W[2],
-        4 => W[3],
-        _ => W[2],
-    }
-}
-
-fn init_difficulty(rating: u8) -> f64 {
-    let d = W[4] - W[5] * (rating as f64 - 3.0);
-    d.clamp(1.0, 10.0)
-}
-
-fn next_difficulty(d: f64, rating: u8) -> f64 {
-    let delta = -W[6] * (rating as f64 - 3.0);
-    (d + delta * (10.0 - d) / 9.0).clamp(1.0, 10.0)
-}
-
-fn next_stability(s: f64, d: f64, r: f64, rating: u8) -> f64 {
-    if rating == 1 {
-        // Again: short-term stability
-        let s_min = W[7];
-        let s_max = s / (1.0 + W[8] * (d - 1.0).max(0.0));
-        s_max.max(s_min).min(s) // never increase stability on "again"
-    } else {
-        // Hard/Good/Easy: long-term stability
-        let hard_pen = if rating == 2 { W[15] } else { 1.0 };
-        let easy_bonus = if rating == 4 { W[16].exp() * (d - W[17]).max(0.0) / W[18] } else { 0.0 };
-        let base = s * (1.0 + W[9].exp() * (11.0 - d) * s.powf(-W[10]) * ((1.0 - r) * W[11]).exp() * W[12]);
-        (base * hard_pen + easy_bonus).max(0.01)
-    }
-}
-
-#[tauri::command]
-fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_json::Value, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let rating = quality.clamp(1, 4) as u8;
-
-    // Read current FSRS state (stability and difficulty)
-    let (stability, difficulty, last_reviewed): (f64, f64, Option<String>) = conn.query_row(
-        "SELECT stability, difficulty, last_reviewed FROM wordbook WHERE id = ?1",
-        [word_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    ).map_err(|e| e.to_string())?;
-
-    // Compute elapsed days since last review
-    let elapsed = if let Some(ref lr) = last_reviewed {
-        if let Ok(lr_time) = chrono::NaiveDateTime::parse_from_str(lr, "%Y-%m-%d %H:%M:%S") {
-            let now_time = chrono::Local::now().naive_local();
-            (now_time - lr_time).num_seconds() as f64 / 86400.0
-        } else { 0.0 }
-    } else { 0.0 };
-
-    // FSRS: compute new stability and difficulty
-    let (new_s, new_d) = if stability <= 0.0 {
-        // First review
-        (init_stability(rating), init_difficulty(rating))
-    } else {
-        let r = retrievability(elapsed, stability);
-        let nd = next_difficulty(difficulty, rating);
-        let ns = next_stability(stability, nd, r, rating);
-        (ns, nd)
-    };
-
-    // Schedule next review at target retrievability (90%)
-    let interval_days = (new_s * (- (0.9_f64).ln()).recip() * (0.9_f64).ln().abs()).round() as i32;
-    let next_review = chrono::Local::now() + chrono::Duration::days(interval_days.max(1) as i64);
-    let next_str = next_review.format("%Y-%m-%d %H:%M:%S").to_string();
-
-    // Update DB with new FSRS state
-    conn.execute(
-        "UPDATE wordbook SET stability = ?1, difficulty = ?2, interval_days = ?3, repetitions = repetitions + 1, next_review = ?4, last_reviewed = ?5 WHERE id = ?6",
-        rusqlite::params![new_s, new_d, interval_days, &next_str, &now, word_id],
-    ).map_err(|e| e.to_string())?;
-
-    app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({
-        "interval": interval_days,
-        "stability": new_s,
-        "difficulty": new_d,
-        "next_review": next_str,
-    }))
-}
-
-#[tauri::command]
 fn export_anki(app: AppHandle) -> Result<String, String> {
     let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
@@ -948,33 +817,6 @@ fn export_anki(app: AppHandle) -> Result<String, String> {
     let _ = std::fs::remove_dir_all(&temp_dir);
 
     Ok(apkg_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn get_review_stats(app: AppHandle) -> Result<serde_json::Value, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    let total: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let reviewed: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND last_reviewed IS NOT NULL", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let mastered: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND stability >= 21", [], |r| r.get(0)).map_err(|e| e.to_string())?;
-    let due: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0 AND (next_review IS NULL OR next_review <= ?1)", [&now], |r| r.get(0)).map_err(|e| e.to_string())?;
-
-    // Streak: count consecutive days with reviews
-    let mut stmt = conn.prepare("SELECT DISTINCT DATE(last_reviewed) as d FROM wordbook WHERE last_reviewed IS NOT NULL ORDER BY d DESC LIMIT 30").map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
-    let streak_rows: Vec<String> = rows.filter_map(|r| r.ok()).collect();
-    let mut streak = 0i32;
-    let today = chrono::Local::now().date_naive();
-    for i in 0..30 {
-        let check_date = today - chrono::Duration::days(i);
-        let check_str = check_date.format("%Y-%m-%d").to_string();
-        if streak_rows.contains(&check_str) { streak += 1; }
-        else if i > 0 { break; }
-    }
-
-    Ok(serde_json::json!({ "total": total, "reviewed": reviewed, "mastered": mastered, "due_today": due, "streak": streak }))
 }
 
 #[tauri::command]
@@ -1874,7 +1716,7 @@ pub fn run() {
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
             export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
-            get_due_reviews, submit_review, get_review_stats, export_anki,
+            review::get_due_reviews, review::submit_review, review::get_review_stats, export_anki,
             add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
         ])
         .run(tauri::generate_context!())
