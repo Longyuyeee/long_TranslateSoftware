@@ -3,6 +3,7 @@ mod ocr;
 mod secure_config;
 mod tray;
 mod webdav;
+mod wordbook;
 
 use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
@@ -251,9 +252,9 @@ async fn export_data(app: AppHandle, password: String) -> Result<String, String>
         Ok(serde_json::json!({
             "uuid": row.get::<_, String>(0)?,
             "word": row.get::<_, String>(1)?,
-            "phonetic": row.get::<_, String>(2)?,
-            "meaning": row.get::<_, String>(3)?,
-            "analysis": row.get::<_, String>(4)?,
+            "phonetic": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            "meaning": row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            "analysis": row.get::<_, Option<String>>(4)?.unwrap_or_default(),
             "is_deleted": row.get::<_, i64>(5)?,
             "updated_at": row.get::<_, String>(6)?,
             "ease_factor": row.get::<_, f64>(7)?,
@@ -1880,7 +1881,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             run_ocr, capture_and_ocr, confirm_ocr_text, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
             get_config_values, set_config_values, updater_configured,
-            hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, delete_word,
+            hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,

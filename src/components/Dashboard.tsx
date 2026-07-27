@@ -5,7 +5,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
-import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
+import { WordAnalysis, WordbookSort, analyzeAndSaveWord, getWordbookPage } from "../services/wordbook";
 import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, parseStoredSyncSummary, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
@@ -168,6 +168,9 @@ export default function Dashboard() {
 
   const [words, setWords] = useState<any[]>([]);
   const [selectedWord, setSelectedWord] = useState<any>(null);
+  const [wordbookTotal, setWordbookTotal] = useState(0);
+  const [wordbookHasMore, setWordbookHasMore] = useState(false);
+  const [isWordbookLoading, setIsWordbookLoading] = useState(false);
   const [configHydrated, setConfigHydrated] = useState(false);
   const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -224,28 +227,13 @@ export default function Dashboard() {
   const [backupComparisonState, setBackupComparisonState] = useState<ComparisonSideState | null>(null);
 
   // Wordbook search, sort & pagination
-  const [wordsLimit, setWordsLimit] = useState(200);
   const [wordbookSearch, setWordbookSearch] = useState("");
-  const [wordbookSort, setWordbookSort] = useState<"newest" | "az" | "za">("newest");
-
-  const filteredWords = useMemo(() => {
-    let result = words;
-    if (wordbookSearch.trim()) {
-      const q = wordbookSearch.trim().toLowerCase();
-      result = result.filter(w =>
-        w.word.toLowerCase().includes(q) ||
-        (w.meaning && w.meaning.toLowerCase().includes(q))
-      );
-    }
-    if (wordbookSort === "az") {
-      result = [...result].sort((a, b) => a.word.localeCompare(b.word));
-    } else if (wordbookSort === "za") {
-      result = [...result].sort((a, b) => b.word.localeCompare(a.word));
-    }
-    return result;
-  }, [words, wordbookSearch, wordbookSort]);
-
-  const displayedWords = filteredWords.slice(0, wordsLimit);
+  const [wordbookSort, setWordbookSort] = useState<WordbookSort>("newest");
+  const wordbookSearchRef = useRef("");
+  const wordbookSortRef = useRef<WordbookSort>("newest");
+  const wordbookFilterReadyRef = useRef(false);
+  const wordbookRequestIdRef = useRef(0);
+  const selectedWordRef = useRef<any>(null);
 
   // Manual Add Word state
   const [newWord, setNewWord] = useState("");
@@ -271,6 +259,23 @@ export default function Dashboard() {
     window.addEventListener("tts-error", handleTtsError);
     return () => window.removeEventListener("tts-error", handleTtsError);
   }, []);
+
+  useEffect(() => {
+    wordbookSearchRef.current = wordbookSearch;
+    wordbookSortRef.current = wordbookSort;
+    if (!wordbookFilterReadyRef.current) {
+      wordbookFilterReadyRef.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      loadWordbook({ query: wordbookSearch, sort: wordbookSort });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [wordbookSearch, wordbookSort]);
+
+  useEffect(() => {
+    selectedWordRef.current = selectedWord;
+  }, [selectedWord]);
   const languageOptions = useMemo(
     () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
     [t],
@@ -645,15 +650,39 @@ export default function Dashboard() {
     }
   };
 
-  const loadWordbook = async () => {
+  const loadWordbook = async (options: {
+    query?: string;
+    sort?: WordbookSort;
+    offset?: number;
+    append?: boolean;
+  } = {}) => {
+    if (isWordbookLoading && options.append) return;
+    const requestId = ++wordbookRequestIdRef.current;
+    setIsWordbookLoading(true);
     try {
-      const data = await invoke<any[]>("get_wordbook");
-      setWords(data);
-      if (selectedWord) {
-        const updated = data.find(w => w.uuid === selectedWord.uuid || w.id === selectedWord.id);
+      const offset = options.offset ?? 0;
+      const page = await getWordbookPage({
+        query: options.query ?? wordbookSearchRef.current,
+        sort: options.sort ?? wordbookSortRef.current,
+        limit: 100,
+        offset,
+      });
+      if (requestId !== wordbookRequestIdRef.current) return;
+      setWords(current => options.append ? [...current, ...page.items] : page.items);
+      setWordbookTotal(page.total);
+      setWordbookHasMore(page.hasMore);
+      const currentSelection = selectedWordRef.current;
+      if (currentSelection) {
+        const updated = page.items.find(w => w.uuid === currentSelection.uuid || w.id === currentSelection.id);
         if (updated) setSelectedWord(updated);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (requestId === wordbookRequestIdRef.current) {
+        setIsWordbookLoading(false);
+      }
+    }
   };
 
   const loadHistory = async () => {
@@ -1621,7 +1650,7 @@ export default function Dashboard() {
                                 {/* Word count */}
                                 <div className="flex items-center justify-between px-1">
                                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">
-                                        {wordbookSearch ? `${filteredWords.length} / ` : ""}{words.length} {t.wordCount}
+                                        {words.length} / {wordbookTotal} {t.wordCount}
                                     </span>
                                 </div>
 
@@ -1637,7 +1666,7 @@ export default function Dashboard() {
                                 ) : (
                                     <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
-                                {displayedWords.map(w => (
+                                {words.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-accent border-accent shadow-2xl' : 'glass-card border-transparent hover:border-accent/30 hover:bg-white/80'}`}>
                                         <div className="flex justify-between items-start mb-1.5">
                                             <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
@@ -1647,11 +1676,15 @@ export default function Dashboard() {
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
-                                {filteredWords.length > wordsLimit && !wordbookSearch && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all">{t.loadMore} ({t.remaining} {filteredWords.length - wordsLimit})</button>
-                                        <button onClick={() => setWordsLimit(filteredWords.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-accent transition-all">{t.showAll}</button>
-                                    </div>
+                                {wordbookHasMore && (
+                                    <button
+                                        type="button"
+                                        disabled={isWordbookLoading}
+                                        onClick={() => loadWordbook({ offset: words.length, append: true })}
+                                        className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all disabled:cursor-wait disabled:opacity-50"
+                                    >
+                                        {isWordbookLoading ? t.loading : `${t.loadMore} (${t.remaining} ${wordbookTotal - words.length})`}
+                                    </button>
                                 )}
                             </div>
                             <div className="flex-1 glass-card rounded-[32px] flex flex-col overflow-hidden relative shadow-2xl border-white/40">

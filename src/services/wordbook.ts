@@ -25,6 +25,30 @@ export interface WordContextInput {
   sourceType: "selection" | "ocr" | "manual";
 }
 
+export type WordbookSort = "newest" | "az" | "za";
+
+export interface WordbookPage<T = any> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export async function getWordbookPage<T = any>(options: {
+  query?: string;
+  sort?: WordbookSort;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<WordbookPage<T>> {
+  return await invoke<WordbookPage<T>>("get_wordbook_page", {
+    query: options.query || "",
+    sort: options.sort || "newest",
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0,
+  });
+}
+
 export async function checkWordExists(word: string): Promise<boolean> {
   return await invoke<boolean>("check_word_exists", { word });
 }
