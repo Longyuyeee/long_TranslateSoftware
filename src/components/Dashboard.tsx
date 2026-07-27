@@ -5,7 +5,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
-import { WordAnalysis, WordbookSort, analyzeAndSaveWord, getWordbookPage } from "../services/wordbook";
+import { WordAnalysis } from "../services/wordbook";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, parseStoredSyncSummary, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
@@ -16,6 +16,7 @@ import ThemedSelect from "./ThemedSelect";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 import { OcrLanguageInfo, resolveOcrLanguageTag } from "../services/ocr";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
+import { useWordbook } from "../hooks/useWordbook";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -170,11 +171,6 @@ export default function Dashboard() {
   const [ttsVoice, setTtsVoice] = useState("alloy");
   const [ttsSpeed, setTtsSpeed] = useState("1.0");
 
-  const [words, setWords] = useState<any[]>([]);
-  const [selectedWord, setSelectedWord] = useState<any>(null);
-  const [wordbookTotal, setWordbookTotal] = useState(0);
-  const [wordbookHasMore, setWordbookHasMore] = useState(false);
-  const [isWordbookLoading, setIsWordbookLoading] = useState(false);
   const [configHydrated, setConfigHydrated] = useState(false);
   const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -224,6 +220,29 @@ export default function Dashboard() {
     }
   };
 
+  const {
+    words,
+    selectedWord,
+    setSelectedWord,
+    wordbookTotal,
+    wordbookHasMore,
+    isWordbookLoading,
+    wordbookSearch,
+    setWordbookSearch,
+    wordbookSort,
+    setWordbookSort,
+    newWord,
+    setNewWord,
+    isAdding,
+    setIsAdding,
+    loadWordbook,
+    loadMore,
+    deleteWord,
+    addManualWord,
+    cancelAdding,
+    retrySelectedAnalysis,
+  } = useWordbook({ onChanged: refreshStats });
+
   // Batch Translator state
   const {
     batchInput,
@@ -248,19 +267,6 @@ export default function Dashboard() {
     onCompleted: refreshStats,
   });
 
-  // Wordbook search, sort & pagination
-  const [wordbookSearch, setWordbookSearch] = useState("");
-  const [wordbookSort, setWordbookSort] = useState<WordbookSort>("newest");
-  const wordbookSearchRef = useRef("");
-  const wordbookSortRef = useRef<WordbookSort>("newest");
-  const wordbookFilterReadyRef = useRef(false);
-  const wordbookRequestIdRef = useRef(0);
-  const selectedWordRef = useRef<any>(null);
-
-  // Manual Add Word state
-  const [newWord, setNewWord] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
-
   const syncTimerRef = useRef<any>(null);
   const webdavEnabledRef = useRef(webdavEnabled);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
@@ -282,22 +288,6 @@ export default function Dashboard() {
     return () => window.removeEventListener("tts-error", handleTtsError);
   }, []);
 
-  useEffect(() => {
-    wordbookSearchRef.current = wordbookSearch;
-    wordbookSortRef.current = wordbookSort;
-    if (!wordbookFilterReadyRef.current) {
-      wordbookFilterReadyRef.current = true;
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      loadWordbook({ query: wordbookSearch, sort: wordbookSort });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [wordbookSearch, wordbookSort]);
-
-  useEffect(() => {
-    selectedWordRef.current = selectedWord;
-  }, [selectedWord]);
   const languageOptions = useMemo(
     () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
     [t],
@@ -678,41 +668,6 @@ export default function Dashboard() {
     }
   };
 
-  const loadWordbook = async (options: {
-    query?: string;
-    sort?: WordbookSort;
-    offset?: number;
-    append?: boolean;
-  } = {}) => {
-    if (isWordbookLoading && options.append) return;
-    const requestId = ++wordbookRequestIdRef.current;
-    setIsWordbookLoading(true);
-    try {
-      const offset = options.offset ?? 0;
-      const page = await getWordbookPage({
-        query: options.query ?? wordbookSearchRef.current,
-        sort: options.sort ?? wordbookSortRef.current,
-        limit: 100,
-        offset,
-      });
-      if (requestId !== wordbookRequestIdRef.current) return;
-      setWords(current => options.append ? [...current, ...page.items] : page.items);
-      setWordbookTotal(page.total);
-      setWordbookHasMore(page.hasMore);
-      const currentSelection = selectedWordRef.current;
-      if (currentSelection) {
-        const updated = page.items.find(w => w.uuid === currentSelection.uuid || w.id === currentSelection.id);
-        if (updated) setSelectedWord(updated);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (requestId === wordbookRequestIdRef.current) {
-        setIsWordbookLoading(false);
-      }
-    }
-  };
-
   const handleExportDiagnostics = async () => {
     if (isExportingDiagnostics) return;
     setIsExportingDiagnostics(true);
@@ -853,20 +808,6 @@ export default function Dashboard() {
     } finally {
       setIsSavingSettings(false);
     }
-  };
-
-  const deleteWord = async (id: number) => {
-    await invoke("delete_word", { id });
-    if (selectedWord?.id === id) setSelectedWord(null);
-    refreshStats();
-  };
-
-  const handleManualAdd = async () => {
-    if (!newWord.trim()) return;
-    const wordToAdd = newWord.trim();
-    setNewWord("");
-    setIsAdding(false);
-    await analyzeAndSaveWord(wordToAdd);
   };
 
   const notificationsRef = useRef<HTMLDivElement>(null);
@@ -1637,7 +1578,7 @@ export default function Dashboard() {
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
                                     <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-accent/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
+                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManualWord()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={cancelAdding} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
                                 {words.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-accent border-accent shadow-2xl' : 'glass-card border-transparent hover:border-accent/30 hover:bg-white/80'}`}>
@@ -1653,7 +1594,7 @@ export default function Dashboard() {
                                     <button
                                         type="button"
                                         disabled={isWordbookLoading}
-                                        onClick={() => loadWordbook({ offset: words.length, append: true })}
+                                        onClick={loadMore}
                                         className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all disabled:cursor-wait disabled:opacity-50"
                                     >
                                         {isWordbookLoading ? t.loading : `${t.loadMore} (${t.remaining} ${wordbookTotal - words.length})`}
@@ -1690,13 +1631,7 @@ export default function Dashboard() {
                                                     </div>
                                                     <div className="flex gap-3">
                                                         <button 
-                                                            onClick={() => {
-                                                                if (selectedWord) {
-                                                                    // 立即触发 UI 加载动画
-                                                                    setSelectedWord({ ...selectedWord, analysis: null });
-                                                                    analyzeAndSaveWord(selectedWord.word);
-                                                                }
-                                                            }} 
+                                                            onClick={retrySelectedAnalysis}
                                                             className="px-8 py-3 bg-accent text-white rounded-2xl text-[11px] font-black shadow-lg shadow-accent flex items-center gap-2"
                                                         >
                                                             <RotateCcw size={14} /> {t.retryAnalysis}
@@ -1732,7 +1667,7 @@ export default function Dashboard() {
                                                     {selectedWord.contexts?.length > 0 && (
                                                         <div className="space-y-4 pt-2">
                                                             <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.savedContext}</h4>
-                                                            {selectedWord.contexts.map((context: any) => (
+                                                            {selectedWord.contexts.map((context) => (
                                                                 <div key={context.id} className="p-6 rounded-[24px] bg-accent/[0.035] border border-accent/10 space-y-3">
                                                                     <div className="flex items-center justify-between gap-4 text-[9px] font-black uppercase tracking-wider text-zinc-400">
                                                                         <span>{t[`contextSource_${context.source_type}`] || context.source_type}</span>

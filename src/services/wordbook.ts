@@ -25,9 +25,28 @@ export interface WordContextInput {
   sourceType: "selection" | "ocr" | "manual";
 }
 
+export interface SavedWordContext {
+  id: number;
+  source_text: string;
+  translated_text: string;
+  source_type: string;
+  created_at: string;
+}
+
+export interface WordbookEntry {
+  id: number;
+  uuid: string;
+  word: string;
+  phonetic: string;
+  meaning: string;
+  analysis: string;
+  created_at: string;
+  contexts: SavedWordContext[];
+}
+
 export type WordbookSort = "newest" | "az" | "za";
 
-export interface WordbookPage<T = any> {
+export interface WordbookPage<T = WordbookEntry> {
   items: T[];
   total: number;
   offset: number;
