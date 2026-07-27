@@ -3,6 +3,7 @@ export type Lang = "zh" | "en";
 export const translations: Record<Lang, any> = {
   zh: {
     general: "通用设置",
+    mainNavigation: "主功能导航",
     batchTranslate: "文本翻译",
     modelConfig: "模型配置",
     appearance: "外观显示",
@@ -311,6 +312,7 @@ export const translations: Record<Lang, any> = {
   },
   en: {
     general: "General",
+    mainNavigation: "Main navigation",
     batchTranslate: "Batch",
     modelConfig: "Model",
     appearance: "Appearance",

@@ -13,6 +13,7 @@ import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
+import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -330,12 +331,10 @@ export default function Dashboard() {
               : batchTaskState.cached ? t.translationCacheHit
                 : "";
 
-  // Keyboard shortcuts for tab switching (Ctrl+1..5)
+  // Keyboard shortcuts for tab switching (Ctrl+1..7)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
-      const tabMap: Record<string, string> = { '1': 'general', '2': 'batch', '3': 'model', '4': 'appearance', '5': 'wordbook', '6': 'review', '7': 'history' };
-      const tab = tabMap[e.key];
+      const tab = dashboardTabFromShortcut(e);
       if (tab) { e.preventDefault(); setActiveTab(tab); }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -924,6 +923,7 @@ export default function Dashboard() {
 
   const notificationsRef = useRef<HTMLDivElement>(null);
   const prevActiveTab = useRef("general");
+  const tabButtonRefs = useRef<Partial<Record<DashboardTabId, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -972,12 +972,22 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <nav className="space-y-1">
+            <nav className="space-y-1" aria-label={t.mainNavigation}>
               <LayoutGroup id="sidebar">
                 {tabs.map((tab) => (
                     <button 
                     key={tab.id} 
+                    ref={element => { tabButtonRefs.current[tab.id as DashboardTabId] = element; }}
+                    type="button"
+                    aria-current={activeTab === tab.id ? "page" : undefined}
                     onClick={() => setActiveTab(tab.id)}
+                    onKeyDown={event => {
+                      const next = dashboardTabFromNavigation(tab.id as DashboardTabId, event.key);
+                      if (!next) return;
+                      event.preventDefault();
+                      setActiveTab(next);
+                      tabButtonRefs.current[next]?.focus();
+                    }}
                     className={`dashboard-nav-item group w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all relative ${
                         activeTab === tab.id ? "text-white" : "hover:bg-black/5 dark:hover:bg-white/5 text-zinc-500"
                     }`}

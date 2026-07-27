@@ -46,6 +46,7 @@ Long翻译最值得坚持的方向不是“覆盖最多语种的通用翻译器�
 - [x] API Key 与 WebDAV 密码接入 Windows DPAPI，并兼容旧配置迁移。
 - [ ] 配置 Windows Authenticode，降低首次安装的 SmartScreen 信任摩擦。
 - [x] WebDAV 增加连接测试、结构化同步摘要、并发冲突保护和隔离服务器端到端测试。
+- [x] 更新与 OCR 弹窗完成焦点循环、Escape 关闭和焦点恢复；主导航完成方向键、Home、End 与 Ctrl+1～7 验收。
 - [ ] 增加脱敏诊断导出，明确排除密钥、密码、原文和译文。
 - [ ] 消除用户输入或网络响应可触发的生产路径 `unwrap` / `expect`。
 
