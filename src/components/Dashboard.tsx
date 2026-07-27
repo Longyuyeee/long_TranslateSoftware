@@ -6,7 +6,7 @@ import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis, WordbookSort, analyzeAndSaveWord, getWordbookPage } from "../services/wordbook";
-import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
+import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, parseStoredSyncSummary, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
 import ReviewTab from "./ReviewTab";
@@ -15,6 +15,7 @@ import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 import { OcrLanguageInfo, resolveOcrLanguageTag } from "../services/ocr";
+import { useBatchTranslation } from "../hooks/useBatchTranslation";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -214,21 +215,38 @@ export default function Dashboard() {
   // Translation History state
   const [history, setHistory] = useState<any[]>([]);
 
+  const refreshStats = async () => {
+    try {
+      const stats = await invoke<any>("get_app_stats");
+      setAppStats(stats);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   // Batch Translator state
-  const [batchInput, setBatchInput] = useState("");
-  const [batchOutput, setBatchOutput] = useState("");
-  const [batchOutputBackup, setBatchOutputBackup] = useState("");
-  const [compareMode, setCompareMode] = useState(false);
-  const [batchBackTranslation, setBatchBackTranslation] = useState("");
-  const [isBatchBackTranslating, setIsBatchBackTranslating] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [batchTaskState, setBatchTaskState] = useState<TranslationTaskState>({ requestId: "", phase: "idle" });
-  const batchTaskRef = useRef<TranslationTask | null>(null);
-  const activeBatchRequestIdRef = useRef("");
-  const comparisonTaskRef = useRef<TranslationComparisonTask | null>(null);
-  const activeComparisonRequestIdRef = useRef("");
-  const [primaryComparisonState, setPrimaryComparisonState] = useState<ComparisonSideState | null>(null);
-  const [backupComparisonState, setBackupComparisonState] = useState<ComparisonSideState | null>(null);
+  const {
+    batchInput,
+    setBatchInput,
+    batchOutput,
+    batchOutputBackup,
+    compareMode,
+    setCompareModeEnabled,
+    batchBackTranslation,
+    isBatchBackTranslating,
+    isTranslating,
+    batchTaskState,
+    primaryComparisonState,
+    backupComparisonState,
+    startBatchTranslation,
+    startCompareTranslation,
+    startBatchBackTranslate,
+    cancelBatchWork,
+  } = useBatchTranslation({
+    sourceLang,
+    targetLang,
+    onCompleted: refreshStats,
+  });
 
   // Wordbook search, sort & pagination
   const [wordbookSearch, setWordbookSearch] = useState("");
@@ -348,13 +366,6 @@ export default function Dashboard() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
-  const refreshStats = async () => {
-    try {
-        const stats = await invoke<any>("get_app_stats");
-        setAppStats(stats);
-    } catch (e) { console.error(e); }
-  };
 
   useEffect(() => {
     loadConfig();
@@ -850,104 +861,6 @@ export default function Dashboard() {
     refreshStats();
   };
 
-  const startBatchTranslation = () => {
-    if (!batchInput || isTranslating) return;
-    batchTaskRef.current?.cancel();
-    setBatchOutput("");
-    setIsTranslating(true);
-    const sourceText = batchInput;
-    const task = startTranslationTask(sourceText, {
-      onState: (nextState) => {
-        if (activeBatchRequestIdRef.current === nextState.requestId) setBatchTaskState(nextState);
-      },
-      onText: (nextText, requestId) => {
-        if (activeBatchRequestIdRef.current === requestId) setBatchOutput(nextText);
-      },
-    });
-    batchTaskRef.current = task;
-    activeBatchRequestIdRef.current = task.id;
-    setBatchTaskState({ requestId: task.id, phase: "loading-config" });
-
-    task.done.then((completion) => {
-      if (activeBatchRequestIdRef.current !== task.id) return;
-      setIsTranslating(false);
-      refreshStats();
-      if (completion.status === "success") {
-        invoke("save_translation", {
-          sourceText,
-          translatedText: completion.result.text,
-          sourceLang,
-          targetLang,
-          model: completion.result.model,
-        }).catch(console.error);
-      }
-    });
-  };
-
-  const cancelBatchTranslation = () => batchTaskRef.current?.cancel();
-
-  const startBatchBackTranslate = async () => {
-    if (!batchOutput || isBatchBackTranslating) return;
-    setIsBatchBackTranslating(true);
-    setBatchBackTranslation("");
-    await translateStreaming(
-      batchOutput,
-      (chunk) => setBatchBackTranslation(prev => prev + chunk),
-      () => setIsBatchBackTranslating(false)
-    );
-  };
-
-  const startCompareTranslation = () => {
-    if (!batchInput || isTranslating) return;
-    comparisonTaskRef.current?.cancel();
-    setBatchOutput("");
-    setBatchOutputBackup("");
-    setPrimaryComparisonState(null);
-    setBackupComparisonState(null);
-    setIsTranslating(true);
-    const sourceText = batchInput;
-    const task = startTranslationComparisonTask(sourceText, {
-      onText: (side, nextText, requestId) => {
-        if (activeComparisonRequestIdRef.current !== requestId) return;
-        if (side === "primary") setBatchOutput(nextText);
-        else setBatchOutputBackup(nextText);
-      },
-      onSideState: (nextState) => {
-        if (activeComparisonRequestIdRef.current !== nextState.requestId) return;
-        if (nextState.side === "primary") setPrimaryComparisonState(nextState);
-        else setBackupComparisonState(nextState);
-      },
-    });
-    comparisonTaskRef.current = task;
-    activeComparisonRequestIdRef.current = task.id;
-
-    task.done.then((completion) => {
-      if (activeComparisonRequestIdRef.current !== task.id) return;
-      setIsTranslating(false);
-      refreshStats();
-      if (completion.status !== "success") return;
-      const { primary, backup } = completion.result;
-      const combined = [
-        primary && `[${primary.model}]\n${primary.text}`,
-        backup && `[${backup.model}]\n${backup.text}`,
-      ].filter(Boolean).join("\n\n");
-      if (combined) {
-        invoke("save_translation", {
-          sourceText,
-          translatedText: combined,
-          sourceLang,
-          targetLang,
-          model: [primary?.model, backup?.model].filter(Boolean).join(" vs "),
-        }).catch(console.error);
-      }
-    });
-  };
-
-  const cancelBatchWork = () => {
-    if (compareMode) comparisonTaskRef.current?.cancel();
-    else cancelBatchTranslation();
-  };
-
   const handleManualAdd = async () => {
     if (!newWord.trim()) return;
     const wordToAdd = newWord.trim();
@@ -1378,7 +1291,7 @@ export default function Dashboard() {
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => { setCompareMode(!compareMode); setBatchOutput(""); setBatchOutputBackup(""); }}
+                                                onClick={() => setCompareModeEnabled(!compareMode)}
                                                 disabled={isTranslating}
                                                 className={`text-[9px] font-black px-2.5 py-1.5 rounded-full transition-all ${
                                                     isTranslating ? 'opacity-40 cursor-not-allowed' : compareMode ? 'bg-accent text-white shadow-accent' : 'bg-black/5 dark:bg-white/5 text-zinc-400 hover:bg-accent/10 hover:text-accent'
