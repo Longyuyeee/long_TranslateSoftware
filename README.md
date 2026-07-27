@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.6 识别与表达精度优化**：OCR 加入自适应图像增强，翻译缓存与术语注入更加准确，英语及多语种语音会自动匹配语言和音色。
+> **v0.4.7 WebDAV 可靠性与诊断**：增加连接测试、结构化错误、同步摘要和多设备并发保护，避免同步期间静默覆盖较新的云端数据。
 
 ---
 
@@ -114,14 +114,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.6 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.6 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.7 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.7 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.6 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
 | v0.4.5 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
 | v0.4.4 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
 | v0.4.3 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64.msi) |
@@ -141,6 +142,21 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.7 — WebDAV Reliability & Diagnostics</strong></summary>
+
+**连接与诊断**
+- 设置页增加 WebDAV 连接测试和延迟显示
+- 认证、权限、路径、超时、离线、服务器和远端数据错误均提供中英文分类提示
+- 最近同步结果展示新增、更新和上传条目数量
+
+**同步可靠性**
+- 使用 ETag 条件写入保护多设备同步；云端在同步期间变化时提示重试，不静默覆盖
+- 隔离服务测试覆盖下载、合并、上下文保存、条件上传和并发冲突
+- 修复旧数据库中可空生词字段导致同步失败的问题
+
+</details>
+
+<details>
 <summary><strong>v0.4.6 — Recognition & Speech Accuracy</strong></summary>
 
 **OCR 与语言适配**

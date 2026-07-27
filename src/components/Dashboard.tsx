@@ -7,6 +7,7 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
 import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
+import { normalizeWebDavError, parseStoredSyncSummary, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
@@ -130,6 +131,9 @@ export default function Dashboard() {
   const [webdavUrl, setWebdavUrl] = useState("");
   const [webdavUser, setWebdavUser] = useState("");
   const [webdavPass, setWebdavPass] = useState("");
+  const [isTestingWebdav, setIsTestingWebdav] = useState(false);
+  const [webdavConnectionTest, setWebdavConnectionTest] = useState<{ ok: boolean; latencyMs?: number; error?: WebDavError } | null>(null);
+  const [lastSyncSummary, setLastSyncSummary] = useState<WebDavSyncSummary | null>(null);
 
   // Shortcuts
   const [shortcutQ, setShortcutQ] = useState("Alt+Q");
@@ -372,12 +376,17 @@ export default function Dashboard() {
         refreshStats();
         toast("success", translationRef.current.importSuccess);
     });
+    const unlistenWebdavSync = listen<WebDavSyncSummary>("webdav-sync-completed", (event) => {
+        setLastSyncSummary(event.payload);
+        setLastSyncTime(event.payload.completedAt);
+    });
 
     return () => {
         unlistenHistory.then(f => f());
         unlistenWordbook.then(f => f());
         unlistenShortcutError.then(f => f());
         unlistenConfigImport.then(f => f());
+        unlistenWebdavSync.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, []);
@@ -549,7 +558,7 @@ export default function Dashboard() {
         "custom_prompt", "backup_api_key", "backup_base_url", "backup_model", "ocr_lang", "shortcut_q", "shortcut_w",
         "language", "target_lang", "source_lang", "auto_copy", "clipboard_monitor", "accent_color", "theme", "font_size",
         "tts_engine", "tts_api_key", "tts_base_url", "tts_model_name", "tts_model", "tts_voice", "tts_speed",
-        "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time",
+        "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time", "last_sync_result",
       ];
       const values = await invoke<Record<string, string>>("get_config_values", { keys });
       const getVal = (key: string) => values[key] || "";
@@ -594,6 +603,7 @@ export default function Dashboard() {
       setWebdavUser(getVal("webdav_user"));
       setWebdavPass(getVal("webdav_pass"));
       setLastSyncTime(getVal("last_sync_time"));
+      setLastSyncSummary(parseStoredSyncSummary(getVal("last_sync_result")));
 
       const enabled = await isEnabled();
       setAutoLaunch(enabled);
@@ -657,17 +667,47 @@ export default function Dashboard() {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      await invoke("sync_wordbook");
+      const summary = await invoke<WebDavSyncSummary>("sync_wordbook", {
+        url: webdavUrl,
+        user: webdavUser,
+        password: webdavPass,
+        enabled: webdavEnabled,
+      });
+      setLastSyncSummary(summary);
+      setLastSyncTime(summary.completedAt);
       toast("success", t.syncSuccess);
-      addNotification(t.syncSuccess);
-      const time = await invoke<string>("get_config_value", { key: "last_sync_time" });
-      setLastSyncTime(time);
+      addNotification(t.syncSummary
+        .replace("{added}", String(summary.added))
+        .replace("{updated}", String(summary.updated))
+        .replace("{uploaded}", String(summary.uploaded)));
       await loadWordbook();
     } catch (e) {
       console.error(e);
-      toast("error", t.syncFailed);
+      const error = normalizeWebDavError(e);
+      toast("error", t[`webdavError_${error.code}`] || error.message || t.syncFailed);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleTestWebdavConnection = async () => {
+    if (isTestingWebdav || !webdavUrl.trim()) return;
+    setIsTestingWebdav(true);
+    setWebdavConnectionTest(null);
+    try {
+      const result = await invoke<WebDavConnectionResult>("test_webdav_connection", {
+        url: webdavUrl,
+        user: webdavUser,
+        password: webdavPass,
+      });
+      setWebdavConnectionTest({ ok: true, latencyMs: result.latencyMs });
+      toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs)));
+    } catch (e) {
+      const error = normalizeWebDavError(e);
+      setWebdavConnectionTest({ ok: false, error });
+      toast("error", t[`webdavError_${error.code}`] || error.message || t.connectionFailed);
+    } finally {
+      setIsTestingWebdav(false);
     }
   };
 
@@ -1110,9 +1150,9 @@ export default function Dashboard() {
                                             <span className="text-[9px] font-black text-accent uppercase">{lastSyncTime || t.neverSync}</span>
                                         </div>
                                     </div>
-                                    <div onClick={toggleWebdav} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${webdavEnabled ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
+                                    <button type="button" role="switch" aria-checked={webdavEnabled} aria-label={t.toggleWebdav} onClick={toggleWebdav} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative focus-visible:ring-4 focus-visible:ring-accent/20 ${webdavEnabled ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
                                         <motion.div animate={{ left: webdavEnabled ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                    </div>
+                                    </button>
                                 </div>
                                 
                                 <AnimatePresence>
@@ -1125,20 +1165,59 @@ export default function Dashboard() {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 gap-3">
-                                                <input value={webdavUrl} onChange={(e) => setWebdavUrl(e.target.value)} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                <input value={webdavUrl} onChange={(e) => { setWebdavUrl(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 <div className="grid grid-cols-2 gap-3">
-                                                    <input value={webdavUser} onChange={(e) => setWebdavUser(e.target.value)} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                    <input type="password" value={webdavPass} onChange={(e) => setWebdavPass(e.target.value)} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                    <input value={webdavUser} onChange={(e) => { setWebdavUser(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                    <input type="password" value={webdavPass} onChange={(e) => { setWebdavPass(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 </div>
                                             </div>
-                                            <button 
-                                                onClick={handleSync} 
-                                                disabled={isSyncing || !webdavUrl}
-                                                className={`w-full py-3 rounded-xl font-black text-[10px] flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400' : 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:scale-[1.01]'}`}
-                                            >
-                                                {isSyncing ? <RotateCcw size={14} className="animate-spin" /> : <RotateCcw size={14} />} 
-                                                {isSyncing ? t.syncing.toUpperCase() : t.syncNow.toUpperCase()}
-                                            </button>
+                                            {webdavConnectionTest && (
+                                                <div role={webdavConnectionTest.ok ? "status" : "alert"} className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-[10px] font-bold ${
+                                                    webdavConnectionTest.ok
+                                                        ? "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400"
+                                                        : "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400"
+                                                }`}>
+                                                    {webdavConnectionTest.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                                                    <span>{webdavConnectionTest.ok
+                                                        ? t.connectionSuccess.replace("{latency}", String(webdavConnectionTest.latencyMs || 0))
+                                                        : t[`webdavError_${webdavConnectionTest.error?.code}`] || webdavConnectionTest.error?.message || t.connectionFailed}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {lastSyncSummary && (
+                                                <div className="grid grid-cols-3 gap-2 rounded-2xl border border-black/5 bg-white/35 p-3 dark:border-white/10 dark:bg-white/5">
+                                                    {[
+                                                        { label: t.syncAdded, value: lastSyncSummary.added },
+                                                        { label: t.syncUpdated, value: lastSyncSummary.updated },
+                                                        { label: t.syncUploaded, value: lastSyncSummary.uploaded },
+                                                    ].map(item => (
+                                                        <div key={item.label} className="rounded-xl bg-white/55 px-2 py-2 text-center dark:bg-black/15">
+                                                            <div className="text-sm font-black text-accent">{item.value}</div>
+                                                            <div className="text-[8px] font-bold text-zinc-400">{item.label}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleTestWebdavConnection}
+                                                    disabled={isTestingWebdav || isSyncing || !webdavUrl.trim()}
+                                                    className="flex items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/10 py-3 text-[10px] font-black text-accent transition-all hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    {isTestingWebdav ? <RotateCcw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                                                    {isTestingWebdav ? t.connectionTesting : t.testConnection}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSync}
+                                                    disabled={isSyncing || isTestingWebdav || !webdavUrl.trim()}
+                                                    className={`flex items-center justify-center gap-2 rounded-xl py-3 text-[10px] font-black transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isSyncing ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800' : 'bg-zinc-900 text-white hover:scale-[1.01] dark:bg-white dark:text-zinc-900'}`}
+                                                >
+                                                    <RotateCcw size={14} className={isSyncing ? "animate-spin" : ""} />
+                                                    {isSyncing ? t.syncing : t.syncNow}
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>

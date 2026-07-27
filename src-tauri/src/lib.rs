@@ -2,6 +2,7 @@ mod db;
 mod ocr;
 mod secure_config;
 mod tray;
+mod webdav;
 
 use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
@@ -1444,8 +1445,8 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-#[tauri::command]
-async fn sync_wordbook(app: AppHandle) -> Result<(), String> {
+#[allow(dead_code)]
+async fn sync_wordbook_legacy(app: AppHandle) -> Result<(), String> {
     let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
     
     let (url, user, pass, is_enabled) = {
@@ -1881,7 +1882,7 @@ pub fn run() {
             get_config_values, set_config_values, updater_configured,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
-            clear_audio_cache, check_audio_cache, sync_wordbook, increment_translate_count, get_app_stats,
+            clear_audio_cache, check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
             save_translation, get_translation_history, delete_translation, clear_translation_history,
             export_wordbook, lookup_translation_memory, save_translation_memory,
