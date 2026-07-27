@@ -88,6 +88,40 @@ fn text_quality_score(text: &str) -> usize {
     meaningful.saturating_add(line_bonus).saturating_sub(noise)
 }
 
+#[cfg(test)]
+fn ocr_evaluation_characters(text: &str) -> Vec<char> {
+    text.chars()
+        .flat_map(char::to_uppercase)
+        .filter(|character| character.is_alphanumeric())
+        .collect()
+}
+
+#[cfg(test)]
+fn character_error_rate(reference: &str, hypothesis: &str) -> f64 {
+    let expected = ocr_evaluation_characters(reference);
+    let actual = ocr_evaluation_characters(hypothesis);
+    if expected.is_empty() {
+        return if actual.is_empty() { 0.0 } else { 1.0 };
+    }
+
+    let mut previous: Vec<usize> = (0..=actual.len()).collect();
+    for (expected_index, expected_character) in expected.iter().enumerate() {
+        let mut current = vec![expected_index + 1];
+        for (actual_index, actual_character) in actual.iter().enumerate() {
+            current.push(
+                (current[actual_index] + 1)
+                    .min(previous[actual_index + 1] + 1)
+                    .min(
+                        previous[actual_index]
+                            + usize::from(expected_character != actual_character),
+                    ),
+            );
+        }
+        previous = current;
+    }
+    previous[actual.len()] as f64 / expected.len() as f64
+}
+
 fn recognize_image(
     engine: &OcrEngine,
     image_bytes: &[u8],
@@ -173,11 +207,73 @@ pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn s
 #[cfg(test)]
 mod tests {
     use super::{
-        available_ocr_languages, create_ocr_engine, normalize_ocr_languages, prepare_ocr_images,
-        text_quality_score, OcrLanguageInfo,
+        available_ocr_languages, character_error_rate, create_ocr_engine,
+        normalize_ocr_languages, prepare_ocr_images, run_ocr, text_quality_score, OcrLanguageInfo,
     };
+    use font8x8::{UnicodeFonts, BASIC_FONTS};
     use screenshots::image::{DynamicImage, GenericImageView, ImageFormat, RgbaImage};
     use std::io::Cursor;
+    use windows::Globalization::Language;
+    use windows::Media::Ocr::OcrEngine;
+
+    struct OcrImageCase {
+        id: &'static str,
+        text: &'static str,
+        scale: u32,
+        dark: bool,
+        max_cer: f64,
+    }
+
+    fn render_text_fixture(text: &str, scale: u32, dark: bool) -> Vec<u8> {
+        let padding = scale * 3;
+        let glyph_width = scale * 8;
+        let width = padding * 2 + glyph_width * text.chars().count() as u32;
+        let height = padding * 2 + scale * 8;
+        let background = if dark { 20 } else { 245 };
+        let foreground = if dark { 245 } else { 20 };
+        let mut image = RgbaImage::from_pixel(
+            width,
+            height,
+            screenshots::image::Rgba([background, background, background, 255]),
+        );
+
+        for (character_index, character) in text.chars().enumerate() {
+            let Some(glyph) = BASIC_FONTS.get(character) else {
+                continue;
+            };
+            for (row, bits) in glyph.iter().enumerate() {
+                for column in 0..8 {
+                    if bits & (1 << column) == 0 {
+                        continue;
+                    }
+                    let origin_x = padding
+                        + character_index as u32 * glyph_width
+                        + column * scale;
+                    let origin_y = padding + row as u32 * scale;
+                    for offset_y in 0..scale {
+                        for offset_x in 0..scale {
+                            image.put_pixel(
+                                origin_x + offset_x,
+                                origin_y + offset_y,
+                                screenshots::image::Rgba([
+                                    foreground,
+                                    foreground,
+                                    foreground,
+                                    255,
+                                ]),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut output = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image)
+            .write_to(&mut output, ImageFormat::Png)
+            .unwrap();
+        output.into_inner()
+    }
 
     #[test]
     fn preprocessing_upscales_small_capture_and_produces_valid_pngs() {
@@ -200,6 +296,13 @@ mod tests {
     #[test]
     fn text_quality_prefers_meaningful_text_over_replacement_noise() {
         assert!(text_quality_score("Hello world 123") > text_quality_score("\u{fffd}\u{fffd}\u{fffd}"));
+    }
+
+    #[test]
+    fn character_error_rate_counts_substitutions_and_ignores_layout_whitespace() {
+        assert_eq!(character_error_rate("HELLO 2026", "hello\n2026"), 0.0);
+        assert!((character_error_rate("CAT", "CUT") - (1.0 / 3.0)).abs() < f64::EPSILON);
+        assert_eq!(character_error_rate("", "unexpected"), 1.0);
     }
 
     #[test]
@@ -243,5 +346,56 @@ mod tests {
     fn unsupported_saved_language_falls_back_to_the_windows_default() {
         assert!(create_ocr_engine("not-a-real-language").is_ok());
         assert!(create_ocr_engine("AUTO").is_ok());
+    }
+
+    #[tokio::test]
+    async fn generated_png_gold_cases_stay_within_the_windows_ocr_cer_gate() {
+        let language = Language::CreateLanguage(&windows::core::HSTRING::from("en-US")).unwrap();
+        assert!(
+            OcrEngine::IsLanguageSupported(&language).unwrap_or(false),
+            "The quality runner must provide the en-US Windows OCR language"
+        );
+
+        let cases = [
+            OcrImageCase {
+                id: "small-ui-text",
+                text: "HELLO 2026",
+                scale: 3,
+                dark: false,
+                max_cer: 0.2,
+            },
+            OcrImageCase {
+                id: "dark-subtitle",
+                text: "FOCUS NOW",
+                scale: 5,
+                dark: true,
+                max_cer: 0.2,
+            },
+            OcrImageCase {
+                id: "scaled-display",
+                text: "SCALE 150",
+                scale: 7,
+                dark: false,
+                max_cer: 0.2,
+            },
+        ];
+
+        for quality_case in cases {
+            let png = render_text_fixture(quality_case.text, quality_case.scale, quality_case.dark);
+            let recognized = run_ocr(png, "en-US").await.unwrap();
+            let cer = character_error_rate(quality_case.text, &recognized);
+            eprintln!(
+                "{}: expected={:?}, recognized={:?}, cer={:.3}",
+                quality_case.id, quality_case.text, recognized, cer
+            );
+            assert!(
+                cer <= quality_case.max_cer,
+                "{} CER {:.3} exceeded {:.3}; recognized {:?}",
+                quality_case.id,
+                cer,
+                quality_case.max_cer,
+                recognized
+            );
+        }
     }
 }
