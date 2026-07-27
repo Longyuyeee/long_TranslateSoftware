@@ -5,6 +5,7 @@ mod ocr;
 mod review;
 mod secure_config;
 mod tray;
+mod tts;
 mod webdav;
 mod wordbook;
 
@@ -23,15 +24,6 @@ use std::io::Write;
 use std::sync::Mutex;
 use aes_gcm::{Aes256Gcm, AeadCore, Nonce, aead::{Aead, KeyInit, OsRng}};
 use argon2::Argon2;
-use futures_util::{StreamExt, SinkExt};
-use tokio_tungstenite::{
-    connect_async, 
-    tungstenite::{
-        http::HeaderValue,
-        protocol::Message,
-        client::IntoClientRequest
-    }
-};
 const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
 const BACKUP_V3_MAGIC: &[u8; 4] = b"TLB3";
 
@@ -914,17 +906,6 @@ fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn save_audio_cache(app: AppHandle, cache_key: String, audio_data: Vec<u8>) -> Result<(), String> {
-    let cache_dir = get_audio_cache_dir(&app)?;
-    let mut hasher = Sha256::new();
-    hasher.update(cache_key.as_bytes());
-    let hash = hex::encode(hasher.finalize());
-    let cache_path = cache_dir.join(format!("{}.cache", hash));
-    std::fs::write(&cache_path, &audio_data).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 fn get_clipboard_text(app: AppHandle) -> Result<String, String> {
     let clipboard = app.clipboard();
     clipboard.read_text().map_err(|e| e.to_string())
@@ -966,234 +947,9 @@ fn show_ocr_overlay(app: &AppHandle) {
     }
 }
 
-fn get_audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let mut path = app.path().app_cache_dir().map_err(|e| e.to_string())?;
-    path.push("audio_cache");
-    if !path.exists() {
-        fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    }
-    Ok(path)
-}
-
-#[tauri::command]
-fn check_audio_cache(app: AppHandle, cache_key: String) -> Result<bool, String> {
-    let cache_dir = get_audio_cache_dir(&app)?;
-    let mut hasher = Sha256::new();
-    hasher.update(cache_key.as_bytes());
-    let hash = hex::encode(hasher.finalize());
-    let cache_path = cache_dir.join(format!("{}.cache", hash));
-    Ok(cache_path.exists())
-}
-
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn generate_sec_ms_gec_token() -> String {
-    let ticks = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let rounded_ticks = ticks / 3000 * 3000;
-    let str_to_hash = format!("{}6A5AA1D4EAFF4E9FB37E23D68491D6F4", rounded_ticks);
-    let mut hasher = Sha256::new();
-    hasher.update(str_to_hash.as_bytes());
-    hex::encode(hasher.finalize())
-}
-
-fn xml_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-fn voice_locale(voice: &str) -> &str {
-    let second_dash = voice
-        .match_indices('-')
-        .nth(1)
-        .map(|(index, _)| index)
-        .unwrap_or(voice.len());
-    let candidate = &voice[..second_dash];
-    if candidate.contains('-') { candidate } else { "en-US" }
-}
-
-fn speech_rate_percent(speed: f32) -> i32 {
-    (((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32).clamp(-50, 100)
-}
-
 #[tauri::command]
 fn get_available_ocr_languages() -> Result<Vec<ocr::OcrLanguageInfo>, String> {
     ocr::available_ocr_languages().map_err(|error| error.to_string())
-}
-
-fn edge_user_agent(edge_version: &str) -> Result<HeaderValue, String> {
-    let browser_major = edge_version
-        .split('.')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("131");
-    let user_agent = format!(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_major}.0.0.0 Safari/537.36 Edg/{edge_version}"
-    );
-    user_agent
-        .parse()
-        .map_err(|error| format!("Invalid Edge TTS user-agent header: {error}"))
-}
-
-async fn fetch_edge_tts(text: String, voice: String, speed: f32) -> Result<Vec<u8>, String> {
-    let token = generate_sec_ms_gec_token();
-    let connection_id = uuid::Uuid::new_v4().simple().to_string();
-    let edge_ua_version = "131.0.2903.86";
-    let version = format!("1-{}", edge_ua_version);
-    
-    let url = format!(
-        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&Sec-MS-GEC={}&Sec-MS-GEC-Version={}&ConnectionId={}",
-        token, version, connection_id
-    );
-    
-    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
-    {
-        let headers = request.headers_mut();
-        headers.insert("Host", HeaderValue::from_static("speech.platform.bing.com"));
-        headers.insert("Origin", HeaderValue::from_static("https://www.bing.com"));
-        headers.insert("User-Agent", edge_user_agent(edge_ua_version)?);
-        headers.insert("Pragma", HeaderValue::from_static("no-cache"));
-        headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
-    }
-    
-    let (ws_stream, _) = connect_async(request).await.map_err(|e| e.to_string())?;
-    let (mut write, mut read) = ws_stream.split();
-
-    let config = format!(r#"{{"context":{{"system":{{"name":"Edge","version":"{}","build":"{}","lang":"en-US"}}}}}}"#, edge_ua_version, edge_ua_version);
-    let config_msg = format!("Content-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{}", config);
-    write.send(Message::Text(config_msg.into())).await.map_err(|e| e.to_string())?;
-
-    let request_id = uuid::Uuid::new_v4().simple().to_string();
-    let escaped_text = xml_escape(&text);
-    let escaped_voice = xml_escape(&voice);
-    let locale = voice_locale(&voice);
-    let rate_percent = speech_rate_percent(speed);
-    let ssml = format!(
-        r#"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='{}'><voice name='{}'><prosody pitch='+0Hz' rate='{:+}%' volume='+0%'>{}</prosody></voice></speak>"#,
-        locale, escaped_voice, rate_percent, escaped_text
-    );
-    let ssml_msg = format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nPath:ssml\r\n\r\n{}", request_id, ssml);
-    write.send(Message::Text(ssml_msg.into())).await.map_err(|e| e.to_string())?;
-
-    let mut audio_data = Vec::new();
-    while let Some(msg) = read.next().await {
-        match msg.map_err(|e| e.to_string())? {
-            Message::Binary(data) => {
-                let data_vec = data.to_vec();
-                if let Some(pos) = data_vec.windows(12).position(|w| w == b"Path:audio\r\n") {
-                    audio_data.extend_from_slice(&data_vec[pos + 12..]);
-                }
-            },
-            Message::Text(t) if t.contains("Path:turn.end") => break,
-            _ => {}
-        }
-    }
-    if audio_data.is_empty() {
-        return Err("Edge speech service returned empty audio".to_string());
-    }
-    Ok(audio_data)
-}
-
-#[tauri::command]
-async fn proxy_fetch_audio(
-    app: AppHandle,
-    url: String,
-    cache_key: Option<String>,
-    engine: Option<String>,
-    voice: Option<String>,
-    speed: Option<String>,
-) -> Result<Vec<u8>, String> {
-    let cache_dir = get_audio_cache_dir(&app)?;
-    let key_to_hash = cache_key.clone().unwrap_or_else(|| url.clone());
-    let mut hasher = Sha256::new();
-    hasher.update(key_to_hash.as_bytes());
-    let hash = hex::encode(hasher.finalize());
-    let cache_path = cache_dir.join(format!("{}.cache", hash));
-
-    if cache_path.exists() {
-        if let Ok(bytes) = fs::read(&cache_path) {
-            return Ok(bytes);
-        }
-    }
-
-    let bytes = if engine.as_deref() == Some("edge") {
-        let speed = speed
-            .as_deref()
-            .unwrap_or("1.0")
-            .parse::<f32>()
-            .unwrap_or(1.0);
-        fetch_edge_tts(
-            url,
-            voice.unwrap_or_else(|| "en-US-AriaNeural".to_string()),
-            speed,
-        ).await?
-    } else {
-        if url.is_empty() { return Err("Cache miss and no URL provided".to_string()); }
-        let client = reqwest::Client::new();
-        let response = client.get(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        response.bytes().await.map_err(|e| e.to_string())?.to_vec()
-    };
-
-    if bytes.len() > 100 { let _ = fs::write(&cache_path, &bytes); }
-    // Evict oldest files if cache exceeds 200 MB
-    evict_cache_if_needed(&cache_dir, 200 * 1024 * 1024);
-    Ok(bytes)
-}
-
-fn evict_cache_if_needed(cache_dir: &PathBuf, max_size: u64) {
-    let mut entries: Vec<_> = match fs::read_dir(cache_dir) {
-        Ok(iter) => iter.filter_map(|e| e.ok()).filter_map(|e| {
-            let meta = e.metadata().ok()?;
-            Some((e.path(), meta.len(), meta.modified().ok()?))
-        }).collect(),
-        Err(_) => return,
-    };
-    let total: u64 = entries.iter().map(|(_, s, _)| s).sum();
-    if total <= max_size { return; }
-    // Sort by modification time (oldest first), remove oldest until under limit
-    entries.sort_by_key(|(_, _, mtime)| *mtime);
-    let mut freed = 0u64;
-    let target = max_size.saturating_sub(max_size / 10); // aim for 90% of max
-    for (path, size, _) in &entries {
-        if total.saturating_sub(freed) <= target { break; }
-        let _ = fs::remove_file(path);
-        freed += size;
-    }
-}
-
-#[tauri::command]
-fn get_audio_cache_size(app: AppHandle) -> Result<String, String> {
-    let cache_dir = get_audio_cache_dir(&app)?;
-    let mut size = 0u64;
-    if let Ok(entries) = fs::read_dir(cache_dir) {
-        for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() { size += meta.len(); }
-        }
-    }
-    
-    if size < 1024 { Ok(format!("{} B", size)) }
-    else if size < 1024 * 1024 { Ok(format!("{:.2} KB", size as f64 / 1024.0)) }
-    else { Ok(format!("{:.2} MB", size as f64 / (1024.0 * 1024.0))) }
-}
-
-#[tauri::command]
-fn clear_audio_cache(app: AppHandle) -> Result<(), String> {
-    let cache_dir = get_audio_cache_dir(&app)?;
-    if cache_dir.exists() {
-        fs::remove_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    }
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
@@ -1711,9 +1467,9 @@ pub fn run() {
             get_config_values, set_config_values, updater_configured,
             export_diagnostics,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
-            check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
-            clear_audio_cache, check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
-            update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
+            check_word_exists, update_word_analysis, tts::proxy_fetch_audio, tts::get_audio_cache_size,
+            tts::clear_audio_cache, tts::check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
+            update_shortcut, set_shortcuts_paused, export_data, import_data, tts::save_audio_cache,
             history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
             export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
             review::get_due_reviews, review::submit_review, review::get_review_stats, export_anki,
@@ -1732,8 +1488,7 @@ fn should_show_main_window(args: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decrypt_backup_payload, edge_user_agent, encrypt_backup_payload, should_show_main_window,
-        speech_rate_percent, voice_locale, xml_escape, BACKUP_V3_MAGIC,
+        decrypt_backup_payload, encrypt_backup_payload, should_show_main_window, BACKUP_V3_MAGIC,
     };
 
     #[test]
@@ -1755,13 +1510,6 @@ mod tests {
     }
 
     #[test]
-    fn edge_user_agent_rejects_header_injection_without_panicking() {
-        let error = edge_user_agent("131.0\r\nInjected: true")
-            .expect_err("invalid header characters must be rejected");
-        assert!(error.contains("Invalid Edge TTS user-agent header"));
-    }
-
-    #[test]
     fn manual_launch_shows_main_window_but_autostart_stays_in_tray() {
         assert!(should_show_main_window(&["long-translate.exe".into()]));
         assert!(!should_show_main_window(&[
@@ -1770,20 +1518,6 @@ mod tests {
         ]));
     }
 
-    #[test]
-    fn edge_speech_uses_voice_locale_and_clamped_speed() {
-        assert_eq!(voice_locale("en-US-AriaNeural"), "en-US");
-        assert_eq!(voice_locale("zh-CN-XiaoxiaoNeural"), "zh-CN");
-        assert_eq!(voice_locale("alloy"), "en-US");
-        assert_eq!(speech_rate_percent(0.5), -50);
-        assert_eq!(speech_rate_percent(1.0), 0);
-        assert_eq!(speech_rate_percent(2.0), 100);
-    }
-
-    #[test]
-    fn edge_speech_escapes_ssml_text_and_attributes() {
-        assert_eq!(xml_escape("A&B<'\""), "A&amp;B&lt;&apos;&quot;");
-    }
 }
 
 #[tauri::command]
