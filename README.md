@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.7 WebDAV 可靠性与诊断**：增加连接测试、结构化错误、同步摘要和多设备并发保护，避免同步期间静默覆盖较新的云端数据。
+> **v0.4.8 可量化质量与架构收口**：增加翻译、TTS、OCR 自动质量门槛，强化备份与 Anki 数据安全，并拆分核心前后端业务边界。
 
 ---
 
@@ -115,8 +115,8 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.7 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.7 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.8 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.8 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
@@ -143,6 +143,27 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.8 — Measurable Quality & Architecture</strong></summary>
+
+**可量化质量**
+- 翻译格式、TTS 路由/音频和 Windows OCR 真实 PNG 识别纳入自动质量门槛
+- CI 与正式 Release 生成统一 JSON 质量报告，阈值失败会阻断交付
+
+**数据可靠性**
+- WebDAV 使用 ETag 条件写入保护多设备同步，并提供连接测试、结构化错误和同步摘要
+- 加密备份在替换数据库前验证内容；Anki 导出修复动态牌组、字段转义和临时文件清理
+
+**前后端架构**
+- Rust 拆分历史/记忆、复习、TTS、备份、Anki、WebDAV、OCR、诊断和生词本模块
+- 前端拆分更新、批量翻译、生词本和设置持久化流程，并覆盖竞态、取消和兼容迁移
+
+**交互与兼容**
+- 更新与 OCR 弹窗支持焦点循环、Escape 关闭和焦点恢复，主导航支持完整键盘操作
+- 不修改数据库结构，现有设置、生词本、复习进度和 WebDAV 数据保持兼容
+
+</details>
+
+<details>
 <summary><strong>v0.4.7 — WebDAV Reliability & Diagnostics</strong></summary>
 
 **连接与诊断**
