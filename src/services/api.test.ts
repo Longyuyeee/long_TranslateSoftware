@@ -275,6 +275,7 @@ describe("speech locale routing", () => {
     expect(resolveEdgeVoice("Hello", "zh-CN-XiaoxiaoNeural")).toEqual({
       locale: "en-US",
       voice: "en-US-AriaNeural",
+      reason: "locale-fallback",
     });
     expect(resolveEdgeVoice("Hello", "en-US-GuyNeural").voice).toBe("en-US-GuyNeural");
   });

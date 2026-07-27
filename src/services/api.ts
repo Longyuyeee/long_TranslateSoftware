@@ -4,6 +4,16 @@ import {
   evaluateTranslationFormat,
   summarizeTranslationFormatIssues,
 } from "./translationQuality";
+import {
+  inspectSpeechAudio,
+  resolveEdgeVoice,
+} from "./speechQuality";
+
+export {
+  detectSpeechLocale,
+  inspectSpeechAudio,
+  resolveEdgeVoice,
+} from "./speechQuality";
 
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds
 
@@ -756,12 +766,21 @@ let audioCtx: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 
 async function playBuffer(buffer: number[]) {
-  if (buffer.length === 0) throw new Error("The speech service returned empty audio");
+  const inspection = inspectSpeechAudio(buffer);
+  if (inspection.reason === "empty") throw new Error("The speech service returned empty audio");
+  if (inspection.reason === "text-response") {
+    throw new Error("The speech service returned text instead of audio");
+  }
   if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
   if (currentSource) { try { currentSource.stop(); } catch { /* already stopped */ } }
 
   const arrayBuffer = new Uint8Array(buffer).buffer;
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  let audioBuffer: AudioBuffer;
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } catch {
+    throw new Error(`The speech audio could not be decoded (${inspection.format})`);
+  }
 
   currentSource = audioCtx.createBufferSource();
   currentSource.buffer = audioBuffer;
@@ -775,33 +794,6 @@ async function playBuffer(buffer: number[]) {
       reject(error);
     }
   });
-}
-
-export type SpeechLocale = "zh-CN" | "en-US" | "ja-JP" | "ko-KR" | "ru-RU" | "ar-SA";
-
-const EDGE_VOICE_BY_LOCALE: Record<SpeechLocale, string> = {
-  "zh-CN": "zh-CN-XiaoxiaoNeural",
-  "en-US": "en-US-AriaNeural",
-  "ja-JP": "ja-JP-NanamiNeural",
-  "ko-KR": "ko-KR-SunHiNeural",
-  "ru-RU": "ru-RU-SvetlanaNeural",
-  "ar-SA": "ar-SA-ZariyahNeural",
-};
-
-export function detectSpeechLocale(text: string): SpeechLocale {
-  if (/[\u3040-\u30ff]/u.test(text)) return "ja-JP";
-  if (/[\uac00-\ud7af]/u.test(text)) return "ko-KR";
-  if (/[\u3400-\u9fff]/u.test(text)) return "zh-CN";
-  if (/[\u0400-\u04ff]/u.test(text)) return "ru-RU";
-  if (/[\u0600-\u06ff]/u.test(text)) return "ar-SA";
-  return "en-US";
-}
-
-export function resolveEdgeVoice(text: string, configuredVoice: string): { locale: SpeechLocale; voice: string } {
-  const locale = detectSpeechLocale(text);
-  const normalizedVoice = configuredVoice.trim();
-  const voiceMatchesLocale = normalizedVoice.toLocaleLowerCase().startsWith(`${locale.toLocaleLowerCase()}-`);
-  return { locale, voice: voiceMatchesLocale ? normalizedVoice : EDGE_VOICE_BY_LOCALE[locale] };
 }
 
 export async function speak(text: string): Promise<boolean> {
