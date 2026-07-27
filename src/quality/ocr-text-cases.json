@@ -1,0 +1,37 @@
+[
+  {
+    "id": "small-ui-text",
+    "scenario": "Small 11px interface text",
+    "reference": "Settings saved successfully",
+    "baseline": "Settings saved succesfully",
+    "maxCer": 0.05
+  },
+  {
+    "id": "dark-subtitle",
+    "scenario": "Light subtitle on a dark background",
+    "reference": "保持专注，继续前进",
+    "baseline": "保持专注，继续前进",
+    "maxCer": 0
+  },
+  {
+    "id": "scaled-display",
+    "scenario": "Text captured on a 150% scaled display",
+    "reference": "Translation ready at 150%",
+    "baseline": "Translation ready at 150%",
+    "maxCer": 0
+  },
+  {
+    "id": "negative-monitor-origin",
+    "scenario": "Capture from a monitor left of the primary display",
+    "reference": "Secondary monitor -1920,0",
+    "baseline": "Secondary monitor -1920,0",
+    "maxCer": 0
+  },
+  {
+    "id": "mixed-cjk",
+    "scenario": "Chinese, English, Japanese, and Korean mixed text",
+    "reference": "翻译 AI・翻訳・번역",
+    "baseline": "翻译 Al・翻訳・번역",
+    "maxCer": 0.1
+  }
+]

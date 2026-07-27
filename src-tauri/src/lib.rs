@@ -1235,6 +1235,11 @@ fn speech_rate_percent(speed: f32) -> i32 {
     (((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32).clamp(-50, 100)
 }
 
+#[tauri::command]
+fn get_available_ocr_languages() -> Result<Vec<ocr::OcrLanguageInfo>, String> {
+    ocr::available_ocr_languages().map_err(|error| error.to_string())
+}
+
 fn edge_user_agent(edge_version: &str) -> Result<HeaderValue, String> {
     let browser_major = edge_version
         .split('.')
@@ -1915,7 +1920,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr, capture_and_ocr, confirm_ocr_text, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
+            run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
             get_config_values, set_config_values, updater_configured,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,

@@ -54,6 +54,7 @@ features = [
     "Storage_Streams",
     "Win32_Graphics_Gdi",
     "Foundation",
+    "Foundation_Collections",
     "Globalization",
     "Win32_Security_Cryptography",
 ]

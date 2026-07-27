@@ -14,6 +14,7 @@ import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
+import { OcrLanguageInfo, resolveOcrLanguageTag } from "../services/ocr";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -158,6 +159,7 @@ export default function Dashboard() {
 
   // OCR language
   const [ocrLang, setOcrLang] = useState("auto");
+  const [installedOcrLanguages, setInstalledOcrLanguages] = useState<OcrLanguageInfo[] | null>(null);
 
   // Audio (TTS) Model Config
   const [ttsEngine, setTtsEngine] = useState("local");
@@ -289,14 +291,19 @@ export default function Dashboard() {
     [t],
   );
   const ocrLanguageOptions = useMemo(
-    () => [
-      { value: "auto", label: t.systemDefault },
-      ...OCR_LANGUAGES.map(option => ({
-        value: option.value,
-        label: t.languageNames[option.language] || option.language,
-      })),
-    ],
-    [t],
+    () => {
+      const detected = installedOcrLanguages?.length
+        ? installedOcrLanguages.map(language => ({
+          value: language.tag,
+          label: `${language.native_name || language.display_name || language.tag} (${language.tag})`,
+        }))
+        : OCR_LANGUAGES.map(option => ({
+          value: option.value,
+          label: t.languageNames[option.language] || option.language,
+        }));
+      return [{ value: "auto", label: t.systemDefault }, ...detected];
+    },
+    [installedOcrLanguages, t],
   );
   const settingsFingerprint = useMemo(() => JSON.stringify({
     transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
@@ -564,7 +571,13 @@ export default function Dashboard() {
         "tts_engine", "tts_api_key", "tts_base_url", "tts_model_name", "tts_model", "tts_voice", "tts_speed",
         "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time", "last_sync_result",
       ];
-      const values = await invoke<Record<string, string>>("get_config_values", { keys });
+      const [values, detectedOcrLanguages] = await Promise.all([
+        invoke<Record<string, string>>("get_config_values", { keys }),
+        invoke<OcrLanguageInfo[]>("get_available_ocr_languages").catch(error => {
+          console.warn("Unable to enumerate installed OCR languages; using fallback list", error);
+          return null;
+        }),
+      ]);
       const getVal = (key: string) => values[key] || "";
       
       setTransApiKey(getVal("trans_api_key") || getVal("openai_api_key") || "");
@@ -577,7 +590,11 @@ export default function Dashboard() {
       setBackupApiKey(getVal("backup_api_key"));
       setBackupBaseUrl(getVal("backup_base_url"));
       setBackupModelName(getVal("backup_model"));
-      setOcrLang(getVal("ocr_lang") || "auto");
+      setInstalledOcrLanguages(detectedOcrLanguages);
+      const savedOcrLanguage = getVal("ocr_lang") || "auto";
+      setOcrLang(detectedOcrLanguages?.length
+        ? resolveOcrLanguageTag(savedOcrLanguage, detectedOcrLanguages)
+        : savedOcrLanguage);
 
       setShortcutQ(getVal("shortcut_q") || "Alt+Q");
       setShortcutW(getVal("shortcut_w") || "Alt+W");
