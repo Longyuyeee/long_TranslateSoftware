@@ -16,10 +16,16 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let show_dashboard = MenuItem::with_id(app, "show_dashboard", "Settings / 显示设置", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit / 退出程序", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_dashboard, &quit])?;
+    let icon = app.default_window_icon().cloned().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Application tray icon is not configured",
+        )
+    })?;
 
     let _ = TrayIconBuilder::with_id("tray")
         .tooltip("Long翻译 · AI Smart Assistant")
-        .icon(app.default_window_icon().expect("App icon not configured").clone())
+        .icon(icon)
         .menu(&menu)
         .on_menu_event(move |app: &AppHandle<R>, event| match event.id.as_ref() {
             "show_dashboard" => show_main_window(app),

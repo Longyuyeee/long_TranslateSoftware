@@ -24,6 +24,7 @@ use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{
     connect_async, 
     tungstenite::{
+        http::HeaderValue,
         protocol::Message,
         client::IntoClientRequest
     }
@@ -102,6 +103,12 @@ fn decrypt_backup_payload(file_data: &[u8], password: &str) -> Result<Vec<u8>, S
 struct AppState {
     shortcuts_paused: Mutex<bool>,
     clipboard_lock: Mutex<bool>,
+}
+
+fn resolve_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|error| format!("Cannot resolve application data directory: {error}"))
 }
 
 #[tauri::command]
@@ -196,7 +203,7 @@ fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
 
 #[tauri::command]
 fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String, shortcut_str: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     
     let old_shortcut_str = db::get_config(&conn, &format!("shortcut_{}", name)).unwrap_or_default();
@@ -230,7 +237,7 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
 async fn export_data(app: AppHandle, password: String) -> Result<String, String> {
     if password.is_empty() { return Err("Password cannot be empty".to_string()); }
 
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
 
     let mut config_data = std::collections::HashMap::new();
@@ -329,7 +336,7 @@ async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
         let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
         let is_portable_v3 = full_json["export_version"].as_str().map(|version| version.starts_with("3.")).unwrap_or(false);
 
-        let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+        let app_dir = resolve_app_data_dir(&app)?;
         {
             let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
             let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -403,7 +410,7 @@ fn start_window_drag(window: WebviewWindow) {
 
 #[tauri::command]
 async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
     let bytes = general_purpose::STANDARD.decode(image_base64).map_err(|e| e.to_string())?;
@@ -415,7 +422,7 @@ async fn capture_and_ocr(
     app: AppHandle,
     x: i32, y: i32, w: u32, h: u32
 ) -> Result<String, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
     let bytes = ocr::capture_rect(x, y, w, h).map_err(|e| e.to_string())?;
@@ -439,7 +446,7 @@ fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
 
 #[tauri::command]
 fn check_word_exists(app: AppHandle, word: String) -> Result<bool, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT 1 FROM wordbook WHERE word = ?1 AND is_deleted = 0").map_err(|e| e.to_string())?;
     stmt.exists([word]).map_err(|e| e.to_string())
@@ -462,7 +469,7 @@ fn add_to_wordbook(
     analysis: Option<String>,
     context: Option<WordContextInput>,
 ) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
 
     let existing_uuid: Option<String> = conn.query_row(
@@ -497,7 +504,7 @@ fn add_to_wordbook(
 
 #[tauri::command]
 fn update_word_analysis(app: AppHandle, word: String, phonetic: String, meaning: String, analysis: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE wordbook SET phonetic = ?1, meaning = ?2, analysis_json = ?3, updated_at = CURRENT_TIMESTAMP WHERE word = ?4",
@@ -509,7 +516,7 @@ fn update_word_analysis(app: AppHandle, word: String, phonetic: String, meaning:
 
 #[tauri::command]
 fn get_wordbook(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare("SELECT id, word, phonetic, meaning, analysis_json, created_at, uuid FROM wordbook WHERE is_deleted = 0 ORDER BY created_at DESC").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
@@ -546,7 +553,7 @@ fn get_wordbook(app: AppHandle) -> Result<Vec<serde_json::Value>, String> {
 
 #[tauri::command]
 fn get_due_reviews(app: AppHandle, limit: Option<i32>) -> Result<Vec<serde_json::Value>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut stmt = conn.prepare(
@@ -625,7 +632,7 @@ fn next_stability(s: f64, d: f64, r: f64, rating: u8) -> f64 {
 
 #[tauri::command]
 fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_json::Value, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let rating = quality.clamp(1, 4) as u8;
@@ -678,7 +685,7 @@ fn submit_review(app: AppHandle, word_id: i32, quality: i32) -> Result<serde_jso
 
 #[tauri::command]
 fn export_anki(app: AppHandle) -> Result<String, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
 
     // Read wordbook data
@@ -771,6 +778,14 @@ fn export_anki(app: AppHandle) -> Result<String, String> {
         "nextPos": 1, "sortType": "noteFld", "sortBackwards": false,
         "addToCur": true, "dayLearnFirst": false
     });
+    let col_conf_json = serde_json::to_string(&col_conf)
+        .map_err(|error| format!("Cannot serialize Anki collection settings: {error}"))?;
+    let models_json = serde_json::to_string(&models)
+        .map_err(|error| format!("Cannot serialize Anki note model: {error}"))?;
+    let decks_json = serde_json::to_string(&decks)
+        .map_err(|error| format!("Cannot serialize Anki deck: {error}"))?;
+    let dconf_json = serde_json::to_string(&dconf)
+        .map_err(|error| format!("Cannot serialize Anki deck settings: {error}"))?;
 
     // Create temp Anki database
     let temp_dir = std::env::temp_dir().join(format!("long_anki_{}", ts));
@@ -810,10 +825,10 @@ fn export_anki(app: AppHandle) -> Result<String, String> {
         "INSERT INTO col VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         rusqlite::params![
             1_i64, ts, ts, ts_sec, 21_i64, 0_i64, -1_i64, 0_i64,
-            serde_json::to_string(&col_conf).unwrap(),
-            serde_json::to_string(&models).unwrap(),
-            serde_json::to_string(&decks).unwrap(),
-            serde_json::to_string(&dconf).unwrap(),
+            col_conf_json,
+            models_json,
+            decks_json,
+            dconf_json,
             "{}"
         ],
     ).map_err(|e| e.to_string())?;
@@ -899,7 +914,7 @@ fn export_anki(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn get_review_stats(app: AppHandle) -> Result<serde_json::Value, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -926,7 +941,7 @@ fn get_review_stats(app: AppHandle) -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn delete_word(app: AppHandle, id: i32) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("UPDATE wordbook SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
     app.emit("wordbook-updated", "local").map_err(|e| e.to_string())?;
@@ -935,7 +950,7 @@ fn delete_word(app: AppHandle, id: i32) -> Result<(), String> {
 
 #[tauri::command]
 fn save_translation(app: AppHandle, source_text: String, translated_text: String, source_lang: Option<String>, target_lang: Option<String>, model: Option<String>) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT INTO translation_history (source_text, translated_text, source_lang, target_lang, model) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -947,7 +962,7 @@ fn save_translation(app: AppHandle, source_text: String, translated_text: String
 
 #[tauri::command]
 fn get_translation_history(app: AppHandle, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<serde_json::Value>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
         "SELECT id, source_text, translated_text, source_lang, target_lang, model, created_at FROM translation_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
@@ -970,7 +985,7 @@ fn get_translation_history(app: AppHandle, limit: Option<i32>, offset: Option<i3
 
 #[tauri::command]
 fn delete_translation(app: AppHandle, id: i32) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM translation_history WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
     Ok(())
@@ -978,7 +993,7 @@ fn delete_translation(app: AppHandle, id: i32) -> Result<(), String> {
 
 #[tauri::command]
 fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
         "SELECT word, phonetic, meaning, analysis_json FROM wordbook WHERE is_deleted = 0 ORDER BY created_at DESC"
@@ -1048,7 +1063,7 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
 
 #[tauri::command]
 fn clear_translation_history(app: AppHandle) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM translation_history", []).map_err(|e| e.to_string())?;
     app.emit("history-updated", "").map_err(|e| e.to_string())?;
@@ -1062,7 +1077,7 @@ fn lookup_translation_memory(
     target_lang: String,
     cache_context: String,
 ) -> Result<Option<String>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
     let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
@@ -1083,7 +1098,7 @@ fn save_translation_memory(
     target_lang: String,
     cache_context: String,
 ) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let hash = format!("{:x}", Sha256::digest(source_text.as_bytes()));
     let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
@@ -1098,7 +1113,7 @@ fn save_translation_memory(
 
 #[tauri::command]
 fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     let store_value = secure_config::prepare_value(&key, &value)?;
     db::set_config(&conn, &key, &store_value).map_err(|e| e.to_string())
@@ -1106,7 +1121,7 @@ fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), St
 
 #[tauri::command]
 fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     secure_config::load_value(&conn, &key, &app_dir)
 }
@@ -1220,6 +1235,20 @@ fn speech_rate_percent(speed: f32) -> i32 {
     (((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32).clamp(-50, 100)
 }
 
+fn edge_user_agent(edge_version: &str) -> Result<HeaderValue, String> {
+    let browser_major = edge_version
+        .split('.')
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("131");
+    let user_agent = format!(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser_major}.0.0.0 Safari/537.36 Edg/{edge_version}"
+    );
+    user_agent
+        .parse()
+        .map_err(|error| format!("Invalid Edge TTS user-agent header: {error}"))
+}
+
 async fn fetch_edge_tts(text: String, voice: String, speed: f32) -> Result<Vec<u8>, String> {
     let token = generate_sec_ms_gec_token();
     let connection_id = uuid::Uuid::new_v4().simple().to_string();
@@ -1234,11 +1263,11 @@ async fn fetch_edge_tts(text: String, voice: String, speed: f32) -> Result<Vec<u
     let mut request = url.into_client_request().map_err(|e| e.to_string())?;
     {
         let headers = request.headers_mut();
-        headers.insert("Host", "speech.platform.bing.com".parse().unwrap());
-        headers.insert("Origin", "https://www.bing.com".parse().unwrap());
-        headers.insert("User-Agent", format!("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36 Edg/{}", edge_ua_version.split('.').next().unwrap(), edge_ua_version).parse().unwrap());
-        headers.insert("Pragma", "no-cache".parse().unwrap());
-        headers.insert("Cache-Control", "no-cache".parse().unwrap());
+        headers.insert("Host", HeaderValue::from_static("speech.platform.bing.com"));
+        headers.insert("Origin", HeaderValue::from_static("https://www.bing.com"));
+        headers.insert("User-Agent", edge_user_agent(edge_ua_version)?);
+        headers.insert("Pragma", HeaderValue::from_static("no-cache"));
+        headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
     }
     
     let (ws_stream, _) = connect_async(request).await.map_err(|e| e.to_string())?;
@@ -1448,7 +1477,7 @@ fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
 
 #[allow(dead_code)]
 async fn sync_wordbook_legacy(app: AppHandle) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     
     let (url, user, pass, is_enabled) = {
         let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
@@ -1615,7 +1644,9 @@ async fn sync_wordbook_legacy(app: AppHandle) -> Result<(), String> {
             if let Some(last_slash) = base.rfind('/') {
                 let parent_dir = &base[..last_slash];
                 // Try MKCOL on parent directory, ignore errors (might already exist)
-                let _ = client.request(reqwest::Method::from_bytes(b"MKCOL").unwrap(), parent_dir)
+                let mkcol_method = reqwest::Method::from_bytes(b"MKCOL")
+                    .map_err(|error| format!("Cannot prepare WebDAV directory request: {error}"))?;
+                let _ = client.request(mkcol_method, parent_dir)
                     .basic_auth(&user, Some(&pass))
                     .send()
                     .await;
@@ -1651,7 +1682,7 @@ async fn sync_wordbook_legacy(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn increment_translate_count(app: AppHandle) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let count_str = db::get_config(&conn, "translated_count").unwrap_or_default();
     let count: i32 = count_str.parse().unwrap_or(0);
@@ -1661,7 +1692,7 @@ fn increment_translate_count(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     
     let word_count: i32 = conn.query_row("SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0", [], |row| row.get(0)).map_err(|e| e.to_string())?;
@@ -1698,7 +1729,7 @@ struct GlossaryEntry {
 
 #[tauri::command]
 fn add_glossary_entry(app: AppHandle, source_term: String, target_term: String) -> Result<GlossaryEntry, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT INTO glossary (source_term, target_term) VALUES (?1, ?2)",
@@ -1710,7 +1741,7 @@ fn add_glossary_entry(app: AppHandle, source_term: String, target_term: String) 
 
 #[tauri::command]
 fn get_glossary_entries(app: AppHandle) -> Result<Vec<GlossaryEntry>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(
         "SELECT id, source_term, target_term, created_at FROM glossary ORDER BY created_at DESC"
@@ -1730,7 +1761,7 @@ fn get_glossary_entries(app: AppHandle) -> Result<Vec<GlossaryEntry>, String> {
 
 #[tauri::command]
 fn delete_glossary_entry(app: AppHandle, id: i64) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM glossary WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| e.to_string())?;
@@ -1739,7 +1770,7 @@ fn delete_glossary_entry(app: AppHandle, id: i64) -> Result<(), String> {
 
 #[tauri::command]
 fn update_glossary_entry(app: AppHandle, id: i64, source_term: String, target_term: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE glossary SET source_term = ?1, target_term = ?2 WHERE id = ?3",
@@ -1802,7 +1833,7 @@ pub fn run() {
         }));
     }
 
-    builder
+    if let Err(error) = builder
         .manage(AppState { shortcuts_paused: Mutex::new(false), clipboard_lock: Mutex::new(false) })
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
@@ -1818,10 +1849,15 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
-            let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-            let conn = db::init_db(app_dir).expect("Failed to initialize database");
+            let app_dir = app.path().app_data_dir()?;
+            let conn = db::init_db(app_dir)?;
 
-            let main_win = app.get_webview_window("main").unwrap();
+            let main_win = app.get_webview_window("main").ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Main application window is not configured",
+                )
+            })?;
             let main_win_clone = main_win.clone();
             main_win.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -1891,7 +1927,9 @@ pub fn run() {
             add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        eprintln!("Long Translate failed to start: {error}");
+    }
 }
 
 fn should_show_main_window(args: &[String]) -> bool {
@@ -1901,7 +1939,7 @@ fn should_show_main_window(args: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decrypt_backup_payload, encrypt_backup_payload, should_show_main_window,
+        decrypt_backup_payload, edge_user_agent, encrypt_backup_payload, should_show_main_window,
         speech_rate_percent, voice_locale, xml_escape, BACKUP_V3_MAGIC,
     };
 
@@ -1921,6 +1959,13 @@ mod tests {
 
         assert!(decrypt_backup_payload(&encrypted, "wrong-password").is_err());
         assert!(decrypt_backup_payload(BACKUP_V3_MAGIC, "right-password").is_err());
+    }
+
+    #[test]
+    fn edge_user_agent_rejects_header_injection_without_panicking() {
+        let error = edge_user_agent("131.0\r\nInjected: true")
+            .expect_err("invalid header characters must be rejected");
+        assert!(error.contains("Invalid Edge TTS user-agent header"));
     }
 
     #[test]
@@ -1950,7 +1995,7 @@ mod tests {
 
 #[tauri::command]
 fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collections::HashMap<String, String>, String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     let mut values = std::collections::HashMap::new();
     for key in keys {
@@ -1962,7 +2007,7 @@ fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collectio
 
 #[tauri::command]
 fn set_config_values(app: AppHandle, values: std::collections::HashMap<String, String>) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
+    let app_dir = resolve_app_data_dir(&app)?;
     let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for (key, value) in values {

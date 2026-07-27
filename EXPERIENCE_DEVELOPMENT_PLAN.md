@@ -183,7 +183,7 @@
 - [x] Q8 WebDAV 连接测试、同步结果摘要、并发冲突保护与隔离端到端测试
 - [x] Q9 生词本大数据量性能基线与服务端分页/检索/排序
 - [x] Q10 弹窗焦点循环和全页面键盘验收
-- [ ] Q11 生产路径错误结构化，消除用户输入可触发的 `unwrap` / `expect`
+- [x] Q11 生产路径错误结构化，消除用户输入可触发的 `unwrap` / `expect`
 
 ## 6. 实施记录
 
@@ -230,13 +230,14 @@
 - 增加隔离 WebDAV 服务测试，验证远端下载、本地合并、上下文保存和合并快照上传。
 - 生词本改为后端分页、检索和排序，每页最多 200 条；建立一万条数据的首屏与搜索基线。
 - 更新与 OCR 确认弹窗统一焦点循环、Escape 关闭和关闭后焦点恢复；主导航支持方向键、Home、End 与 Ctrl+1～7。
+- 32 个前端可调用命令统一返回应用目录解析错误；启动、托盘、Anki、WebDAV 和 Edge TTS 路径移除生产态 `unwrap` / `expect`。
 
 ### 自动化验收
 
 - `npm test`：10 个测试文件、33 项测试通过。
 - `npm run build`：TypeScript 与 Vite 生产构建通过。
 - `npm audit --audit-level=high`：0 个漏洞。
-- `cargo test`：22 项测试通过，覆盖 WebDAV 可靠性以及生词本分页、搜索、排序和一万条性能基线。
+- `cargo test`：23 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线以及非法 TTS 请求头的无崩溃错误路径。
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - `git diff --check`：通过。
 
