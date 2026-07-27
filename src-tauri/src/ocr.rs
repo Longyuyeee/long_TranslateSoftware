@@ -380,6 +380,7 @@ mod tests {
             },
         ];
 
+        let mut report_cases = Vec::new();
         for quality_case in cases {
             let png = render_text_fixture(quality_case.text, quality_case.scale, quality_case.dark);
             let recognized = run_ocr(png, "en-US").await.unwrap();
@@ -388,6 +389,12 @@ mod tests {
                 "{}: expected={:?}, recognized={:?}, cer={:.3}",
                 quality_case.id, quality_case.text, recognized, cer
             );
+            report_cases.push(serde_json::json!({
+                "id": quality_case.id,
+                "cer": (cer * 10_000.0).round() / 10_000.0,
+                "max_cer": quality_case.max_cer,
+                "passed": cer <= quality_case.max_cer,
+            }));
             assert!(
                 cer <= quality_case.max_cer,
                 "{} CER {:.3} exceeded {:.3}; recognized {:?}",
@@ -396,6 +403,28 @@ mod tests {
                 quality_case.max_cer,
                 recognized
             );
+        }
+
+        if let Ok(report_directory) = std::env::var("LONG_TRANSLATE_QUALITY_REPORT_DIR") {
+            let report_directory = std::path::PathBuf::from(report_directory);
+            std::fs::create_dir_all(&report_directory).unwrap();
+            let max_observed_cer = report_cases
+                .iter()
+                .filter_map(|result| result.get("cer").and_then(serde_json::Value::as_f64))
+                .fold(0.0_f64, f64::max);
+            let report = serde_json::json!({
+                "engine": "Windows.Media.Ocr",
+                "language": "en-US",
+                "case_count": report_cases.len(),
+                "max_observed_cer": max_observed_cer,
+                "passed": report_cases.iter().all(|result| result["passed"] == true),
+                "cases": report_cases,
+            });
+            std::fs::write(
+                report_directory.join("ocr-runtime.json"),
+                serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
         }
     }
 }

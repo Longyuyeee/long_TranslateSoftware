@@ -30,3 +30,6 @@ dist-ssr
 # Local image-generation intermediates
 tmp/imagegen/
 public/logo-v*-concept.png
+
+# Generated quality reports (uploaded by CI/release workflows)
+quality-reports/

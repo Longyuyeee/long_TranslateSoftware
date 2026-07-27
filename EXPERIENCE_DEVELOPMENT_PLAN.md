@@ -188,6 +188,7 @@
 - [x] Q13 TTS 语言/地区路由、音色降级原因与音频容器质量夹具
 - [x] Q14 OCR 字符错误率基线与 Windows 已安装语言动态发现
 - [x] Q15 OCR 生成式 PNG 金标与真实 Windows 引擎 CER 门槛
+- [x] Q16 翻译、TTS、OCR 统一质量报告与 CI/Release artifact
 
 ## 6. 实施记录
 
@@ -246,11 +247,14 @@
 - 增加 OCR 字符错误率（CER）计算和五类文本基线，覆盖小字号、深色字幕、缩放、多显示器坐标和中英日韩混排场景。
 - OCR 语言选择优先枚举 Windows 已安装识别语言，兼容旧短标签；枚举失败时保留静态语言列表。
 - 测试运行时确定性生成小字号、深色字幕和缩放 PNG，将图片实际送入 Windows OCR；当前门槛为单场景 CER 不超过 20%。
+- CI 与正式发版汇总翻译格式、TTS 路由/音频和 OCR 文本/真机结果，生成带期望值、实测值、阈值与 Git 提交号的 JSON 报告。
+- CI 报告保留为 Actions artifact；正式发版除 workflow artifact 外，还会把报告附加到 GitHub Release。
 
 ### 自动化验收
 
 - `npm test`：12 个测试文件、66 项测试通过。
 - `npm run build`：TypeScript 与 Vite 生产构建通过。
+- `npm run quality:report -- --require-runtime`：统一质量报告生成并通过全部阈值。
 - `npm audit --audit-level=high`：0 个漏洞。
 - `cargo test`：28 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线、Windows OCR 语言枚举/无效语言降级、真实 PNG 识别 CER，以及非法 TTS 请求头的无崩溃错误路径。
 - `cargo clippy --all-targets -- -D warnings`：通过。

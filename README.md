@@ -182,6 +182,11 @@
 - 新增字符错误率计算与五类文本基线
 - 小字号、深色字幕和缩放 PNG 会经过真实 Windows OCR，单场景 CER 超过 20% 时测试失败
 
+**统一质量报告**
+- CI 汇总翻译格式、TTS 路由/音频和 OCR 文本/真机指标
+- 报告包含期望值、实测值、阈值和 Git 提交号，并作为 Actions artifact 提供下载
+- 正式发版会把同一份 JSON 附加到 GitHub Release，报告缺失或失败会阻断交付
+
 </details>
 
 <details>
@@ -445,6 +450,7 @@ git clone https://github.com/Longyuyeee/long_TranslateSoftware.git
 cd long_TranslateSoftware
 npm install
 npm test               # 自动化测试
+npm run quality:report # 生成质量报告（真机 OCR 数据由 CI/Rust 测试提供）
 npm run tauri dev      # 开发模式
 npm run tauri build    # 生产构建
 ```

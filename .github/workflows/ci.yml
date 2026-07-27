@@ -53,6 +53,19 @@ jobs:
 
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
+        env:
+          LONG_TRANSLATE_QUALITY_REPORT_DIR: ${{ github.workspace }}/quality-reports
 
       - name: Run strict Rust lint
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Generate quality report
+        run: npm run quality:report -- --require-runtime
+
+      - name: Upload quality report
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-report-${{ github.run_id }}
+          path: quality-reports/quality-report.json
+          if-no-files-found: error
+          retention-days: 30
