@@ -1,5 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { OpenAiSseParser } from "./sse";
+import {
+  evaluateTranslationFormat,
+  summarizeTranslationFormatIssues,
+} from "./translationQuality";
+import {
+  inspectSpeechAudio,
+  resolveEdgeVoice,
+} from "./speechQuality";
+
+export {
+  detectSpeechLocale,
+  inspectSpeechAudio,
+  resolveEdgeVoice,
+} from "./speechQuality";
 
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds
 
@@ -21,6 +35,7 @@ export type TranslationErrorCode =
   | "timeout"
   | "network"
   | "server"
+  | "format-invalid"
   | "unknown";
 
 export interface TranslationTaskState {
@@ -279,6 +294,22 @@ function normalizeTranslationError(error: unknown): { code: TranslationErrorCode
   return { code: "unknown", message: "Unknown translation error" };
 }
 
+function requireTranslationFormat(
+  source: string,
+  candidate: string,
+  glossary: GlossaryEntry[],
+): void {
+  const report = evaluateTranslationFormat(source, candidate, {
+    requiredTerms: selectRelevantGlossary(source, glossary).map(entry => entry.target_term),
+  });
+  if (!report.passed) {
+    throw new TranslationRequestError(
+      "format-invalid",
+      `Translation did not preserve required content (${summarizeTranslationFormatIssues(report)})`,
+    );
+  }
+}
+
 function createRequestId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `translation-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -367,7 +398,12 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
         text, targetLang, cacheContext: primaryCacheContext,
       });
       if (controller.signal.aborted) return completeCancellation();
-      if (cached) {
+      const cachedReport = cached
+        ? evaluateTranslationFormat(text, cached, {
+          requiredTerms: selectRelevantGlossary(text, glossary).map(entry => entry.target_term),
+        })
+        : null;
+      if (cached && cachedReport?.passed) {
         callbacks.onText?.(cached, requestId);
         const result = { text: cached, model: primaryModel, cached: true, usedBackup: false };
         emitState({ phase: "success", model: primaryModel, cached: true, usedBackup: false });
@@ -386,6 +422,7 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
           translatedText += chunk;
           callbacks.onText?.(translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
       } catch (primaryError) {
         if (controller.signal.aborted) return completeCancellation();
 
@@ -405,6 +442,7 @@ export function startTranslationTask(text: string, callbacks: TranslationTaskCal
           translatedText += chunk;
           callbacks.onText?.(translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
       }
 
       if (controller.signal.aborted) return completeCancellation();
@@ -485,6 +523,7 @@ export function startTranslationComparisonTask(text: string, callbacks: Translat
           translatedText += chunk;
           callbacks.onText?.(side, translatedText, requestId);
         }, glossary, controller.signal);
+        requireTranslationFormat(text, translatedText, glossary);
         if (controller.signal.aborted) {
           callbacks.onSideState?.({ requestId, side, phase: "cancelled", model });
           return undefined;
@@ -727,12 +766,21 @@ let audioCtx: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 
 async function playBuffer(buffer: number[]) {
-  if (buffer.length === 0) throw new Error("The speech service returned empty audio");
+  const inspection = inspectSpeechAudio(buffer);
+  if (inspection.reason === "empty") throw new Error("The speech service returned empty audio");
+  if (inspection.reason === "text-response") {
+    throw new Error("The speech service returned text instead of audio");
+  }
   if (!audioCtx) audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
   if (currentSource) { try { currentSource.stop(); } catch { /* already stopped */ } }
 
   const arrayBuffer = new Uint8Array(buffer).buffer;
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  let audioBuffer: AudioBuffer;
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  } catch {
+    throw new Error(`The speech audio could not be decoded (${inspection.format})`);
+  }
 
   currentSource = audioCtx.createBufferSource();
   currentSource.buffer = audioBuffer;
@@ -746,33 +794,6 @@ async function playBuffer(buffer: number[]) {
       reject(error);
     }
   });
-}
-
-export type SpeechLocale = "zh-CN" | "en-US" | "ja-JP" | "ko-KR" | "ru-RU" | "ar-SA";
-
-const EDGE_VOICE_BY_LOCALE: Record<SpeechLocale, string> = {
-  "zh-CN": "zh-CN-XiaoxiaoNeural",
-  "en-US": "en-US-AriaNeural",
-  "ja-JP": "ja-JP-NanamiNeural",
-  "ko-KR": "ko-KR-SunHiNeural",
-  "ru-RU": "ru-RU-SvetlanaNeural",
-  "ar-SA": "ar-SA-ZariyahNeural",
-};
-
-export function detectSpeechLocale(text: string): SpeechLocale {
-  if (/[\u3040-\u30ff]/u.test(text)) return "ja-JP";
-  if (/[\uac00-\ud7af]/u.test(text)) return "ko-KR";
-  if (/[\u3400-\u9fff]/u.test(text)) return "zh-CN";
-  if (/[\u0400-\u04ff]/u.test(text)) return "ru-RU";
-  if (/[\u0600-\u06ff]/u.test(text)) return "ar-SA";
-  return "en-US";
-}
-
-export function resolveEdgeVoice(text: string, configuredVoice: string): { locale: SpeechLocale; voice: string } {
-  const locale = detectSpeechLocale(text);
-  const normalizedVoice = configuredVoice.trim();
-  const voiceMatchesLocale = normalizedVoice.toLocaleLowerCase().startsWith(`${locale.toLocaleLowerCase()}-`);
-  return { locale, voice: voiceMatchesLocale ? normalizedVoice : EDGE_VOICE_BY_LOCALE[locale] };
 }
 
 export async function speak(text: string): Promise<boolean> {

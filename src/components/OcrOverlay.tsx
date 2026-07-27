@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { AlertCircle, Check, RotateCcw, X } from "lucide-react";
 import { translations, Lang } from "../i18n";
 import { isOcrConfirmShortcut, normalizeOcrText } from "../services/ocr";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 
 type ScreenBounds = { physical_x: number; physical_y: number; factor: number; count: number };
 
@@ -19,6 +20,7 @@ export default function OcrOverlay() {
   const [screenBounds, setScreenBounds] = useState<ScreenBounds>({ physical_x: 0, physical_y: 0, factor: 1, count: 1 });
   const [lang, setLang] = useState<Lang>("zh");
   const captureIdRef = useRef(0);
+  const reviewDialogRef = useRef<HTMLDivElement>(null);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
   const isReviewing = Boolean(ocrText) || ocrError !== null;
   const hasCaptureError = ocrError !== null;
@@ -48,6 +50,12 @@ export default function OcrOverlay() {
     }
   };
 
+  useFocusTrap({
+    active: isReviewing,
+    containerRef: reviewDialogRef,
+    onEscape: () => void close(),
+  });
+
   const confirmOcr = async () => {
     const text = normalizeOcrText(ocrText);
     if (!text || isProcessing) return;
@@ -64,7 +72,7 @@ export default function OcrOverlay() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !isReviewing) {
         event.preventDefault();
         void close();
       } else if (ocrText && isOcrConfirmShortcut(event.key, event.shiftKey)) {
@@ -160,11 +168,19 @@ export default function OcrOverlay() {
       )}
 
       {isReviewing && (
-        <div className="absolute inset-0 bg-black/45 backdrop-blur-sm flex items-center justify-center p-8 cursor-default" onMouseDown={event => event.stopPropagation()}>
+        <div
+          ref={reviewDialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ocr-review-title"
+          tabIndex={-1}
+          className="absolute inset-0 bg-black/45 backdrop-blur-sm flex items-center justify-center p-8 cursor-default"
+          onMouseDown={event => event.stopPropagation()}
+        >
           <section className="w-full max-w-2xl rounded-3xl bg-white dark:bg-[#18181b] border border-black/10 dark:border-white/10 shadow-2xl overflow-hidden">
             <header className="flex items-start justify-between gap-5 px-6 py-5 border-b border-black/5 dark:border-white/10">
               <div>
-                <h1 className="text-base font-black text-black dark:text-white">{ocrError === "empty" ? t.ocrEmptyTitle : ocrError === "failed" ? t.ocrFailedTitle : t.ocrConfirmTitle}</h1>
+                <h1 id="ocr-review-title" className="text-base font-black text-black dark:text-white">{ocrError === "empty" ? t.ocrEmptyTitle : ocrError === "failed" ? t.ocrFailedTitle : t.ocrConfirmTitle}</h1>
                 <p className="mt-1 text-xs text-black/50 dark:text-white/45">{ocrError === "empty" ? t.ocrEmptyDesc : ocrError === "failed" ? t.ocrFailedDesc : t.ocrConfirmHint}</p>
               </div>
               <button type="button" onClick={() => void close()} className="p-2 rounded-xl text-black/45 dark:text-white/45 hover:bg-black/5 dark:hover:bg-white/10" aria-label={t.close}>
@@ -182,7 +198,7 @@ export default function OcrOverlay() {
                 <label className="block">
                   <span className="block mb-2 text-[11px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40">{t.ocrRecognizedText}</span>
                   <textarea
-                    autoFocus
+                    data-dialog-initial-focus
                     value={ocrText}
                     onChange={event => { setOcrText(event.target.value); setOcrError(null); }}
                     className="w-full min-h-48 resize-y rounded-2xl bg-black/[0.035] dark:bg-white/[0.055] border border-black/10 dark:border-white/10 px-4 py-3 text-sm leading-6 text-black dark:text-white outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
@@ -193,7 +209,7 @@ export default function OcrOverlay() {
             </div>
 
             <footer className="flex justify-end gap-3 px-6 py-4 bg-black/[0.025] dark:bg-white/[0.025] border-t border-black/5 dark:border-white/10">
-              <button type="button" onClick={resetCapture} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-bold text-black/65 dark:text-white/65 hover:bg-black/5 dark:hover:bg-white/10">
+              <button type="button" data-dialog-initial-focus={hasCaptureError ? true : undefined} onClick={resetCapture} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-bold text-black/65 dark:text-white/65 hover:bg-black/5 dark:hover:bg-white/10">
                 <RotateCcw size={15} /> {t.ocrRetryCapture}
               </button>
               {!hasCaptureError && (

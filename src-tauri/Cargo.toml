@@ -1,6 +1,6 @@
 [package]
 name = "long-translate"
-version = "0.4.6"
+version = "0.4.7"
 description = "Long翻译 · 智能助手"
 authors = ["longyuye"]
 edition = "2021"
@@ -54,6 +54,10 @@ features = [
     "Storage_Streams",
     "Win32_Graphics_Gdi",
     "Foundation",
+    "Foundation_Collections",
     "Globalization",
     "Win32_Security_Cryptography",
 ]
+
+[dev-dependencies]
+font8x8 = "0.3"

@@ -1,11 +1,52 @@
 use screenshots::Screen;
 use screenshots::image::{imageops::FilterType, load_from_memory, DynamicImage, ImageFormat};
+use serde::Serialize;
+use std::collections::HashSet;
 use std::io::Cursor;
 use windows::Graphics::Imaging::BitmapDecoder;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
 use windows::Storage::Streams::InMemoryRandomAccessStream;
 use windows::Globalization::Language;
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct OcrLanguageInfo {
+    pub tag: String,
+    pub display_name: String,
+    pub native_name: String,
+}
+
+fn normalize_ocr_languages(mut languages: Vec<OcrLanguageInfo>) -> Vec<OcrLanguageInfo> {
+    languages.retain(|language| !language.tag.trim().is_empty());
+    languages.sort_by(|left, right| {
+        left.display_name
+            .to_lowercase()
+            .cmp(&right.display_name.to_lowercase())
+            .then_with(|| left.tag.to_lowercase().cmp(&right.tag.to_lowercase()))
+    });
+    let mut seen_tags = HashSet::new();
+    languages.retain(|language| seen_tags.insert(language.tag.to_lowercase()));
+    languages
+}
+
+pub fn available_ocr_languages() -> Result<Vec<OcrLanguageInfo>, Box<dyn std::error::Error>> {
+    let languages = OcrEngine::AvailableRecognizerLanguages()
+        .map_err(|error| format!("Failed to enumerate OCR languages: {error}"))?;
+    let result = languages
+        .into_iter()
+        .filter_map(|language| {
+            let tag = language.LanguageTag().ok()?.to_string();
+            let display_name = language.DisplayName().ok()?.to_string();
+            let native_name = language.NativeName().ok()?.to_string();
+            Some(OcrLanguageInfo {
+                tag,
+                display_name,
+                native_name,
+            })
+        })
+        .collect();
+    Ok(normalize_ocr_languages(result))
+}
 
 fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut buffer = Cursor::new(Vec::new());
@@ -47,6 +88,40 @@ fn text_quality_score(text: &str) -> usize {
     meaningful.saturating_add(line_bonus).saturating_sub(noise)
 }
 
+#[cfg(test)]
+fn ocr_evaluation_characters(text: &str) -> Vec<char> {
+    text.chars()
+        .flat_map(char::to_uppercase)
+        .filter(|character| character.is_alphanumeric())
+        .collect()
+}
+
+#[cfg(test)]
+fn character_error_rate(reference: &str, hypothesis: &str) -> f64 {
+    let expected = ocr_evaluation_characters(reference);
+    let actual = ocr_evaluation_characters(hypothesis);
+    if expected.is_empty() {
+        return if actual.is_empty() { 0.0 } else { 1.0 };
+    }
+
+    let mut previous: Vec<usize> = (0..=actual.len()).collect();
+    for (expected_index, expected_character) in expected.iter().enumerate() {
+        let mut current = vec![expected_index + 1];
+        for (actual_index, actual_character) in actual.iter().enumerate() {
+            current.push(
+                (current[actual_index] + 1)
+                    .min(previous[actual_index + 1] + 1)
+                    .min(
+                        previous[actual_index]
+                            + usize::from(expected_character != actual_character),
+                    ),
+            );
+        }
+        previous = current;
+    }
+    previous[actual.len()] as f64 / expected.len() as f64
+}
+
 fn recognize_image(
     engine: &OcrEngine,
     image_bytes: &[u8],
@@ -64,14 +139,23 @@ fn recognize_image(
     Ok(text.to_string())
 }
 
-pub async fn run_ocr(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let engine = if lang.is_empty() || lang == "auto" {
-        OcrEngine::TryCreateFromUserProfileLanguages().map_err(|e| format!("Failed to create OcrEngine: {}", e))?
-    } else {
+fn create_ocr_engine(lang: &str) -> Result<OcrEngine, Box<dyn std::error::Error>> {
+    if !lang.trim().is_empty() && !lang.eq_ignore_ascii_case("auto") {
         let lang_hstr = windows::core::HSTRING::from(lang);
-        let lang_obj = Language::CreateLanguage(&lang_hstr).map_err(|e| format!("Invalid language: {}", e))?;
-        OcrEngine::TryCreateFromLanguage(&lang_obj).map_err(|e| format!("Failed to create OcrEngine for {}: {}", lang, e))?
-    };
+        if let Ok(language) = Language::CreateLanguage(&lang_hstr) {
+            if OcrEngine::IsLanguageSupported(&language).unwrap_or(false) {
+                return OcrEngine::TryCreateFromLanguage(&language)
+                    .map_err(|error| format!("Failed to create OcrEngine for {lang}: {error}").into());
+            }
+        }
+    }
+
+    OcrEngine::TryCreateFromUserProfileLanguages()
+        .map_err(|error| format!("Failed to create default OcrEngine: {error}").into())
+}
+
+pub async fn run_ocr(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let engine = create_ocr_engine(lang)?;
     let original = recognize_image(&engine, &image_bytes)?;
     let mut best = original;
     let mut best_score = text_quality_score(&best);
@@ -122,9 +206,74 @@ pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn s
 
 #[cfg(test)]
 mod tests {
-    use super::{prepare_ocr_images, text_quality_score};
+    use super::{
+        available_ocr_languages, character_error_rate, create_ocr_engine,
+        normalize_ocr_languages, prepare_ocr_images, run_ocr, text_quality_score, OcrLanguageInfo,
+    };
+    use font8x8::{UnicodeFonts, BASIC_FONTS};
     use screenshots::image::{DynamicImage, GenericImageView, ImageFormat, RgbaImage};
     use std::io::Cursor;
+    use windows::Globalization::Language;
+    use windows::Media::Ocr::OcrEngine;
+
+    struct OcrImageCase {
+        id: &'static str,
+        text: &'static str,
+        scale: u32,
+        dark: bool,
+        max_cer: f64,
+    }
+
+    fn render_text_fixture(text: &str, scale: u32, dark: bool) -> Vec<u8> {
+        let padding = scale * 3;
+        let glyph_width = scale * 8;
+        let width = padding * 2 + glyph_width * text.chars().count() as u32;
+        let height = padding * 2 + scale * 8;
+        let background = if dark { 20 } else { 245 };
+        let foreground = if dark { 245 } else { 20 };
+        let mut image = RgbaImage::from_pixel(
+            width,
+            height,
+            screenshots::image::Rgba([background, background, background, 255]),
+        );
+
+        for (character_index, character) in text.chars().enumerate() {
+            let Some(glyph) = BASIC_FONTS.get(character) else {
+                continue;
+            };
+            for (row, bits) in glyph.iter().enumerate() {
+                for column in 0..8 {
+                    if bits & (1 << column) == 0 {
+                        continue;
+                    }
+                    let origin_x = padding
+                        + character_index as u32 * glyph_width
+                        + column * scale;
+                    let origin_y = padding + row as u32 * scale;
+                    for offset_y in 0..scale {
+                        for offset_x in 0..scale {
+                            image.put_pixel(
+                                origin_x + offset_x,
+                                origin_y + offset_y,
+                                screenshots::image::Rgba([
+                                    foreground,
+                                    foreground,
+                                    foreground,
+                                    255,
+                                ]),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut output = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image)
+            .write_to(&mut output, ImageFormat::Png)
+            .unwrap();
+        output.into_inner()
+    }
 
     #[test]
     fn preprocessing_upscales_small_capture_and_produces_valid_pngs() {
@@ -147,5 +296,135 @@ mod tests {
     #[test]
     fn text_quality_prefers_meaningful_text_over_replacement_noise() {
         assert!(text_quality_score("Hello world 123") > text_quality_score("\u{fffd}\u{fffd}\u{fffd}"));
+    }
+
+    #[test]
+    fn character_error_rate_counts_substitutions_and_ignores_layout_whitespace() {
+        assert_eq!(character_error_rate("HELLO 2026", "hello\n2026"), 0.0);
+        assert!((character_error_rate("CAT", "CUT") - (1.0 / 3.0)).abs() < f64::EPSILON);
+        assert_eq!(character_error_rate("", "unexpected"), 1.0);
+    }
+
+    #[test]
+    fn installed_languages_are_sorted_deduplicated_and_empty_tags_removed() {
+        let languages = normalize_ocr_languages(vec![
+            OcrLanguageInfo {
+                tag: "zh-Hans-CN".to_string(),
+                display_name: "Chinese".to_string(),
+                native_name: "中文".to_string(),
+            },
+            OcrLanguageInfo {
+                tag: "EN-us".to_string(),
+                display_name: "English".to_string(),
+                native_name: "English".to_string(),
+            },
+            OcrLanguageInfo {
+                tag: "en-US".to_string(),
+                display_name: "Zulu duplicate".to_string(),
+                native_name: "English".to_string(),
+            },
+            OcrLanguageInfo {
+                tag: " ".to_string(),
+                display_name: "Invalid".to_string(),
+                native_name: "Invalid".to_string(),
+            },
+        ]);
+
+        assert_eq!(languages.len(), 2);
+        assert_eq!(languages[0].tag, "zh-Hans-CN");
+        assert_eq!(languages[1].tag, "EN-us");
+    }
+
+    #[test]
+    fn windows_exposes_at_least_one_installed_ocr_language() {
+        let languages = available_ocr_languages().unwrap();
+        assert!(!languages.is_empty());
+        assert!(languages.iter().all(|language| !language.tag.is_empty()));
+    }
+
+    #[test]
+    fn unsupported_saved_language_falls_back_to_the_windows_default() {
+        assert!(create_ocr_engine("not-a-real-language").is_ok());
+        assert!(create_ocr_engine("AUTO").is_ok());
+    }
+
+    #[tokio::test]
+    async fn generated_png_gold_cases_stay_within_the_windows_ocr_cer_gate() {
+        let language = Language::CreateLanguage(&windows::core::HSTRING::from("en-US")).unwrap();
+        assert!(
+            OcrEngine::IsLanguageSupported(&language).unwrap_or(false),
+            "The quality runner must provide the en-US Windows OCR language"
+        );
+
+        let cases = [
+            OcrImageCase {
+                id: "small-ui-text",
+                text: "HELLO 2026",
+                scale: 3,
+                dark: false,
+                max_cer: 0.2,
+            },
+            OcrImageCase {
+                id: "dark-subtitle",
+                text: "FOCUS NOW",
+                scale: 5,
+                dark: true,
+                max_cer: 0.2,
+            },
+            OcrImageCase {
+                id: "scaled-display",
+                text: "SCALE 150",
+                scale: 7,
+                dark: false,
+                max_cer: 0.2,
+            },
+        ];
+
+        let mut report_cases = Vec::new();
+        for quality_case in cases {
+            let png = render_text_fixture(quality_case.text, quality_case.scale, quality_case.dark);
+            let recognized = run_ocr(png, "en-US").await.unwrap();
+            let cer = character_error_rate(quality_case.text, &recognized);
+            eprintln!(
+                "{}: expected={:?}, recognized={:?}, cer={:.3}",
+                quality_case.id, quality_case.text, recognized, cer
+            );
+            report_cases.push(serde_json::json!({
+                "id": quality_case.id,
+                "cer": (cer * 10_000.0).round() / 10_000.0,
+                "max_cer": quality_case.max_cer,
+                "passed": cer <= quality_case.max_cer,
+            }));
+            assert!(
+                cer <= quality_case.max_cer,
+                "{} CER {:.3} exceeded {:.3}; recognized {:?}",
+                quality_case.id,
+                cer,
+                quality_case.max_cer,
+                recognized
+            );
+        }
+
+        if let Ok(report_directory) = std::env::var("LONG_TRANSLATE_QUALITY_REPORT_DIR") {
+            let report_directory = std::path::PathBuf::from(report_directory);
+            std::fs::create_dir_all(&report_directory).unwrap();
+            let max_observed_cer = report_cases
+                .iter()
+                .filter_map(|result| result.get("cer").and_then(serde_json::Value::as_f64))
+                .fold(0.0_f64, f64::max);
+            let report = serde_json::json!({
+                "engine": "Windows.Media.Ocr",
+                "language": "en-US",
+                "case_count": report_cases.len(),
+                "max_observed_cer": max_observed_cer,
+                "passed": report_cases.iter().all(|result| result["passed"] == true),
+                "cases": report_cases,
+            });
+            std::fs::write(
+                report_directory.join("ocr-runtime.json"),
+                serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
+        }
     }
 }

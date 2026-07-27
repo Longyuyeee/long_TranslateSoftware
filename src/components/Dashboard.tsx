@@ -1,17 +1,23 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
-import { WordAnalysis, analyzeAndSaveWord } from "../services/wordbook";
-import { startTranslationTask, startTranslationComparisonTask, testTranslationConnection, translateStreaming, speak, TranslationTask, TranslationTaskState, TranslationComparisonTask, ComparisonSideState, ConnectionTestResult } from "../services/api";
+import { WordAnalysis } from "../services/wordbook";
+import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
+import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
+import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
+import { useBatchTranslation } from "../hooks/useBatchTranslation";
+import { useWordbook } from "../hooks/useWordbook";
+import { useSettings } from "../hooks/useSettings";
+import { TRANSLATION_PROVIDERS } from "../services/settings";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -23,12 +29,6 @@ const ACCENT_PALETTE = [
   { id: "teal",   value: "#5ac8fa" },
   { id: "mint",   value: "#00c7be" },
 ];
-
-const TRANSLATION_PROVIDERS = [
-  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  { id: "custom", label: "Custom", baseUrl: "", model: "" },
-] as const;
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -71,19 +71,81 @@ const OCR_LANGUAGES = [
   { value: "sk", language: "Slovak" },
 ] as const;
 
-type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
-
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
-  const [lang, setLang] = useState<Lang>("zh");
-  const [targetLang, setTargetLang] = useState("Chinese");
-  const [sourceLang, setSourceLang] = useState("auto");
+  const {
+    lang,
+    setLang,
+    targetLang,
+    setTargetLang,
+    sourceLang,
+    setSourceLang,
+    autoCopy,
+    setAutoCopy,
+    clipboardMonitor,
+    setClipboardMonitor,
+    theme,
+    setTheme,
+    accentColor,
+    setAccentColor,
+    fontSize,
+    setFontSize,
+    webdavEnabled,
+    setWebdavEnabled,
+    webdavUrl,
+    setWebdavUrl,
+    webdavUser,
+    setWebdavUser,
+    webdavPass,
+    setWebdavPass,
+    shortcutQ,
+    setShortcutQ,
+    shortcutW,
+    setShortcutW,
+    transApiKey,
+    setTransApiKey,
+    transBaseUrl,
+    setTransBaseUrl,
+    transModelName,
+    setTransModelName,
+    customPrompt,
+    setCustomPrompt,
+    translationProvider,
+    setTranslationProvider,
+    applyTranslationProvider,
+    backupApiKey,
+    setBackupApiKey,
+    backupBaseUrl,
+    setBackupBaseUrl,
+    backupModelName,
+    setBackupModelName,
+    ocrLang,
+    setOcrLang,
+    installedOcrLanguages,
+    ttsEngine,
+    setTtsEngine,
+    ttsApiKey,
+    setTtsApiKey,
+    ttsBaseUrl,
+    setTtsBaseUrl,
+    ttsModelName,
+    setTtsModelName,
+    ttsVoice,
+    setTtsVoice,
+    ttsSpeed,
+    setTtsSpeed,
+    autoLaunch,
+    setAutoLaunch,
+    lastSyncTime,
+    setLastSyncTime,
+    lastSyncSummary,
+    setLastSyncSummary,
+    hasUnsavedChanges,
+    isSavingSettings,
+    loadSettings,
+    saveSettings,
+  } = useSettings();
 
-  const [autoCopy, setAutoCopy] = useState(false);
-  const [clipboardMonitor, setClipboardMonitor] = useState(false);
-  const [theme, setTheme] = useState("system");
-  const [accentColor, setAccentColor] = useState("#007aff");
-  const [fontSize, setFontSize] = useState(14);
   const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -120,53 +182,22 @@ export default function Dashboard() {
     setIsNotificationsOpen(false);
   };
   const [isSyncing, setIsSyncing] = useState(false);
-  const [autoLaunch, setAutoLaunch] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState("");
   const [cacheSize, setCacheSize] = useState("0 B");
   const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
 
   // WebDAV Config
-  const [webdavEnabled, setWebdavEnabled] = useState(false);
-  const [webdavUrl, setWebdavUrl] = useState("");
-  const [webdavUser, setWebdavUser] = useState("");
-  const [webdavPass, setWebdavPass] = useState("");
+  const [isTestingWebdav, setIsTestingWebdav] = useState(false);
+  const [webdavConnectionTest, setWebdavConnectionTest] = useState<{ ok: boolean; latencyMs?: number; error?: WebDavError } | null>(null);
 
   // Shortcuts
-  const [shortcutQ, setShortcutQ] = useState("Alt+Q");
-  const [shortcutW, setShortcutW] = useState("Alt+W");
   const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
 
   // Translation Model Config
-  const [transApiKey, setTransApiKey] = useState("");
-  const [transBaseUrl, setTransBaseUrl] = useState("");
-  const [transModelName, setTransModelName] = useState("");
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [translationProvider, setTranslationProvider] = useState<TranslationProviderId>("deepseek");
   const [showAdvancedModel, setShowAdvancedModel] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
-  // Backup model config
-  const [backupApiKey, setBackupApiKey] = useState("");
-  const [backupBaseUrl, setBackupBaseUrl] = useState("");
-  const [backupModelName, setBackupModelName] = useState("");
-
-  // OCR language
-  const [ocrLang, setOcrLang] = useState("auto");
-
-  // Audio (TTS) Model Config
-  const [ttsEngine, setTtsEngine] = useState("local");
-  const [ttsApiKey, setTtsApiKey] = useState("");
-  const [ttsBaseUrl, setTtsBaseUrl] = useState("");
-  const [ttsModelName, setTtsModelName] = useState("");
-  const [ttsVoice, setTtsVoice] = useState("alloy");
-  const [ttsSpeed, setTtsSpeed] = useState("1.0");
-
-  const [words, setWords] = useState<any[]>([]);
-  const [selectedWord, setSelectedWord] = useState<any>(null);
-  const [configHydrated, setConfigHydrated] = useState(false);
-  const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
   // Glossary state
   interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
@@ -203,49 +234,61 @@ export default function Dashboard() {
   // Translation History state
   const [history, setHistory] = useState<any[]>([]);
 
+  const refreshStats = async () => {
+    try {
+      const stats = await invoke<any>("get_app_stats");
+      setAppStats(stats);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const {
+    words,
+    selectedWord,
+    setSelectedWord,
+    wordbookTotal,
+    wordbookHasMore,
+    isWordbookLoading,
+    wordbookSearch,
+    setWordbookSearch,
+    wordbookSort,
+    setWordbookSort,
+    newWord,
+    setNewWord,
+    isAdding,
+    setIsAdding,
+    loadWordbook,
+    loadMore,
+    deleteWord,
+    addManualWord,
+    cancelAdding,
+    retrySelectedAnalysis,
+  } = useWordbook({ onChanged: refreshStats });
+
   // Batch Translator state
-  const [batchInput, setBatchInput] = useState("");
-  const [batchOutput, setBatchOutput] = useState("");
-  const [batchOutputBackup, setBatchOutputBackup] = useState("");
-  const [compareMode, setCompareMode] = useState(false);
-  const [batchBackTranslation, setBatchBackTranslation] = useState("");
-  const [isBatchBackTranslating, setIsBatchBackTranslating] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [batchTaskState, setBatchTaskState] = useState<TranslationTaskState>({ requestId: "", phase: "idle" });
-  const batchTaskRef = useRef<TranslationTask | null>(null);
-  const activeBatchRequestIdRef = useRef("");
-  const comparisonTaskRef = useRef<TranslationComparisonTask | null>(null);
-  const activeComparisonRequestIdRef = useRef("");
-  const [primaryComparisonState, setPrimaryComparisonState] = useState<ComparisonSideState | null>(null);
-  const [backupComparisonState, setBackupComparisonState] = useState<ComparisonSideState | null>(null);
-
-  // Wordbook search, sort & pagination
-  const [wordsLimit, setWordsLimit] = useState(200);
-  const [wordbookSearch, setWordbookSearch] = useState("");
-  const [wordbookSort, setWordbookSort] = useState<"newest" | "az" | "za">("newest");
-
-  const filteredWords = useMemo(() => {
-    let result = words;
-    if (wordbookSearch.trim()) {
-      const q = wordbookSearch.trim().toLowerCase();
-      result = result.filter(w =>
-        w.word.toLowerCase().includes(q) ||
-        (w.meaning && w.meaning.toLowerCase().includes(q))
-      );
-    }
-    if (wordbookSort === "az") {
-      result = [...result].sort((a, b) => a.word.localeCompare(b.word));
-    } else if (wordbookSort === "za") {
-      result = [...result].sort((a, b) => b.word.localeCompare(a.word));
-    }
-    return result;
-  }, [words, wordbookSearch, wordbookSort]);
-
-  const displayedWords = filteredWords.slice(0, wordsLimit);
-
-  // Manual Add Word state
-  const [newWord, setNewWord] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
+  const {
+    batchInput,
+    setBatchInput,
+    batchOutput,
+    batchOutputBackup,
+    compareMode,
+    setCompareModeEnabled,
+    batchBackTranslation,
+    isBatchBackTranslating,
+    isTranslating,
+    batchTaskState,
+    primaryComparisonState,
+    backupComparisonState,
+    startBatchTranslation,
+    startCompareTranslation,
+    startBatchBackTranslate,
+    cancelBatchWork,
+  } = useBatchTranslation({
+    sourceLang,
+    targetLang,
+    onCompleted: refreshStats,
+  });
 
   const syncTimerRef = useRef<any>(null);
   const webdavEnabledRef = useRef(webdavEnabled);
@@ -267,6 +310,7 @@ export default function Dashboard() {
     window.addEventListener("tts-error", handleTtsError);
     return () => window.removeEventListener("tts-error", handleTtsError);
   }, []);
+
   const languageOptions = useMemo(
     () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
     [t],
@@ -279,39 +323,22 @@ export default function Dashboard() {
     [t],
   );
   const ocrLanguageOptions = useMemo(
-    () => [
-      { value: "auto", label: t.systemDefault },
-      ...OCR_LANGUAGES.map(option => ({
-        value: option.value,
-        label: t.languageNames[option.language] || option.language,
-      })),
-    ],
-    [t],
+    () => {
+      const detected = installedOcrLanguages?.length
+        ? installedOcrLanguages.map(language => ({
+          value: language.tag,
+          label: `${language.native_name || language.display_name || language.tag} (${language.tag})`,
+        }))
+        : OCR_LANGUAGES.map(option => ({
+          value: option.value,
+          label: t.languageNames[option.language] || option.language,
+        }));
+      return [{ value: "auto", label: t.systemDefault }, ...detected];
+    },
+    [installedOcrLanguages, t],
   );
-  const settingsFingerprint = useMemo(() => JSON.stringify({
-    transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
-    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
-    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass,
-  }), [transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
-    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
-    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass]);
-  const hasUnsavedChanges = configHydrated && savedSettingsFingerprint !== null && settingsFingerprint !== savedSettingsFingerprint;
-
   useEffect(() => { webdavEnabledRef.current = webdavEnabled; }, [webdavEnabled]);
 
-  useEffect(() => {
-    if (configHydrated && savedSettingsFingerprint === null) setSavedSettingsFingerprint(settingsFingerprint);
-  }, [configHydrated, savedSettingsFingerprint, settingsFingerprint]);
-
-  useEffect(() => {
-    const warnBeforeClose = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeClose);
-    return () => window.removeEventListener("beforeunload", warnBeforeClose);
-  }, [hasUnsavedChanges]);
   const batchStatusText = batchTaskState.phase === "loading-config" ? t.translationPreparing
     : batchTaskState.phase === "checking-cache" ? t.translationCheckingCache
       : batchTaskState.phase === "translating-primary" ? t.translationPrimary
@@ -321,27 +348,18 @@ export default function Dashboard() {
               : batchTaskState.cached ? t.translationCacheHit
                 : "";
 
-  // Keyboard shortcuts for tab switching (Ctrl+1..5)
+  // Keyboard shortcuts for tab switching (Ctrl+1..7)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey || e.metaKey) return;
-      const tabMap: Record<string, string> = { '1': 'general', '2': 'batch', '3': 'model', '4': 'appearance', '5': 'wordbook', '6': 'review', '7': 'history' };
-      const tab = tabMap[e.key];
+      const tab = dashboardTabFromShortcut(e);
       if (tab) { e.preventDefault(); setActiveTab(tab); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const refreshStats = async () => {
-    try {
-        const stats = await invoke<any>("get_app_stats");
-        setAppStats(stats);
-    } catch (e) { console.error(e); }
-  };
-
   useEffect(() => {
-    loadConfig();
+    loadSettings();
     loadWordbook();
     loadHistory();
     refreshCacheSize();
@@ -367,10 +385,14 @@ export default function Dashboard() {
     });
 
     const unlistenConfigImport = listen("config-updated", () => {
-        loadConfig();
+        loadSettings();
         loadWordbook();
         refreshStats();
         toast("success", translationRef.current.importSuccess);
+    });
+    const unlistenWebdavSync = listen<WebDavSyncSummary>("webdav-sync-completed", (event) => {
+        setLastSyncSummary(event.payload);
+        setLastSyncTime(event.payload.completedAt);
     });
 
     return () => {
@@ -378,6 +400,7 @@ export default function Dashboard() {
         unlistenWordbook.then(f => f());
         unlistenShortcutError.then(f => f());
         unlistenConfigImport.then(f => f());
+        unlistenWebdavSync.then(f => f());
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, []);
@@ -540,67 +563,6 @@ export default function Dashboard() {
     return () => mediaQuery.removeEventListener("change", handler);
   }, [theme]);
 
-  const loadConfig = async () => {
-    setConfigHydrated(false);
-    setSavedSettingsFingerprint(null);
-    try {
-      const keys = [
-        "trans_api_key", "openai_api_key", "trans_base_url", "base_url", "trans_model_name", "model_name",
-        "custom_prompt", "backup_api_key", "backup_base_url", "backup_model", "ocr_lang", "shortcut_q", "shortcut_w",
-        "language", "target_lang", "source_lang", "auto_copy", "clipboard_monitor", "accent_color", "theme", "font_size",
-        "tts_engine", "tts_api_key", "tts_base_url", "tts_model_name", "tts_model", "tts_voice", "tts_speed",
-        "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time",
-      ];
-      const values = await invoke<Record<string, string>>("get_config_values", { keys });
-      const getVal = (key: string) => values[key] || "";
-      
-      setTransApiKey(getVal("trans_api_key") || getVal("openai_api_key") || "");
-      const loadedBaseUrl = getVal("trans_base_url") || getVal("base_url") || "https://api.deepseek.com/v1";
-      setTransBaseUrl(loadedBaseUrl);
-      setTransModelName(getVal("trans_model_name") || getVal("model_name") || "deepseek-chat");
-      const matchedProvider = TRANSLATION_PROVIDERS.find(provider => provider.baseUrl && loadedBaseUrl.replace(/\/+$/, "") === provider.baseUrl);
-      setTranslationProvider(matchedProvider?.id || "custom");
-      setCustomPrompt(getVal("custom_prompt"));
-      setBackupApiKey(getVal("backup_api_key"));
-      setBackupBaseUrl(getVal("backup_base_url"));
-      setBackupModelName(getVal("backup_model"));
-      setOcrLang(getVal("ocr_lang") || "auto");
-
-      setShortcutQ(getVal("shortcut_q") || "Alt+Q");
-      setShortcutW(getVal("shortcut_w") || "Alt+W");
-
-      const savedLang = getVal("language") as Lang;
-      if (savedLang) setLang(savedLang);
-      
-      setTargetLang(getVal("target_lang") || "Chinese");
-      setSourceLang(getVal("source_lang") || "auto");
-      setAutoCopy(getVal("auto_copy") === "true");
-      setClipboardMonitor(getVal("clipboard_monitor") === "true");
-      const savedAccent = getVal("accent_color") || "#007aff";
-      setAccentColor(savedAccent);
-      applyAccent(savedAccent);
-      setTheme(getVal("theme") || "system");
-      setFontSize(parseInt(getVal("font_size") || "14"));
-
-      setTtsEngine(getVal("tts_engine") || "local");
-      setTtsApiKey(getVal("tts_api_key") || getVal("openai_api_key"));
-      setTtsBaseUrl(getVal("tts_base_url") || getVal("base_url"));
-      setTtsModelName(getVal("tts_model_name") || getVal("tts_model") || "tts-1");
-      setTtsVoice(getVal("tts_voice") || "alloy");
-      setTtsSpeed(getVal("tts_speed") || "1.0");
-
-      setWebdavEnabled(getVal("webdav_enabled") === "true");
-      setWebdavUrl(getVal("webdav_url"));
-      setWebdavUser(getVal("webdav_user"));
-      setWebdavPass(getVal("webdav_pass"));
-      setLastSyncTime(getVal("last_sync_time"));
-
-      const enabled = await isEnabled();
-      setAutoLaunch(enabled);
-    } catch (e) { console.error(e); }
-    finally { setConfigHydrated(true); }
-  };
-
   const toggleAutoLaunch = async () => {
     const prevState = autoLaunch;
     try {
@@ -635,15 +597,21 @@ export default function Dashboard() {
     }
   };
 
-  const loadWordbook = async () => {
+  const handleExportDiagnostics = async () => {
+    if (isExportingDiagnostics) return;
+    setIsExportingDiagnostics(true);
     try {
-      const data = await invoke<any[]>("get_wordbook");
-      setWords(data);
-      if (selectedWord) {
-        const updated = data.find(w => w.uuid === selectedWord.uuid || w.id === selectedWord.id);
-        if (updated) setSelectedWord(updated);
+      await invoke<string>("export_diagnostics");
+      toast("success", t.diagnosticsExportSuccess);
+      addNotification(t.diagnosticsExportSuccess);
+    } catch (e: any) {
+      if (e !== "User cancelled") {
+        toast("error", `${t.diagnosticsExportFailed}: ${e}`);
+        addNotification(`${t.diagnosticsExportFailed}: ${e}`);
       }
-    } catch (e) { console.error(e); }
+    } finally {
+      setIsExportingDiagnostics(false);
+    }
   };
 
   const loadHistory = async () => {
@@ -657,33 +625,53 @@ export default function Dashboard() {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      await invoke("sync_wordbook");
+      const summary = await invoke<WebDavSyncSummary>("sync_wordbook", {
+        url: webdavUrl,
+        user: webdavUser,
+        password: webdavPass,
+        enabled: webdavEnabled,
+      });
+      setLastSyncSummary(summary);
+      setLastSyncTime(summary.completedAt);
       toast("success", t.syncSuccess);
-      addNotification(t.syncSuccess);
-      const time = await invoke<string>("get_config_value", { key: "last_sync_time" });
-      setLastSyncTime(time);
+      addNotification(t.syncSummary
+        .replace("{added}", String(summary.added))
+        .replace("{updated}", String(summary.updated))
+        .replace("{uploaded}", String(summary.uploaded)));
       await loadWordbook();
     } catch (e) {
       console.error(e);
-      toast("error", t.syncFailed);
+      const error = normalizeWebDavError(e);
+      toast("error", t[`webdavError_${error.code}`] || error.message || t.syncFailed);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleTestWebdavConnection = async () => {
+    if (isTestingWebdav || !webdavUrl.trim()) return;
+    setIsTestingWebdav(true);
+    setWebdavConnectionTest(null);
+    try {
+      const result = await invoke<WebDavConnectionResult>("test_webdav_connection", {
+        url: webdavUrl,
+        user: webdavUser,
+        password: webdavPass,
+      });
+      setWebdavConnectionTest({ ok: true, latencyMs: result.latencyMs });
+      toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs)));
+    } catch (e) {
+      const error = normalizeWebDavError(e);
+      setWebdavConnectionTest({ ok: false, error });
+      toast("error", t[`webdavError_${error.code}`] || error.message || t.connectionFailed);
+    } finally {
+      setIsTestingWebdav(false);
     }
   };
 
   const toggleWebdav = () => {
     const next = !webdavEnabled;
     setWebdavEnabled(next);
-  };
-
-  const applyTranslationProvider = (providerId: TranslationProviderId) => {
-    setTranslationProvider(providerId);
-    setConnectionTest(null);
-    const provider = TRANSLATION_PROVIDERS.find(item => item.id === providerId);
-    if (provider && provider.id !== "custom") {
-      setTransBaseUrl(provider.baseUrl);
-      setTransModelName(provider.model);
-    }
   };
 
   const handleTestTranslationConnection = async () => {
@@ -698,163 +686,18 @@ export default function Dashboard() {
   };
 
   const handleSave = async () => {
-    if (isSavingSettings || !hasUnsavedChanges) return;
-    setIsSavingSettings(true);
-    try {
-      await invoke("set_config_values", { values: {
-        trans_api_key: transApiKey,
-        trans_base_url: transBaseUrl,
-        trans_model_name: transModelName,
-        language: lang,
-        target_lang: targetLang,
-        source_lang: sourceLang,
-        auto_copy: autoCopy ? "true" : "false",
-        clipboard_monitor: clipboardMonitor ? "true" : "false",
-        accent_color: accentColor,
-        theme,
-        font_size: fontSize.toString(),
-        tts_engine: ttsEngine,
-        tts_api_key: ttsApiKey,
-        tts_base_url: ttsBaseUrl,
-        tts_model_name: ttsModelName,
-        tts_voice: ttsVoice,
-        tts_speed: ttsSpeed,
-        custom_prompt: customPrompt,
-        backup_api_key: backupApiKey,
-        backup_base_url: backupBaseUrl,
-        backup_model: backupModelName,
-        ocr_lang: ocrLang,
-        webdav_enabled: webdavEnabled ? "true" : "false",
-        webdav_url: webdavUrl,
-        webdav_user: webdavUser,
-        webdav_pass: webdavPass,
-      } });
-      setSavedSettingsFingerprint(settingsFingerprint);
+    const result = await saveSettings();
+    if (result === "saved") {
       toast("success", t.success);
       addNotification(t.success);
-      emit("settings-changed", { theme, fontSize }).catch(console.error);
-    } catch (e) {
-      console.error("Failed to save settings", e);
+    } else if (result === "failed") {
       toast("error", t.settingsSaveFailed);
-    } finally {
-      setIsSavingSettings(false);
     }
-  };
-
-  const deleteWord = async (id: number) => {
-    await invoke("delete_word", { id });
-    if (selectedWord?.id === id) setSelectedWord(null);
-    refreshStats();
-  };
-
-  const startBatchTranslation = () => {
-    if (!batchInput || isTranslating) return;
-    batchTaskRef.current?.cancel();
-    setBatchOutput("");
-    setIsTranslating(true);
-    const sourceText = batchInput;
-    const task = startTranslationTask(sourceText, {
-      onState: (nextState) => {
-        if (activeBatchRequestIdRef.current === nextState.requestId) setBatchTaskState(nextState);
-      },
-      onText: (nextText, requestId) => {
-        if (activeBatchRequestIdRef.current === requestId) setBatchOutput(nextText);
-      },
-    });
-    batchTaskRef.current = task;
-    activeBatchRequestIdRef.current = task.id;
-    setBatchTaskState({ requestId: task.id, phase: "loading-config" });
-
-    task.done.then((completion) => {
-      if (activeBatchRequestIdRef.current !== task.id) return;
-      setIsTranslating(false);
-      refreshStats();
-      if (completion.status === "success") {
-        invoke("save_translation", {
-          sourceText,
-          translatedText: completion.result.text,
-          sourceLang,
-          targetLang,
-          model: completion.result.model,
-        }).catch(console.error);
-      }
-    });
-  };
-
-  const cancelBatchTranslation = () => batchTaskRef.current?.cancel();
-
-  const startBatchBackTranslate = async () => {
-    if (!batchOutput || isBatchBackTranslating) return;
-    setIsBatchBackTranslating(true);
-    setBatchBackTranslation("");
-    await translateStreaming(
-      batchOutput,
-      (chunk) => setBatchBackTranslation(prev => prev + chunk),
-      () => setIsBatchBackTranslating(false)
-    );
-  };
-
-  const startCompareTranslation = () => {
-    if (!batchInput || isTranslating) return;
-    comparisonTaskRef.current?.cancel();
-    setBatchOutput("");
-    setBatchOutputBackup("");
-    setPrimaryComparisonState(null);
-    setBackupComparisonState(null);
-    setIsTranslating(true);
-    const sourceText = batchInput;
-    const task = startTranslationComparisonTask(sourceText, {
-      onText: (side, nextText, requestId) => {
-        if (activeComparisonRequestIdRef.current !== requestId) return;
-        if (side === "primary") setBatchOutput(nextText);
-        else setBatchOutputBackup(nextText);
-      },
-      onSideState: (nextState) => {
-        if (activeComparisonRequestIdRef.current !== nextState.requestId) return;
-        if (nextState.side === "primary") setPrimaryComparisonState(nextState);
-        else setBackupComparisonState(nextState);
-      },
-    });
-    comparisonTaskRef.current = task;
-    activeComparisonRequestIdRef.current = task.id;
-
-    task.done.then((completion) => {
-      if (activeComparisonRequestIdRef.current !== task.id) return;
-      setIsTranslating(false);
-      refreshStats();
-      if (completion.status !== "success") return;
-      const { primary, backup } = completion.result;
-      const combined = [
-        primary && `[${primary.model}]\n${primary.text}`,
-        backup && `[${backup.model}]\n${backup.text}`,
-      ].filter(Boolean).join("\n\n");
-      if (combined) {
-        invoke("save_translation", {
-          sourceText,
-          translatedText: combined,
-          sourceLang,
-          targetLang,
-          model: [primary?.model, backup?.model].filter(Boolean).join(" vs "),
-        }).catch(console.error);
-      }
-    });
-  };
-
-  const cancelBatchWork = () => {
-    if (compareMode) comparisonTaskRef.current?.cancel();
-    else cancelBatchTranslation();
-  };
-
-  const handleManualAdd = async () => {
-    if (!newWord.trim()) return;
-    const wordToAdd = newWord.trim();
-    setNewWord("");
-    setIsAdding(false);
-    await analyzeAndSaveWord(wordToAdd);
   };
 
   const notificationsRef = useRef<HTMLDivElement>(null);
   const prevActiveTab = useRef("general");
+  const tabButtonRefs = useRef<Partial<Record<DashboardTabId, HTMLButtonElement | null>>>({});
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -903,12 +746,22 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <nav className="space-y-1">
+            <nav className="space-y-1" aria-label={t.mainNavigation}>
               <LayoutGroup id="sidebar">
                 {tabs.map((tab) => (
                     <button 
                     key={tab.id} 
+                    ref={element => { tabButtonRefs.current[tab.id as DashboardTabId] = element; }}
+                    type="button"
+                    aria-current={activeTab === tab.id ? "page" : undefined}
                     onClick={() => setActiveTab(tab.id)}
+                    onKeyDown={event => {
+                      const next = dashboardTabFromNavigation(tab.id as DashboardTabId, event.key);
+                      if (!next) return;
+                      event.preventDefault();
+                      setActiveTab(next);
+                      tabButtonRefs.current[next]?.focus();
+                    }}
                     className={`dashboard-nav-item group w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all relative ${
                         activeTab === tab.id ? "text-white" : "hover:bg-black/5 dark:hover:bg-white/5 text-zinc-500"
                     }`}
@@ -1110,9 +963,9 @@ export default function Dashboard() {
                                             <span className="text-[9px] font-black text-accent uppercase">{lastSyncTime || t.neverSync}</span>
                                         </div>
                                     </div>
-                                    <div onClick={toggleWebdav} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${webdavEnabled ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
+                                    <button type="button" role="switch" aria-checked={webdavEnabled} aria-label={t.toggleWebdav} onClick={toggleWebdav} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative focus-visible:ring-4 focus-visible:ring-accent/20 ${webdavEnabled ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
                                         <motion.div animate={{ left: webdavEnabled ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                    </div>
+                                    </button>
                                 </div>
                                 
                                 <AnimatePresence>
@@ -1125,20 +978,59 @@ export default function Dashboard() {
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 gap-3">
-                                                <input value={webdavUrl} onChange={(e) => setWebdavUrl(e.target.value)} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                <input value={webdavUrl} onChange={(e) => { setWebdavUrl(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 <div className="grid grid-cols-2 gap-3">
-                                                    <input value={webdavUser} onChange={(e) => setWebdavUser(e.target.value)} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                    <input type="password" value={webdavPass} onChange={(e) => setWebdavPass(e.target.value)} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                    <input value={webdavUser} onChange={(e) => { setWebdavUser(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                    <input type="password" value={webdavPass} onChange={(e) => { setWebdavPass(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                 </div>
                                             </div>
-                                            <button 
-                                                onClick={handleSync} 
-                                                disabled={isSyncing || !webdavUrl}
-                                                className={`w-full py-3 rounded-xl font-black text-[10px] flex items-center justify-center gap-2 transition-all ${isSyncing ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400' : 'bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:scale-[1.01]'}`}
-                                            >
-                                                {isSyncing ? <RotateCcw size={14} className="animate-spin" /> : <RotateCcw size={14} />} 
-                                                {isSyncing ? t.syncing.toUpperCase() : t.syncNow.toUpperCase()}
-                                            </button>
+                                            {webdavConnectionTest && (
+                                                <div role={webdavConnectionTest.ok ? "status" : "alert"} className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-[10px] font-bold ${
+                                                    webdavConnectionTest.ok
+                                                        ? "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400"
+                                                        : "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400"
+                                                }`}>
+                                                    {webdavConnectionTest.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                                                    <span>{webdavConnectionTest.ok
+                                                        ? t.connectionSuccess.replace("{latency}", String(webdavConnectionTest.latencyMs || 0))
+                                                        : t[`webdavError_${webdavConnectionTest.error?.code}`] || webdavConnectionTest.error?.message || t.connectionFailed}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {lastSyncSummary && (
+                                                <div className="grid grid-cols-3 gap-2 rounded-2xl border border-black/5 bg-white/35 p-3 dark:border-white/10 dark:bg-white/5">
+                                                    {[
+                                                        { label: t.syncAdded, value: lastSyncSummary.added },
+                                                        { label: t.syncUpdated, value: lastSyncSummary.updated },
+                                                        { label: t.syncUploaded, value: lastSyncSummary.uploaded },
+                                                    ].map(item => (
+                                                        <div key={item.label} className="rounded-xl bg-white/55 px-2 py-2 text-center dark:bg-black/15">
+                                                            <div className="text-sm font-black text-accent">{item.value}</div>
+                                                            <div className="text-[8px] font-bold text-zinc-400">{item.label}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleTestWebdavConnection}
+                                                    disabled={isTestingWebdav || isSyncing || !webdavUrl.trim()}
+                                                    className="flex items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/10 py-3 text-[10px] font-black text-accent transition-all hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    {isTestingWebdav ? <RotateCcw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                                                    {isTestingWebdav ? t.connectionTesting : t.testConnection}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSync}
+                                                    disabled={isSyncing || isTestingWebdav || !webdavUrl.trim()}
+                                                    className={`flex items-center justify-center gap-2 rounded-xl py-3 text-[10px] font-black transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isSyncing ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800' : 'bg-zinc-900 text-white hover:scale-[1.01] dark:bg-white dark:text-zinc-900'}`}
+                                                >
+                                                    <RotateCcw size={14} className={isSyncing ? "animate-spin" : ""} />
+                                                    {isSyncing ? t.syncing : t.syncNow}
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
@@ -1159,6 +1051,21 @@ export default function Dashboard() {
                                         <button onClick={handleExport} className="px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all uppercase">{t.exportData}</button>
                                         <button onClick={handleImport} className="px-4 py-1.5 rounded-full bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white border border-black/5 dark:border-white/10 text-[10px] font-black hover:bg-zinc-900 dark:hover:bg-white hover:text-white dark:hover:text-zinc-900 transition-all uppercase">{t.importData}</button>
                                     </div>
+                                </div>
+                                <div className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                    <div>
+                                        <label className="text-[0.9em] font-black flex items-center gap-2"><Info size={14} className="text-accent" />{t.diagnosticsReport}</label>
+                                        <span className="text-[0.7em] text-zinc-400 font-bold opacity-60">{t.diagnosticsDesc}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleExportDiagnostics}
+                                        disabled={isExportingDiagnostics}
+                                        className="shrink-0 flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 uppercase"
+                                    >
+                                        {isExportingDiagnostics && <RotateCcw size={12} className="animate-spin" />}
+                                        {isExportingDiagnostics ? t.exportingDiagnostics : t.exportDiagnostics}
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1210,7 +1117,7 @@ export default function Dashboard() {
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => { setCompareMode(!compareMode); setBatchOutput(""); setBatchOutputBackup(""); }}
+                                                onClick={() => setCompareModeEnabled(!compareMode)}
                                                 disabled={isTranslating}
                                                 className={`text-[9px] font-black px-2.5 py-1.5 rounded-full transition-all ${
                                                     isTranslating ? 'opacity-40 cursor-not-allowed' : compareMode ? 'bg-accent text-white shadow-accent' : 'bg-black/5 dark:bg-white/5 text-zinc-400 hover:bg-accent/10 hover:text-accent'
@@ -1351,7 +1258,7 @@ export default function Dashboard() {
                                         <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.translationService}</label>
                                         <div className="grid grid-cols-3 gap-2 rounded-[20px] bg-black/[0.03] dark:bg-white/[0.04] p-1.5">
                                             {TRANSLATION_PROVIDERS.map(provider => (
-                                                <button key={provider.id} onClick={() => applyTranslationProvider(provider.id)} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
+                                                <button key={provider.id} onClick={() => { applyTranslationProvider(provider.id); setConnectionTest(null); }} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
                                                     {provider.id === "custom" ? t.customService : provider.label}
                                                 </button>
                                             ))}
@@ -1542,7 +1449,7 @@ export default function Dashboard() {
                                 {/* Word count */}
                                 <div className="flex items-center justify-between px-1">
                                     <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">
-                                        {wordbookSearch ? `${filteredWords.length} / ` : ""}{words.length} {t.wordCount}
+                                        {words.length} / {wordbookTotal} {t.wordCount}
                                     </span>
                                 </div>
 
@@ -1556,9 +1463,9 @@ export default function Dashboard() {
                                 <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
                                     <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-accent/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
                                 ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={() => { setIsAdding(false); setNewWord(""); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
+                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManualWord()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={cancelAdding} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
                                 )}</AnimatePresence></div>
-                                {displayedWords.map(w => (
+                                {words.map(w => (
                                     <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-accent border-accent shadow-2xl' : 'glass-card border-transparent hover:border-accent/30 hover:bg-white/80'}`}>
                                         <div className="flex justify-between items-start mb-1.5">
                                             <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
@@ -1568,11 +1475,15 @@ export default function Dashboard() {
                                         {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
                                     </motion.div>
                                 ))}
-                                {filteredWords.length > wordsLimit && !wordbookSearch && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setWordsLimit(l => l + 200)} className="flex-1 py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all">{t.loadMore} ({t.remaining} {filteredWords.length - wordsLimit})</button>
-                                        <button onClick={() => setWordsLimit(filteredWords.length)} className="py-3 px-4 rounded-2xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 font-black text-[10px] text-zinc-500 hover:text-accent transition-all">{t.showAll}</button>
-                                    </div>
+                                {wordbookHasMore && (
+                                    <button
+                                        type="button"
+                                        disabled={isWordbookLoading}
+                                        onClick={loadMore}
+                                        className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all disabled:cursor-wait disabled:opacity-50"
+                                    >
+                                        {isWordbookLoading ? t.loading : `${t.loadMore} (${t.remaining} ${wordbookTotal - words.length})`}
+                                    </button>
                                 )}
                             </div>
                             <div className="flex-1 glass-card rounded-[32px] flex flex-col overflow-hidden relative shadow-2xl border-white/40">
@@ -1605,13 +1516,7 @@ export default function Dashboard() {
                                                     </div>
                                                     <div className="flex gap-3">
                                                         <button 
-                                                            onClick={() => {
-                                                                if (selectedWord) {
-                                                                    // 立即触发 UI 加载动画
-                                                                    setSelectedWord({ ...selectedWord, analysis: null });
-                                                                    analyzeAndSaveWord(selectedWord.word);
-                                                                }
-                                                            }} 
+                                                            onClick={retrySelectedAnalysis}
                                                             className="px-8 py-3 bg-accent text-white rounded-2xl text-[11px] font-black shadow-lg shadow-accent flex items-center gap-2"
                                                         >
                                                             <RotateCcw size={14} /> {t.retryAnalysis}
@@ -1647,7 +1552,7 @@ export default function Dashboard() {
                                                     {selectedWord.contexts?.length > 0 && (
                                                         <div className="space-y-4 pt-2">
                                                             <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.savedContext}</h4>
-                                                            {selectedWord.contexts.map((context: any) => (
+                                                            {selectedWord.contexts.map((context) => (
                                                                 <div key={context.id} className="p-6 rounded-[24px] bg-accent/[0.035] border border-accent/10 space-y-3">
                                                                     <div className="flex items-center justify-between gap-4 text-[9px] font-black uppercase tracking-wider text-zinc-400">
                                                                         <span>{t[`contextSource_${context.source_type}`] || context.source_type}</span>

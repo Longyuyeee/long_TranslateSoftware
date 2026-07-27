@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -67,9 +67,63 @@ describe("UpdateDialog", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Later" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveFocus();
 
     await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("cycles focus inside the dialog and restores the opener on close", async () => {
+    const user = userEvent.setup();
+    const opener = document.createElement("button");
+    opener.textContent = "Open update";
+    document.body.appendChild(opener);
+    const view = render(
+      <UpdateDialog
+        open={false}
+        version="0.4.7"
+        phase="available"
+        progress={null}
+        labels={labels}
+        onInstall={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    opener.focus();
+    view.rerender(
+      <UpdateDialog
+        open
+        version="0.4.7"
+        phase="available"
+        progress={null}
+        labels={labels}
+        onInstall={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const primary = screen.getByRole("button", { name: "Update now" });
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(primary).toHaveFocus();
+
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(primary).toHaveFocus();
+
+    view.rerender(
+      <UpdateDialog
+        open={false}
+        version="0.4.7"
+        phase="available"
+        progress={null}
+        labels={labels}
+        onInstall={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(opener).toHaveFocus());
+    opener.remove();
   });
 
   it("offers a retry action with the returned installation error", async () => {

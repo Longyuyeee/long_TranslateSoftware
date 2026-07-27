@@ -1,0 +1,42 @@
+[
+  {
+    "id": "terminology-url-placeholder",
+    "source": "Deploy {{service}} through the API at https://api.example.com/v1.",
+    "candidate": "通过 https://api.example.com/v1 的接口部署 {{service}}。",
+    "requiredTerms": ["接口"],
+    "expectedPass": true,
+    "expectedMissingKinds": []
+  },
+  {
+    "id": "missing-required-invariants",
+    "source": "Deploy build 1042 for {{service}} through the API at https://api.example.com/v1.",
+    "candidate": "部署该服务。",
+    "requiredTerms": ["接口"],
+    "expectedPass": false,
+    "expectedMissingKinds": ["terminology", "url", "placeholder", "number"]
+  },
+  {
+    "id": "markdown-xml-and-code",
+    "source": "## Release 2.1\n- Keep `<entry id=\"42\">ready</entry>`.\n- Run `npm test`.\n```json\n{\"ok\": 1}\n```",
+    "candidate": "## 版本 2.1\n- 保留 `<entry id=\"42\">ready</entry>`。\n- 运行 `npm test`。\n```json\n{\"ok\": 1}\n```",
+    "requiredTerms": [],
+    "expectedPass": true,
+    "expectedMissingKinds": []
+  },
+  {
+    "id": "broken-markdown-and-xml",
+    "source": "## Release 2.1\n- Keep `<entry id=\"42\">ready</entry>`.\n- Run `npm test`.",
+    "candidate": "版本二点一：保留条目并运行测试。",
+    "requiredTerms": [],
+    "expectedPass": false,
+    "expectedMissingKinds": ["inline-code", "xml", "number", "markdown"]
+  },
+  {
+    "id": "long-context-numbers",
+    "source": "During the 2026-07-27 migration, retain build 1042, timeout 60%, endpoint https://sync.example.net/v3/items, and placeholder ${request_id}; the surrounding sentence is intentionally long so the evaluator checks invariants without depending on sentence length or word order.",
+    "candidate": "在 2026-07-27 迁移期间，请保留构建号 1042、超时比例 60%、端点 https://sync.example.net/v3/items 和占位符 ${request_id}；这个句子刻意保持较长，以确保评测不依赖句长或词序。",
+    "requiredTerms": [],
+    "expectedPass": true,
+    "expectedMissingKinds": []
+  }
+]

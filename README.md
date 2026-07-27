@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.6 识别与表达精度优化**：OCR 加入自适应图像增强，翻译缓存与术语注入更加准确，英语及多语种语音会自动匹配语言和音色。
+> **v0.4.7 WebDAV 可靠性与诊断**：增加连接测试、结构化错误、同步摘要和多设备并发保护，避免同步期间静默覆盖较新的云端数据。
 
 ---
 
@@ -89,6 +89,7 @@
 - 导出 `.TLong` 文件，跨设备一键迁移配置与生词本（含复习进度）
 - 兼容旧版备份格式，无缝升级
 - **系统级静态保护**: API 密钥与 WebDAV 密码由 Windows DPAPI 加密并绑定当前 Windows 用户；旧数据首次读取时自动迁移
+- **脱敏诊断导出**: 仅导出应用/数据库版本、功能配置状态和记录数量，明确排除密钥、密码、私有地址、提示词、词条、上下文、原文和译文
 
 ### 🎨 视觉与体验
 - 精美毛玻璃 Apple Style 设计，深色/浅色/跟随系统三种主题
@@ -114,14 +115,15 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.6 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.6 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.7 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.7 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.6 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
 | v0.4.5 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
 | v0.4.4 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
 | v0.4.3 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.3/LongTranslate_0.4.3_x64.msi) |
@@ -141,6 +143,73 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.7 — WebDAV Reliability & Diagnostics</strong></summary>
+
+**连接与诊断**
+- 设置页增加 WebDAV 连接测试和延迟显示
+- 认证、权限、路径、超时、离线、服务器和远端数据错误均提供中英文分类提示
+- 最近同步结果展示新增、更新和上传条目数量
+
+**同步可靠性**
+- 使用 ETag 条件写入保护多设备同步；云端在同步期间变化时提示重试，不静默覆盖
+- 隔离服务测试覆盖下载、合并、上下文保存、条件上传和并发冲突
+- 修复旧数据库中可空生词字段导致同步失败的问题
+
+**大数据量生词本**
+- 生词检索、排序和分页移至 Rust 后端，默认每次加载 100 条
+- 建立一万条数据的首屏与搜索自动化基线，避免全部记录一次进入前端
+
+**键盘与焦点**
+- 更新弹窗和 OCR 确认弹窗支持焦点循环、Escape 关闭及关闭后的焦点恢复
+- 主导航支持方向键、Home、End 和 Ctrl+1～7，并提供当前页面与导航区域语义
+
+**错误恢复**
+- 前端命令无法解析数据目录时返回可诊断错误，不再直接终止应用
+- 启动、托盘、Anki 导出、WebDAV 目录创建和 Edge TTS 请求构造移除生产态 panic 路径
+- 高级设置可导出仅包含版本、配置状态和数据量的脱敏诊断 JSON，不包含密钥、密码、私有地址、原文或译文
+
+**架构收口**
+- 翻译历史和翻译记忆从主 Rust 入口拆分为独立模块，保持现有前端命令兼容
+- 历史查询限制在每次 1～500 条并修正负偏移；独立测试覆盖分页、删除、清空以及模型上下文缓存隔离
+- FSRS 调度、到期卡片与学习统计拆分为独立复习模块，评分状态通过单一数据库事务提交
+- 到期查询限制在每次 1～200 条，评分限制为 1～4；已删除词条不再影响连续复习天数
+- TTS 与音频缓存拆分为独立 Rust 模块；空音频不再写入或命中缓存，普通 HTTP 语音请求会拒绝非成功响应
+- TTS 独立测试覆盖请求头安全、语言与语速、SSML 转义、缓存键隔离和容量回收
+- 加密备份导入/导出拆分为独立 Rust 模块，保持 `.TLong` 和历史版本解密兼容
+- 备份导入会在数据库替换前校验配置与词库结构；空密码或无效备份不会清空现有数据
+- Anki APKG 导出拆分为独立 Rust 模块，修正动态牌组配置并保证异常路径自动清理临时文件
+- Anki 导出字段会转义 HTML 与字段分隔符；独立测试核对 collection 数据库、7 字段和 APKG 必需条目
+- 批量翻译、双模型对比、回译和取消操作从 `Dashboard` 抽离为独立 hook
+- 批量流程通过请求编号隔离过期回调，并在页面卸载时取消进行中的任务；独立测试覆盖流式输出、历史保存和卸载清理
+- 生词本分页、搜索、排序、选择、新增与删除编排从 `Dashboard` 抽离为独立 hook
+- 生词本筛选使用防抖与请求编号隔离，避免较慢的旧查询覆盖最新结果；前端补充分页追加、选中项刷新和表单清理测试
+- 设置默认值、旧键迁移、OCR 语言回退、脏状态、关闭提醒与保存编排从 `Dashboard` 抽离为独立 service/hook
+- 设置加载通过请求编号隔离旧响应；无效界面语言与字号会回到安全范围，加载失败后仍可继续编辑并保存
+
+**翻译质量门槛**
+- 固定评测术语、数字、URL、占位符、Markdown、XML、行内代码和长上下文的格式保持
+- 无效缓存会重新请求；主模型遗漏必要内容时自动切换备用模型
+- 主备模型均未通过时返回明确错误，且不保存无效译文
+
+**语音质量夹具**
+- 固定验证中英日韩俄阿文本的音色路由和语言不匹配降级原因
+- 覆盖 MP3、WAV、Ogg、M4A、WebM、AAC 音频容器以及 HTML/JSON 错误响应
+- 音频解码失败返回稳定错误信息，便于定位服务响应问题
+
+**OCR 语言与质量基线**
+- OCR 设置优先显示 Windows 已安装的识别语言，失败时使用内置列表
+- 兼容旧短语言标签，不支持的已保存选项安全回到系统默认
+- 新增字符错误率计算与五类文本基线
+- 小字号、深色字幕和缩放 PNG 会经过真实 Windows OCR，单场景 CER 超过 20% 时测试失败
+
+**统一质量报告**
+- CI 汇总翻译格式、TTS 路由/音频和 OCR 文本/真机指标
+- 报告包含期望值、实测值、阈值和 Git 提交号，并作为 Actions artifact 提供下载
+- 正式发版会把同一份 JSON 附加到 GitHub Release，报告缺失或失败会阻断交付
+
+</details>
+
+<details>
 <summary><strong>v0.4.6 — Recognition & Speech Accuracy</strong></summary>
 
 **OCR 与语言适配**
@@ -401,6 +470,7 @@ git clone https://github.com/Longyuyeee/long_TranslateSoftware.git
 cd long_TranslateSoftware
 npm install
 npm test               # 自动化测试
+npm run quality:report # 生成质量报告（真机 OCR 数据由 CI/Rust 测试提供）
 npm run tauri dev      # 开发模式
 npm run tauri build    # 生产构建
 ```

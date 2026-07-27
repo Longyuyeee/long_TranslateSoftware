@@ -1,0 +1,53 @@
+{
+  "routes": [
+    {
+      "id": "chinese-default",
+      "text": "你好，欢迎使用。",
+      "configuredVoice": "",
+      "expected": { "locale": "zh-CN", "voice": "zh-CN-XiaoxiaoNeural", "reason": "default-voice" }
+    },
+    {
+      "id": "english-configured",
+      "text": "Read this sentence aloud.",
+      "configuredVoice": "en-US-GuyNeural",
+      "expected": { "locale": "en-US", "voice": "en-US-GuyNeural", "reason": "configured-voice" }
+    },
+    {
+      "id": "japanese-mixed-script",
+      "text": "翻訳を始めます。",
+      "configuredVoice": "zh-CN-XiaoxiaoNeural",
+      "expected": { "locale": "ja-JP", "voice": "ja-JP-NanamiNeural", "reason": "locale-fallback" }
+    },
+    {
+      "id": "korean-fallback",
+      "text": "번역을 시작합니다.",
+      "configuredVoice": "alloy",
+      "expected": { "locale": "ko-KR", "voice": "ko-KR-SunHiNeural", "reason": "locale-fallback" }
+    },
+    {
+      "id": "russian-default",
+      "text": "Начать перевод.",
+      "configuredVoice": "",
+      "expected": { "locale": "ru-RU", "voice": "ru-RU-SvetlanaNeural", "reason": "default-voice" }
+    },
+    {
+      "id": "arabic-case-insensitive-configured",
+      "text": "ابدأ الترجمة.",
+      "configuredVoice": "AR-sa-HamedNeural",
+      "expected": { "locale": "ar-SA", "voice": "AR-sa-HamedNeural", "reason": "configured-voice" }
+    }
+  ],
+  "audio": [
+    { "id": "mp3-id3", "hex": "49443304000000000000", "expected": { "playable": true, "format": "mp3", "reason": "recognized-container" } },
+    { "id": "mp3-frame", "hex": "fffb906400000000", "expected": { "playable": true, "format": "mp3", "reason": "recognized-container" } },
+    { "id": "wav", "hex": "524946462400000057415645", "expected": { "playable": true, "format": "wav", "reason": "recognized-container" } },
+    { "id": "ogg", "hex": "4f67675300020000", "expected": { "playable": true, "format": "ogg", "reason": "recognized-container" } },
+    { "id": "m4a", "hex": "00000018667479704d3441", "expected": { "playable": true, "format": "m4a", "reason": "recognized-container" } },
+    { "id": "webm", "hex": "1a45dfa39f428681", "expected": { "playable": true, "format": "webm", "reason": "recognized-container" } },
+    { "id": "aac", "hex": "fff15080001ffc", "expected": { "playable": true, "format": "aac", "reason": "recognized-container" } },
+    { "id": "html-error", "hex": "3c68746d6c3e6572726f723c2f68746d6c3e", "expected": { "playable": false, "format": "unknown", "reason": "text-response" } },
+    { "id": "json-error", "hex": "7b226572726f72223a22696e76616c69645f6b6579227d", "expected": { "playable": false, "format": "unknown", "reason": "text-response" } },
+    { "id": "empty", "hex": "", "expected": { "playable": false, "format": "unknown", "reason": "empty" } },
+    { "id": "unknown-binary", "hex": "010203040506", "expected": { "playable": false, "format": "unknown", "reason": "unknown-container" } }
+  ]
+}
