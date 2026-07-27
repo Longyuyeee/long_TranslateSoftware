@@ -1,22 +1,23 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { translations, Lang } from "../i18n";
 import { WordAnalysis } from "../services/wordbook";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
-import { normalizeWebDavError, parseStoredSyncSummary, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
+import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
 import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
-import { OcrLanguageInfo, resolveOcrLanguageTag } from "../services/ocr";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
+import { useSettings } from "../hooks/useSettings";
+import { TRANSLATION_PROVIDERS } from "../services/settings";
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -28,12 +29,6 @@ const ACCENT_PALETTE = [
   { id: "teal",   value: "#5ac8fa" },
   { id: "mint",   value: "#00c7be" },
 ];
-
-const TRANSLATION_PROVIDERS = [
-  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  { id: "custom", label: "Custom", baseUrl: "", model: "" },
-] as const;
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -76,19 +71,81 @@ const OCR_LANGUAGES = [
   { value: "sk", language: "Slovak" },
 ] as const;
 
-type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
-
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("general");
-  const [lang, setLang] = useState<Lang>("zh");
-  const [targetLang, setTargetLang] = useState("Chinese");
-  const [sourceLang, setSourceLang] = useState("auto");
+  const {
+    lang,
+    setLang,
+    targetLang,
+    setTargetLang,
+    sourceLang,
+    setSourceLang,
+    autoCopy,
+    setAutoCopy,
+    clipboardMonitor,
+    setClipboardMonitor,
+    theme,
+    setTheme,
+    accentColor,
+    setAccentColor,
+    fontSize,
+    setFontSize,
+    webdavEnabled,
+    setWebdavEnabled,
+    webdavUrl,
+    setWebdavUrl,
+    webdavUser,
+    setWebdavUser,
+    webdavPass,
+    setWebdavPass,
+    shortcutQ,
+    setShortcutQ,
+    shortcutW,
+    setShortcutW,
+    transApiKey,
+    setTransApiKey,
+    transBaseUrl,
+    setTransBaseUrl,
+    transModelName,
+    setTransModelName,
+    customPrompt,
+    setCustomPrompt,
+    translationProvider,
+    setTranslationProvider,
+    applyTranslationProvider,
+    backupApiKey,
+    setBackupApiKey,
+    backupBaseUrl,
+    setBackupBaseUrl,
+    backupModelName,
+    setBackupModelName,
+    ocrLang,
+    setOcrLang,
+    installedOcrLanguages,
+    ttsEngine,
+    setTtsEngine,
+    ttsApiKey,
+    setTtsApiKey,
+    ttsBaseUrl,
+    setTtsBaseUrl,
+    ttsModelName,
+    setTtsModelName,
+    ttsVoice,
+    setTtsVoice,
+    ttsSpeed,
+    setTtsSpeed,
+    autoLaunch,
+    setAutoLaunch,
+    lastSyncTime,
+    setLastSyncTime,
+    lastSyncSummary,
+    setLastSyncSummary,
+    hasUnsavedChanges,
+    isSavingSettings,
+    loadSettings,
+    saveSettings,
+  } = useSettings();
 
-  const [autoCopy, setAutoCopy] = useState(false);
-  const [clipboardMonitor, setClipboardMonitor] = useState(false);
-  const [theme, setTheme] = useState("system");
-  const [accentColor, setAccentColor] = useState("#007aff");
-  const [fontSize, setFontSize] = useState(14);
   const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -125,55 +182,21 @@ export default function Dashboard() {
     setIsNotificationsOpen(false);
   };
   const [isSyncing, setIsSyncing] = useState(false);
-  const [autoLaunch, setAutoLaunch] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState("");
   const [cacheSize, setCacheSize] = useState("0 B");
   const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
 
   // WebDAV Config
-  const [webdavEnabled, setWebdavEnabled] = useState(false);
-  const [webdavUrl, setWebdavUrl] = useState("");
-  const [webdavUser, setWebdavUser] = useState("");
-  const [webdavPass, setWebdavPass] = useState("");
   const [isTestingWebdav, setIsTestingWebdav] = useState(false);
   const [webdavConnectionTest, setWebdavConnectionTest] = useState<{ ok: boolean; latencyMs?: number; error?: WebDavError } | null>(null);
-  const [lastSyncSummary, setLastSyncSummary] = useState<WebDavSyncSummary | null>(null);
 
   // Shortcuts
-  const [shortcutQ, setShortcutQ] = useState("Alt+Q");
-  const [shortcutW, setShortcutW] = useState("Alt+W");
   const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
 
   // Translation Model Config
-  const [transApiKey, setTransApiKey] = useState("");
-  const [transBaseUrl, setTransBaseUrl] = useState("");
-  const [transModelName, setTransModelName] = useState("");
-  const [customPrompt, setCustomPrompt] = useState("");
-  const [translationProvider, setTranslationProvider] = useState<TranslationProviderId>("deepseek");
   const [showAdvancedModel, setShowAdvancedModel] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
-  // Backup model config
-  const [backupApiKey, setBackupApiKey] = useState("");
-  const [backupBaseUrl, setBackupBaseUrl] = useState("");
-  const [backupModelName, setBackupModelName] = useState("");
-
-  // OCR language
-  const [ocrLang, setOcrLang] = useState("auto");
-  const [installedOcrLanguages, setInstalledOcrLanguages] = useState<OcrLanguageInfo[] | null>(null);
-
-  // Audio (TTS) Model Config
-  const [ttsEngine, setTtsEngine] = useState("local");
-  const [ttsApiKey, setTtsApiKey] = useState("");
-  const [ttsBaseUrl, setTtsBaseUrl] = useState("");
-  const [ttsModelName, setTtsModelName] = useState("");
-  const [ttsVoice, setTtsVoice] = useState("alloy");
-  const [ttsSpeed, setTtsSpeed] = useState("1.0");
-
-  const [configHydrated, setConfigHydrated] = useState(false);
-  const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
   // Glossary state
   interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
@@ -314,30 +337,8 @@ export default function Dashboard() {
     },
     [installedOcrLanguages, t],
   );
-  const settingsFingerprint = useMemo(() => JSON.stringify({
-    transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
-    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
-    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass,
-  }), [transApiKey, transBaseUrl, transModelName, lang, targetLang, sourceLang, autoCopy, clipboardMonitor,
-    accentColor, theme, fontSize, ttsEngine, ttsApiKey, ttsBaseUrl, ttsModelName, ttsVoice, ttsSpeed,
-    customPrompt, backupApiKey, backupBaseUrl, backupModelName, ocrLang, webdavEnabled, webdavUrl, webdavUser, webdavPass]);
-  const hasUnsavedChanges = configHydrated && savedSettingsFingerprint !== null && settingsFingerprint !== savedSettingsFingerprint;
-
   useEffect(() => { webdavEnabledRef.current = webdavEnabled; }, [webdavEnabled]);
 
-  useEffect(() => {
-    if (configHydrated && savedSettingsFingerprint === null) setSavedSettingsFingerprint(settingsFingerprint);
-  }, [configHydrated, savedSettingsFingerprint, settingsFingerprint]);
-
-  useEffect(() => {
-    const warnBeforeClose = (event: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeClose);
-    return () => window.removeEventListener("beforeunload", warnBeforeClose);
-  }, [hasUnsavedChanges]);
   const batchStatusText = batchTaskState.phase === "loading-config" ? t.translationPreparing
     : batchTaskState.phase === "checking-cache" ? t.translationCheckingCache
       : batchTaskState.phase === "translating-primary" ? t.translationPrimary
@@ -358,7 +359,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    loadConfig();
+    loadSettings();
     loadWordbook();
     loadHistory();
     refreshCacheSize();
@@ -384,7 +385,7 @@ export default function Dashboard() {
     });
 
     const unlistenConfigImport = listen("config-updated", () => {
-        loadConfig();
+        loadSettings();
         loadWordbook();
         refreshStats();
         toast("success", translationRef.current.importSuccess);
@@ -562,78 +563,6 @@ export default function Dashboard() {
     return () => mediaQuery.removeEventListener("change", handler);
   }, [theme]);
 
-  const loadConfig = async () => {
-    setConfigHydrated(false);
-    setSavedSettingsFingerprint(null);
-    try {
-      const keys = [
-        "trans_api_key", "openai_api_key", "trans_base_url", "base_url", "trans_model_name", "model_name",
-        "custom_prompt", "backup_api_key", "backup_base_url", "backup_model", "ocr_lang", "shortcut_q", "shortcut_w",
-        "language", "target_lang", "source_lang", "auto_copy", "clipboard_monitor", "accent_color", "theme", "font_size",
-        "tts_engine", "tts_api_key", "tts_base_url", "tts_model_name", "tts_model", "tts_voice", "tts_speed",
-        "webdav_enabled", "webdav_url", "webdav_user", "webdav_pass", "last_sync_time", "last_sync_result",
-      ];
-      const [values, detectedOcrLanguages] = await Promise.all([
-        invoke<Record<string, string>>("get_config_values", { keys }),
-        invoke<OcrLanguageInfo[]>("get_available_ocr_languages").catch(error => {
-          console.warn("Unable to enumerate installed OCR languages; using fallback list", error);
-          return null;
-        }),
-      ]);
-      const getVal = (key: string) => values[key] || "";
-      
-      setTransApiKey(getVal("trans_api_key") || getVal("openai_api_key") || "");
-      const loadedBaseUrl = getVal("trans_base_url") || getVal("base_url") || "https://api.deepseek.com/v1";
-      setTransBaseUrl(loadedBaseUrl);
-      setTransModelName(getVal("trans_model_name") || getVal("model_name") || "deepseek-chat");
-      const matchedProvider = TRANSLATION_PROVIDERS.find(provider => provider.baseUrl && loadedBaseUrl.replace(/\/+$/, "") === provider.baseUrl);
-      setTranslationProvider(matchedProvider?.id || "custom");
-      setCustomPrompt(getVal("custom_prompt"));
-      setBackupApiKey(getVal("backup_api_key"));
-      setBackupBaseUrl(getVal("backup_base_url"));
-      setBackupModelName(getVal("backup_model"));
-      setInstalledOcrLanguages(detectedOcrLanguages);
-      const savedOcrLanguage = getVal("ocr_lang") || "auto";
-      setOcrLang(detectedOcrLanguages?.length
-        ? resolveOcrLanguageTag(savedOcrLanguage, detectedOcrLanguages)
-        : savedOcrLanguage);
-
-      setShortcutQ(getVal("shortcut_q") || "Alt+Q");
-      setShortcutW(getVal("shortcut_w") || "Alt+W");
-
-      const savedLang = getVal("language") as Lang;
-      if (savedLang) setLang(savedLang);
-      
-      setTargetLang(getVal("target_lang") || "Chinese");
-      setSourceLang(getVal("source_lang") || "auto");
-      setAutoCopy(getVal("auto_copy") === "true");
-      setClipboardMonitor(getVal("clipboard_monitor") === "true");
-      const savedAccent = getVal("accent_color") || "#007aff";
-      setAccentColor(savedAccent);
-      applyAccent(savedAccent);
-      setTheme(getVal("theme") || "system");
-      setFontSize(parseInt(getVal("font_size") || "14"));
-
-      setTtsEngine(getVal("tts_engine") || "local");
-      setTtsApiKey(getVal("tts_api_key") || getVal("openai_api_key"));
-      setTtsBaseUrl(getVal("tts_base_url") || getVal("base_url"));
-      setTtsModelName(getVal("tts_model_name") || getVal("tts_model") || "tts-1");
-      setTtsVoice(getVal("tts_voice") || "alloy");
-      setTtsSpeed(getVal("tts_speed") || "1.0");
-
-      setWebdavEnabled(getVal("webdav_enabled") === "true");
-      setWebdavUrl(getVal("webdav_url"));
-      setWebdavUser(getVal("webdav_user"));
-      setWebdavPass(getVal("webdav_pass"));
-      setLastSyncTime(getVal("last_sync_time"));
-      setLastSyncSummary(parseStoredSyncSummary(getVal("last_sync_result")));
-
-      const enabled = await isEnabled();
-      setAutoLaunch(enabled);
-    } catch (e) { console.error(e); }
-    finally { setConfigHydrated(true); }
-  };
-
   const toggleAutoLaunch = async () => {
     const prevState = autoLaunch;
     try {
@@ -745,16 +674,6 @@ export default function Dashboard() {
     setWebdavEnabled(next);
   };
 
-  const applyTranslationProvider = (providerId: TranslationProviderId) => {
-    setTranslationProvider(providerId);
-    setConnectionTest(null);
-    const provider = TRANSLATION_PROVIDERS.find(item => item.id === providerId);
-    if (provider && provider.id !== "custom") {
-      setTransBaseUrl(provider.baseUrl);
-      setTransModelName(provider.model);
-    }
-  };
-
   const handleTestTranslationConnection = async () => {
     if (isTestingConnection) return;
     setIsTestingConnection(true);
@@ -767,46 +686,12 @@ export default function Dashboard() {
   };
 
   const handleSave = async () => {
-    if (isSavingSettings || !hasUnsavedChanges) return;
-    setIsSavingSettings(true);
-    try {
-      await invoke("set_config_values", { values: {
-        trans_api_key: transApiKey,
-        trans_base_url: transBaseUrl,
-        trans_model_name: transModelName,
-        language: lang,
-        target_lang: targetLang,
-        source_lang: sourceLang,
-        auto_copy: autoCopy ? "true" : "false",
-        clipboard_monitor: clipboardMonitor ? "true" : "false",
-        accent_color: accentColor,
-        theme,
-        font_size: fontSize.toString(),
-        tts_engine: ttsEngine,
-        tts_api_key: ttsApiKey,
-        tts_base_url: ttsBaseUrl,
-        tts_model_name: ttsModelName,
-        tts_voice: ttsVoice,
-        tts_speed: ttsSpeed,
-        custom_prompt: customPrompt,
-        backup_api_key: backupApiKey,
-        backup_base_url: backupBaseUrl,
-        backup_model: backupModelName,
-        ocr_lang: ocrLang,
-        webdav_enabled: webdavEnabled ? "true" : "false",
-        webdav_url: webdavUrl,
-        webdav_user: webdavUser,
-        webdav_pass: webdavPass,
-      } });
-      setSavedSettingsFingerprint(settingsFingerprint);
+    const result = await saveSettings();
+    if (result === "saved") {
       toast("success", t.success);
       addNotification(t.success);
-      emit("settings-changed", { theme, fontSize }).catch(console.error);
-    } catch (e) {
-      console.error("Failed to save settings", e);
+    } else if (result === "failed") {
       toast("error", t.settingsSaveFailed);
-    } finally {
-      setIsSavingSettings(false);
     }
   };
 
@@ -1373,7 +1258,7 @@ export default function Dashboard() {
                                         <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.translationService}</label>
                                         <div className="grid grid-cols-3 gap-2 rounded-[20px] bg-black/[0.03] dark:bg-white/[0.04] p-1.5">
                                             {TRANSLATION_PROVIDERS.map(provider => (
-                                                <button key={provider.id} onClick={() => applyTranslationProvider(provider.id)} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
+                                                <button key={provider.id} onClick={() => { applyTranslationProvider(provider.id); setConnectionTest(null); }} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
                                                     {provider.id === "custom" ? t.customService : provider.label}
                                                 </button>
                                             ))}
