@@ -1,3 +1,4 @@
+mod backup;
 mod db;
 mod diagnostics;
 mod history;
@@ -18,82 +19,9 @@ use std::thread;
 use std::time::Duration;
 use std::fs;
 use std::path::PathBuf;
-use sha2::{Sha256, Digest};
 use rusqlite::OptionalExtension;
 use std::io::Write;
 use std::sync::Mutex;
-use aes_gcm::{Aes256Gcm, AeadCore, Nonce, aead::{Aead, KeyInit, OsRng}};
-use argon2::Argon2;
-const BACKUP_KEY: &[u8; 32] = b"LONG-TRANS-PRIVATE-KEY-2024-MARC";
-const BACKUP_V3_MAGIC: &[u8; 4] = b"TLB3";
-
-fn derive_legacy_key(password: &str, salt: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    hasher.update(salt);
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result[..32]);
-    key
-}
-
-fn derive_backup_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
-    let mut key = [0u8; 32];
-    Argon2::default()
-        .hash_password_into(password.as_bytes(), salt, &mut key)
-        .map_err(|e| format!("Key derivation failed: {e}"))?;
-    Ok(key)
-}
-
-fn encrypt_backup_payload(payload: &[u8], password: &str) -> Result<Vec<u8>, String> {
-    let salt = uuid::Uuid::new_v4();
-    let key = derive_backup_key(password, salt.as_bytes())?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-    let mut rng = OsRng;
-    let nonce = Aes256Gcm::generate_nonce(&mut rng);
-    let mut ciphertext = cipher.encrypt(&nonce, payload).map_err(|e| format!("Encryption error: {e}"))?;
-
-    let mut output = Vec::with_capacity(4 + 16 + 12 + ciphertext.len());
-    output.extend_from_slice(BACKUP_V3_MAGIC);
-    output.extend_from_slice(salt.as_bytes());
-    output.extend_from_slice(&nonce);
-    output.append(&mut ciphertext);
-    Ok(output)
-}
-
-fn decrypt_backup_payload(file_data: &[u8], password: &str) -> Result<Vec<u8>, String> {
-    if file_data.starts_with(BACKUP_V3_MAGIC) {
-        if file_data.len() < 48 { return Err("Invalid v3 backup file".to_string()); }
-        let salt = &file_data[4..20];
-        let nonce = Nonce::from_slice(&file_data[20..32]);
-        let key = derive_backup_key(password, salt)?;
-        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-        return cipher.decrypt(nonce, &file_data[32..])
-            .map_err(|_| "Decryption failed: invalid password or damaged backup".to_string());
-    }
-
-    // v2 backups used salt(16) + nonce(12) + AES-GCM with a single SHA-256 KDF.
-    let v2_plaintext = if file_data.len() >= 28 {
-        let salt = &file_data[..16];
-        let nonce = Nonce::from_slice(&file_data[16..28]);
-        let key = derive_legacy_key(password, salt);
-        let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
-        cipher.decrypt(nonce, &file_data[28..]).ok()
-    } else { None };
-    if let Some(plaintext) = v2_plaintext { return Ok(plaintext); }
-
-    // v0/v1 compatibility: historical backups used a bundled application key.
-    let cipher = Aes256Gcm::new_from_slice(BACKUP_KEY).map_err(|e| e.to_string())?;
-    let plaintext = if file_data.len() >= 12 {
-        let nonce = Nonce::from_slice(&file_data[..12]);
-        cipher.decrypt(nonce, &file_data[12..]).ok()
-    } else { None }
-    .or_else(|| {
-        let nonce = Nonce::from_slice(b"UNIQUE-NONCE");
-        cipher.decrypt(nonce, file_data).ok()
-    });
-    plaintext.ok_or_else(|| "Decryption failed: invalid password or file format".to_string())
-}
 
 struct AppState {
     shortcuts_paused: Mutex<bool>,
@@ -262,176 +190,6 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
 
     db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[tauri::command]
-async fn export_data(app: AppHandle, password: String) -> Result<String, String> {
-    if password.is_empty() { return Err("Password cannot be empty".to_string()); }
-
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-
-    let mut config_data = std::collections::HashMap::new();
-    let mut stmt = conn.prepare("SELECT key, value FROM config").map_err(|e| e.to_string())?;
-    let config_rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?;
-    for row in config_rows {
-        let (k, mut v) = row.map_err(|e| e.to_string())?;
-        if secure_config::is_sensitive_key(&k) && !v.is_empty() {
-            v = secure_config::reveal_value(&v, &app_dir)
-                .map_err(|_| format!("Cannot export protected setting '{k}' on this device"))?;
-        }
-        config_data.insert(k, v);
-    }
-
-    let mut wordbook_data = Vec::new();
-    let mut stmt = conn.prepare("SELECT uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty FROM wordbook").map_err(|e| e.to_string())?;
-    let word_rows = stmt.query_map([], |row| {
-        Ok(serde_json::json!({
-            "uuid": row.get::<_, String>(0)?,
-            "word": row.get::<_, String>(1)?,
-            "phonetic": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-            "meaning": row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            "analysis": row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            "is_deleted": row.get::<_, i64>(5)?,
-            "updated_at": row.get::<_, String>(6)?,
-            "ease_factor": row.get::<_, f64>(7)?,
-            "interval_days": row.get::<_, i32>(8)?,
-            "repetitions": row.get::<_, i32>(9)?,
-            "next_review": row.get::<_, Option<String>>(10)?,
-            "last_reviewed": row.get::<_, Option<String>>(11)?,
-            "stability": row.get::<_, f64>(12)?,
-            "difficulty": row.get::<_, f64>(13)?,
-        }))
-    }).map_err(|e| e.to_string())?;
-    for row in word_rows {
-        wordbook_data.push(row.map_err(|e| e.to_string())?);
-    }
-
-    let mut word_contexts = Vec::new();
-    let mut context_stmt = conn.prepare("SELECT word_uuid, source_text, translated_text, source_type, created_at FROM word_contexts ORDER BY created_at").map_err(|e| e.to_string())?;
-    let context_rows = context_stmt.query_map([], |row| {
-        Ok(serde_json::json!({
-            "word_uuid": row.get::<_, String>(0)?,
-            "source_text": row.get::<_, String>(1)?,
-            "translated_text": row.get::<_, String>(2)?,
-            "source_type": row.get::<_, String>(3)?,
-            "created_at": row.get::<_, String>(4)?,
-        }))
-    }).map_err(|e| e.to_string())?;
-    for row in context_rows {
-        word_contexts.push(row.map_err(|e| e.to_string())?);
-    }
-
-    let full_json = serde_json::json!({
-        "config": config_data,
-        "wordbook": wordbook_data,
-        "word_contexts": word_contexts,
-        "export_version": "3.1",
-        "export_time": chrono::Local::now().to_rfc3339()
-    });
-    let json_str = serde_json::to_string(&full_json).map_err(|e| e.to_string())?;
-
-    let output = encrypt_backup_payload(json_str.as_bytes(), &password)?;
-
-    use tauri_plugin_dialog::DialogExt;
-    let file_path = app.dialog().file().set_title("Export LongTranslate Backup").add_filter("LongTranslate Backup (*.TLong)", &["TLong"]).set_file_name("LongTranslate_Backup.TLong").blocking_save_file();
-
-    if let Some(path) = file_path {
-        let actual_path = match path {
-            tauri_plugin_dialog::FilePath::Path(p) => p,
-            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
-        };
-        std::fs::write(actual_path, &output).map_err(|e| e.to_string())?;
-        return Ok("Export successful".to_string());
-    }
-
-    Err("User cancelled".to_string())
-}
-
-#[tauri::command]
-async fn import_data(app: AppHandle, password: String) -> Result<(), String> {
-    use tauri_plugin_dialog::DialogExt;
-    let file_path = app.dialog().file().set_title("Import LongTranslate Backup").add_filter("LongTranslate Backup (*.TLong)", &["TLong"]).blocking_pick_file();
-
-    if let Some(path) = file_path {
-        let actual_path = match path {
-            tauri_plugin_dialog::FilePath::Path(p) => p,
-            tauri_plugin_dialog::FilePath::Url(u) => u.to_file_path().map_err(|_| "Invalid URL path")?,
-        };
-        let file_data = std::fs::read(actual_path).map_err(|e| e.to_string())?;
-
-        let plaintext = decrypt_backup_payload(&file_data, &password)?;
-        let json_str = String::from_utf8(plaintext).map_err(|e| e.to_string())?;
-
-        let full_json: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
-        let is_portable_v3 = full_json["export_version"].as_str().map(|version| version.starts_with("3.")).unwrap_or(false);
-
-        let app_dir = resolve_app_data_dir(&app)?;
-        {
-            let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-            let tx = conn.transaction().map_err(|e| e.to_string())?;
-
-            tx.execute("DELETE FROM config", []).map_err(|e| e.to_string())?;
-            tx.execute("DELETE FROM word_contexts", []).map_err(|e| e.to_string())?;
-            tx.execute("DELETE FROM wordbook", []).map_err(|e| e.to_string())?;
-
-            if let Some(configs) = full_json["config"].as_object() {
-                for (k, v) in configs {
-                    let mut value = v.as_str().unwrap_or_default().to_string();
-                    if is_portable_v3 && secure_config::is_sensitive_key(k) && !value.is_empty() {
-                        value = secure_config::protect_value(&value)?;
-                    }
-                    tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [k, &value]).map_err(|e| e.to_string())?;
-                }
-            }
-
-            if let Some(words) = full_json["wordbook"].as_array() {
-                for item in words {
-                    tx.execute(
-                        "INSERT INTO wordbook (uuid, word, phonetic, meaning, analysis_json, is_deleted, updated_at, ease_factor, interval_days, repetitions, next_review, last_reviewed, stability, difficulty) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                        (
-                            item["uuid"].as_str().unwrap_or_default(),
-                            item["word"].as_str().unwrap_or_default(),
-                            item["phonetic"].as_str().unwrap_or_default(),
-                            item["meaning"].as_str().unwrap_or_default(),
-                            item["analysis"].as_str().unwrap_or_default(),
-                            item["is_deleted"].as_i64().unwrap_or(0),
-                            item["updated_at"].as_str().unwrap_or_default(),
-                            item["ease_factor"].as_f64().unwrap_or(2.5),
-                            item["interval_days"].as_i64().unwrap_or(0),
-                            item["repetitions"].as_i64().unwrap_or(0),
-                            item["next_review"].as_str().unwrap_or(""),
-                            item["last_reviewed"].as_str().unwrap_or(""),
-                            item["stability"].as_f64().unwrap_or(0.0),
-                            item["difficulty"].as_f64().unwrap_or(0.0),
-                        )
-                    ).map_err(|e| e.to_string())?;
-                }
-            }
-            if let Some(contexts) = full_json["word_contexts"].as_array() {
-                for item in contexts {
-                    tx.execute(
-                        "INSERT OR IGNORE INTO word_contexts (word_uuid, source_text, translated_text, source_type, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        (
-                            item["word_uuid"].as_str().unwrap_or_default(),
-                            item["source_text"].as_str().unwrap_or_default(),
-                            item["translated_text"].as_str().unwrap_or_default(),
-                            item["source_type"].as_str().unwrap_or("manual"),
-                            item["created_at"].as_str().unwrap_or_default(),
-                        )
-                    ).map_err(|e| e.to_string())?;
-                }
-            }
-            tx.commit().map_err(|e| e.to_string())?;
-        }
-
-        app.emit("wordbook-updated", "import").map_err(|e| e.to_string())?;
-        app.emit("config-updated", "import").map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    Err("User cancelled".to_string())
 }
 
 #[tauri::command]
@@ -1469,7 +1227,7 @@ pub fn run() {
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, tts::proxy_fetch_audio, tts::get_audio_cache_size,
             tts::clear_audio_cache, tts::check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
-            update_shortcut, set_shortcuts_paused, export_data, import_data, tts::save_audio_cache,
+            update_shortcut, set_shortcuts_paused, backup::export_data, backup::import_data, tts::save_audio_cache,
             history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
             export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
             review::get_due_reviews, review::submit_review, review::get_review_stats, export_anki,
@@ -1487,27 +1245,7 @@ fn should_show_main_window(args: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        decrypt_backup_payload, encrypt_backup_payload, should_show_main_window, BACKUP_V3_MAGIC,
-    };
-
-    #[test]
-    fn v3_backup_round_trip_uses_authenticated_encryption() {
-        let plaintext = br#"{"config":{"trans_api_key":"secret"}}"#;
-        let encrypted = encrypt_backup_payload(plaintext, "correct horse battery staple").unwrap();
-
-        assert!(encrypted.starts_with(BACKUP_V3_MAGIC));
-        assert!(!encrypted.windows(b"secret".len()).any(|part| part == b"secret"));
-        assert_eq!(decrypt_backup_payload(&encrypted, "correct horse battery staple").unwrap(), plaintext);
-    }
-
-    #[test]
-    fn v3_backup_rejects_wrong_password_and_truncated_files() {
-        let encrypted = encrypt_backup_payload(b"payload", "right-password").unwrap();
-
-        assert!(decrypt_backup_payload(&encrypted, "wrong-password").is_err());
-        assert!(decrypt_backup_payload(BACKUP_V3_MAGIC, "right-password").is_err());
-    }
+    use super::should_show_main_window;
 
     #[test]
     fn manual_launch_shows_main_window_but_autostart_stays_in_tray() {
