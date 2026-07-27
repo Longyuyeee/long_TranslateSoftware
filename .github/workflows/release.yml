@@ -55,7 +55,7 @@ jobs:
         run: npm run quality:report -- --require-runtime
 
       - name: Upload quality report artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: quality-report-${{ github.run_id }}
           path: quality-reports/quality-report.json
