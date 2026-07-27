@@ -256,7 +256,7 @@
 - `npm run build`：TypeScript 与 Vite 生产构建通过。
 - `npm run quality:report -- --require-runtime`：统一质量报告生成并通过全部阈值。
 - `npm audit --audit-level=high`：0 个漏洞。
-- `cargo test`：29 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线、脱敏诊断边界、Windows OCR 语言枚举/无效语言降级、真实 PNG 识别 CER，以及非法 TTS 请求头的无崩溃错误路径。
+- `cargo test`：31 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线、翻译历史分页与缓存隔离、脱敏诊断边界、Windows OCR 语言枚举/无效语言降级、真实 PNG 识别 CER，以及非法 TTS 请求头的无崩溃错误路径。
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - `git diff --check`：通过。
 
@@ -271,7 +271,7 @@
 | 同步与数据 | DPAPI、连接测试、结构化摘要、并发保护和隔离端到端验证已完成 | 后续需验证更多真实 WebDAV 服务兼容性 |
 | 性能 | 历史和生词本均已后端分页；生词本具备一万条首屏/搜索基线 | 主前端包仍超过 500 KB，需继续代码分割 |
 | 可访问性 | 更新与 OCR 弹窗具备焦点循环、Escape 关闭和焦点恢复；主导航支持方向键、Home、End 与 Ctrl+1～7 | 后续新增模态界面需继续复用统一焦点约束 |
-| 可维护性 | service/hook 已开始拆分 | `Dashboard.tsx` 约 1750 行、`src-tauri/src/lib.rs` 约 1970 行，变更冲突和回归面偏大 |
+| 可维护性 | WebDAV、词库查询、诊断、OCR、翻译历史与翻译记忆已有独立 Rust 模块和测试边界 | `Dashboard.tsx` 约 1930 行、`src-tauri/src/lib.rs` 约 1970 行，复习、TTS、备份和前端设置编排仍待拆分 |
 
 结论：当前项目已从“功能闭环”进入“质量工程化”阶段。下一阶段不应同时扩展文档、浏览器和实时语音，而应先让准确率、性能和故障恢复能够被重复测量。
 
@@ -305,7 +305,7 @@
 
 ### v0.4.9：架构收口
 
-1. Rust 按 WebDAV、词库/复习、历史和 TTS 拆分模块，统一命令错误类型。
+1. Rust 按 WebDAV、词库/复习、历史和 TTS 拆分模块，统一命令错误类型。（WebDAV、词库查询、翻译历史与翻译记忆已拆分；历史查询增加 1～500 条边界和独立缓存隔离测试）
 2. 前端按设置、生词本、批量翻译和更新流程拆分组件与 hook。
 3. 在不扩展供应商数量的前提下，提炼现有 OpenAI 兼容接口的能力描述、超时和错误映射。
 

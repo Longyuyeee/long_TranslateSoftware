@@ -1,5 +1,6 @@
 mod db;
 mod diagnostics;
+mod history;
 mod ocr;
 mod secure_config;
 mod tray;
@@ -986,49 +987,6 @@ fn delete_word(app: AppHandle, id: i32) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_translation(app: AppHandle, source_text: String, translated_text: String, source_lang: Option<String>, target_lang: Option<String>, model: Option<String>) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO translation_history (source_text, translated_text, source_lang, target_lang, model) VALUES (?1, ?2, ?3, ?4, ?5)",
-        [&source_text, &translated_text, &source_lang.unwrap_or_default(), &target_lang.unwrap_or_default(), &model.unwrap_or_default()],
-    ).map_err(|e| e.to_string())?;
-    app.emit("history-updated", "").map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn get_translation_history(app: AppHandle, limit: Option<i32>, offset: Option<i32>) -> Result<Vec<serde_json::Value>, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT id, source_text, translated_text, source_lang, target_lang, model, created_at FROM translation_history ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map([limit.unwrap_or(100), offset.unwrap_or(0)], |row| {
-        Ok(serde_json::json!({
-            "id": row.get::<_, i32>(0)?,
-            "source_text": row.get::<_, String>(1)?,
-            "translated_text": row.get::<_, String>(2)?,
-            "source_lang": row.get::<_, String>(3)?,
-            "target_lang": row.get::<_, String>(4)?,
-            "model": row.get::<_, String>(5)?,
-            "created_at": row.get::<_, String>(6)?,
-        }))
-    }).map_err(|e| e.to_string())?;
-    let mut items = Vec::new();
-    for row in rows { items.push(row.map_err(|e| e.to_string())?); }
-    Ok(items)
-}
-
-#[tauri::command]
-fn delete_translation(app: AppHandle, id: i32) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM translation_history WHERE id = ?1", [id]).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
     let app_dir = resolve_app_data_dir(&app)?;
     let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
@@ -1096,56 +1054,6 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
     } else {
         Err("User cancelled".to_string())
     }
-}
-
-#[tauri::command]
-fn clear_translation_history(app: AppHandle) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM translation_history", []).map_err(|e| e.to_string())?;
-    app.emit("history-updated", "").map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn lookup_translation_memory(
-    app: AppHandle,
-    text: String,
-    target_lang: String,
-    cache_context: String,
-) -> Result<Option<String>, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
-    let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
-    let result: Option<String> = conn.query_row(
-        "SELECT translated_text FROM translation_memory
-         WHERE source_hash = ?1 AND target_lang = ?2 AND context_hash = ?3",
-        [&hash, &target_lang, &context_hash],
-        |row| row.get(0),
-    ).optional().map_err(|e| e.to_string())?;
-    Ok(result)
-}
-
-#[tauri::command]
-fn save_translation_memory(
-    app: AppHandle,
-    source_text: String,
-    translated_text: String,
-    target_lang: String,
-    cache_context: String,
-) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let hash = format!("{:x}", Sha256::digest(source_text.as_bytes()));
-    let context_hash = format!("{:x}", Sha256::digest(cache_context.as_bytes()));
-    conn.execute(
-        "INSERT OR REPLACE INTO translation_memory
-         (source_hash, target_lang, context_hash, source_text, translated_text)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        [&hash, &target_lang, &context_hash, &source_text, &translated_text],
-    ).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -1964,8 +1872,8 @@ pub fn run() {
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, export_data, import_data, save_audio_cache,
-            save_translation, get_translation_history, delete_translation, clear_translation_history,
-            export_wordbook, lookup_translation_memory, save_translation_memory,
+            history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
+            export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
             get_due_reviews, submit_review, get_review_stats, export_anki,
             add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
         ])
