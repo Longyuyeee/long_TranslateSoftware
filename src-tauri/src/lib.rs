@@ -1,4 +1,5 @@
 mod db;
+mod diagnostics;
 mod ocr;
 mod secure_config;
 mod tray;
@@ -159,6 +160,42 @@ fn updater_configured(app: AppHandle) -> bool {
         .and_then(|config| config.get("pubkey"))
         .and_then(|key| key.as_str())
         .is_some_and(|key| !key.trim().is_empty() && !key.contains("REPLACE_WITH"))
+}
+
+#[tauri::command]
+fn export_diagnostics(app: AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let app_dir = resolve_app_data_dir(&app)?;
+    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
+    let report = diagnostics::build_report(
+        &conn,
+        &app.package_info().version.to_string(),
+        updater_configured(app.clone()),
+    )?;
+    let contents = serde_json::to_vec_pretty(&report)
+        .map_err(|error| format!("Cannot serialize diagnostic report: {error}"))?;
+    let file_name = format!(
+        "LongTranslate_Diagnostics_{}.json",
+        chrono::Local::now().format("%Y%m%d_%H%M%S")
+    );
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title("Export privacy-safe diagnostics")
+        .add_filter("JSON diagnostic report", &["json"])
+        .set_file_name(file_name)
+        .blocking_save_file()
+        .ok_or_else(|| "User cancelled".to_string())?;
+    let path = match file_path {
+        tauri_plugin_dialog::FilePath::Path(path) => path,
+        tauri_plugin_dialog::FilePath::Url(url) => url
+            .to_file_path()
+            .map_err(|_| "The selected diagnostic destination is not a local file".to_string())?,
+    };
+    fs::write(&path, contents)
+        .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
@@ -1922,6 +1959,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
             get_config_values, set_config_values, updater_configured,
+            export_diagnostics,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, proxy_fetch_audio, get_audio_cache_size,
             clear_audio_cache, check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,

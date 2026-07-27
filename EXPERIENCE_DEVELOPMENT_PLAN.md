@@ -256,7 +256,7 @@
 - `npm run build`：TypeScript 与 Vite 生产构建通过。
 - `npm run quality:report -- --require-runtime`：统一质量报告生成并通过全部阈值。
 - `npm audit --audit-level=high`：0 个漏洞。
-- `cargo test`：28 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线、Windows OCR 语言枚举/无效语言降级、真实 PNG 识别 CER，以及非法 TTS 请求头的无崩溃错误路径。
+- `cargo test`：29 项测试通过，覆盖 WebDAV 可靠性、生词本性能基线、脱敏诊断边界、Windows OCR 语言枚举/无效语言降级、真实 PNG 识别 CER，以及非法 TTS 请求头的无崩溃错误路径。
 - `cargo clippy --all-targets -- -D warnings`：通过。
 - `git diff --check`：通过。
 
@@ -280,7 +280,7 @@
 ### v0.4.7：可靠性与可诊断性
 
 1. WebDAV 增加连接测试、错误分类、冲突/合并摘要和最近同步结果。
-2. 提供脱敏诊断导出，不包含 API Key、WebDAV 密码、原文或译文。
+2. 提供脱敏诊断导出，不包含 API Key、WebDAV 密码、原文或译文。（已完成：仅导出版本、配置状态、数据量和明确的隐私排除清单）
 3. 生词本改为后端分页、检索和排序；以 1 万条数据建立启动、检索和翻页基线。
 4. 将用户输入和网络响应可触发的 `unwrap` / `expect` 改为结构化错误。
 5. 完成更新弹窗焦点循环和主页面键盘验收。

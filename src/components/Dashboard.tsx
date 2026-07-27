@@ -177,6 +177,7 @@ export default function Dashboard() {
   const [configHydrated, setConfigHydrated] = useState(false);
   const [savedSettingsFingerprint, setSavedSettingsFingerprint] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
   // Glossary state
   interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
   const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
@@ -698,6 +699,23 @@ export default function Dashboard() {
       if (requestId === wordbookRequestIdRef.current) {
         setIsWordbookLoading(false);
       }
+    }
+  };
+
+  const handleExportDiagnostics = async () => {
+    if (isExportingDiagnostics) return;
+    setIsExportingDiagnostics(true);
+    try {
+      await invoke<string>("export_diagnostics");
+      toast("success", t.diagnosticsExportSuccess);
+      addNotification(t.diagnosticsExportSuccess);
+    } catch (e: any) {
+      if (e !== "User cancelled") {
+        toast("error", `${t.diagnosticsExportFailed}: ${e}`);
+        addNotification(`${t.diagnosticsExportFailed}: ${e}`);
+      }
+    } finally {
+      setIsExportingDiagnostics(false);
     }
   };
 
@@ -1294,6 +1312,21 @@ export default function Dashboard() {
                                         <button onClick={handleExport} className="px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all uppercase">{t.exportData}</button>
                                         <button onClick={handleImport} className="px-4 py-1.5 rounded-full bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white border border-black/5 dark:border-white/10 text-[10px] font-black hover:bg-zinc-900 dark:hover:bg-white hover:text-white dark:hover:text-zinc-900 transition-all uppercase">{t.importData}</button>
                                     </div>
+                                </div>
+                                <div className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
+                                    <div>
+                                        <label className="text-[0.9em] font-black flex items-center gap-2"><Info size={14} className="text-accent" />{t.diagnosticsReport}</label>
+                                        <span className="text-[0.7em] text-zinc-400 font-bold opacity-60">{t.diagnosticsDesc}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleExportDiagnostics}
+                                        disabled={isExportingDiagnostics}
+                                        className="shrink-0 flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 uppercase"
+                                    >
+                                        {isExportingDiagnostics && <RotateCcw size={12} className="animate-spin" />}
+                                        {isExportingDiagnostics ? t.exportingDiagnostics : t.exportDiagnostics}
+                                    </button>
                                 </div>
                             </div>
                         </div>
