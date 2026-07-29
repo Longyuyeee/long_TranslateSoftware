@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Monitor, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -23,6 +23,10 @@ import type {
   TtsModelConfig,
 } from "./ModelConfigTab";
 import type { AppearanceConfigPatch } from "./AppearanceSettingsTab";
+import type {
+  GeneralSettingsPatch,
+  WebDavSettingsPatch,
+} from "./GeneralSettingsTab";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
@@ -32,6 +36,7 @@ const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
 const ModelConfigTab = lazy(() => import("./ModelConfigTab"));
 const AppearanceSettingsTab = lazy(() => import("./AppearanceSettingsTab"));
+const GeneralSettingsTab = lazy(() => import("./GeneralSettingsTab"));
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -195,7 +200,6 @@ export default function Dashboard() {
   const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
 
   // Translation Model Config
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
   const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
@@ -656,11 +660,6 @@ export default function Dashboard() {
     }
   };
 
-  const toggleWebdav = () => {
-    const next = !webdavEnabled;
-    setWebdavEnabled(next);
-  };
-
   const handleTestTranslationConnection = async () => {
     if (isTestingConnection) return;
     setIsTestingConnection(true);
@@ -698,6 +697,31 @@ export default function Dashboard() {
     if (patch.theme !== undefined) setTheme(patch.theme);
     if (patch.accentColor !== undefined) setAccentColor(patch.accentColor);
     if (patch.fontSize !== undefined) setFontSize(patch.fontSize);
+  };
+
+  const handleGeneralSettingsChange = (patch: GeneralSettingsPatch) => {
+    if (patch.lang !== undefined) setLang(patch.lang);
+    if (patch.sourceLang !== undefined) setSourceLang(patch.sourceLang);
+    if (patch.targetLang !== undefined) setTargetLang(patch.targetLang);
+    if (patch.ocrLang !== undefined) setOcrLang(patch.ocrLang);
+    if (patch.autoCopy !== undefined) setAutoCopy(patch.autoCopy);
+    if (patch.clipboardMonitor !== undefined) {
+      setClipboardMonitor(patch.clipboardMonitor);
+    }
+  };
+
+  const handleWebDavSettingsChange = (patch: WebDavSettingsPatch) => {
+    if (patch.enabled !== undefined) setWebdavEnabled(patch.enabled);
+    if (patch.url !== undefined) setWebdavUrl(patch.url);
+    if (patch.user !== undefined) setWebdavUser(patch.user);
+    if (patch.password !== undefined) setWebdavPass(patch.password);
+    if (
+      patch.url !== undefined ||
+      patch.user !== undefined ||
+      patch.password !== undefined
+    ) {
+      setWebdavConnectionTest(null);
+    }
   };
 
   const handleSave = async () => {
@@ -875,215 +899,47 @@ export default function Dashboard() {
             <AnimatePresence mode="wait">
                 <motion.div key={activeTab} initial={{ opacity: 0, x: slideDirection * 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: slideDirection * -24 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="h-full min-h-0 flex flex-col">
                     {activeTab === "general" && (
-                        <div className="space-y-6 max-w-3xl mx-auto w-full">
-                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.coreSettings}</h3>
-                                {[
-                                    { label: t.language, desc: t.interfaceLangDesc, component: (
-                                        <ThemedSelect
-                                            value={lang}
-                                            options={interfaceLanguageOptions}
-                                            onChange={setLang}
-                                            ariaLabel={t.language}
-                                            className="w-44"
-                                        />
-                                    )},
-                                    { label: t.autoLaunch, desc: t.autoLaunchDesc, component: (
-                                        <div onClick={toggleAutoLaunch} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoLaunch ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
-                                            <motion.div animate={{ left: autoLaunch ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                        </div>
-                                    )},
-                                    { label: t.sourceLang, desc: t.autoDetect, component: (
-                                        <ThemedSelect
-                                            value={sourceLang}
-                                            options={[{ value: "auto", label: t.autoDetect }, ...languageOptions]}
-                                            onChange={setSourceLang}
-                                            ariaLabel={t.sourceLang}
-                                            className="w-44"
-                                        />
-                                    )},
-                                    { label: t.targetLang, desc: t.translationOutput, component: (
-                                        <ThemedSelect
-                                            value={targetLang}
-                                            options={languageOptions}
-                                            onChange={setTargetLang}
-                                            ariaLabel={t.targetLang}
-                                            className="w-44"
-                                            accent
-                                        />
-                                    )},
-                                    { label: t.ocrLang, desc: t.ocrLangDesc, component: (
-                                        <ThemedSelect
-                                            value={ocrLang}
-                                            options={ocrLanguageOptions}
-                                            onChange={setOcrLang}
-                                            ariaLabel={t.ocrLang}
-                                            className="w-44"
-                                        />
-                                    )},
-                                    { label: t.autoCopy, desc: t.autoCopyDesc, component: (
-                                        <div onClick={() => setAutoCopy(!autoCopy)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${autoCopy ? 'bg-accent shadow-lg shadow-accent' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
-                                            <motion.div animate={{ left: autoCopy ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                        </div>
-                                    )},
-                                    { label: t.clipboardMonitor, desc: t.clipboardMonitorDesc, component: (
-                                        <div onClick={() => setClipboardMonitor(!clipboardMonitor)} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative ${clipboardMonitor ? 'bg-accent shadow-lg shadow-accent' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
-                                            <motion.div animate={{ left: clipboardMonitor ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                        </div>
-                                    )}
-                                ].map((item, idx) => (
-                                    <div key={idx} className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5 transition-all hover:bg-white/40 dark:hover:bg-white/10">
-                                        <div className="min-w-0"><label className="text-[0.9em] font-black block leading-snug">{item.label}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-70 leading-snug">{item.desc}</span></div>
-                                        <div className="shrink-0">{item.component}</div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50">
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.shortcuts}</h3>
-                                {[
-                                    { label: t.shortcutLabelQ, desc: t.shortcutDescQ, value: shortcutQ, id: 'q' as const },
-                                    { label: t.shortcutLabelW, desc: t.shortcutDescW, value: shortcutW, id: 'w' as const }
-                                ].map((item) => (
-                                    <div key={item.id} className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                        <div className="min-w-0">
-                                            <label className="text-[0.9em] font-black block leading-snug">{item.label}</label>
-                                            <span className="text-[0.7em] text-zinc-400 font-bold opacity-70 leading-snug">{item.desc}</span>
-                                        </div>
-                                        <button 
-                                            onClick={() => setRecordingKey(recordingKey === item.id ? null : item.id)}
-                                            className={`min-w-[130px] shrink-0 px-4 py-2.5 rounded-2xl font-black text-[11px] border transition-all ${
-                                                recordingKey === item.id 
-                                                ? 'bg-accent text-white border-accent animate-pulse' 
-                                                : 'bg-white/60 dark:bg-white/10 border-black/5 dark:border-white/10 hover:border-accent/50'
-                                            }`}
-                                        >
-                                            {recordingKey === item.id ? t.shortcutRecording : item.value}
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <button type="button" onClick={() => setShowAdvancedSettings(value => !value)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-dashed border-black/10 dark:border-white/10 text-[10px] font-black text-zinc-400 hover:text-accent hover:border-accent/30 transition-all">
-                                <Settings size={14} /> {showAdvancedSettings ? t.hideAdvancedSettings : t.showAdvancedSettings}
-                                <ChevronRight size={13} className={`transition-transform ${showAdvancedSettings ? "rotate-90" : ""}`} />
-                            </button>
-
-                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50`}>
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex flex-col">
-                                        <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.cloudSync}</h3>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-[9px] font-black text-zinc-400 uppercase opacity-60">{t.lastSync}:</span>
-                                            <span className="text-[9px] font-black text-accent uppercase">{lastSyncTime || t.neverSync}</span>
-                                        </div>
-                                    </div>
-                                    <button type="button" role="switch" aria-checked={webdavEnabled} aria-label={t.toggleWebdav} onClick={toggleWebdav} className={`w-12 h-6.5 rounded-full cursor-pointer transition-all relative focus-visible:ring-4 focus-visible:ring-accent/20 ${webdavEnabled ? 'bg-green-500 shadow-lg shadow-green-500/20' : 'bg-zinc-300 dark:bg-zinc-700'}`}>
-                                        <motion.div animate={{ left: webdavEnabled ? 24 : 3 }} className="absolute w-5 h-5 bg-white rounded-full top-0.75 shadow-sm" />
-                                    </button>
-                                </div>
-                                
-                                <AnimatePresence>
-                                    {webdavEnabled && (
-                                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-4 overflow-hidden">
-                                            <div className="p-4 bg-accent/5 rounded-2xl border border-accent/10">
-                                                <div className="flex gap-3">
-                                                    <Info size={16} className="text-accent shrink-0 mt-0.5" />
-                                                    <p className="text-[10px] font-bold leading-relaxed text-accent/80 dark:text-accent/80">{t.webdavUrlHelp}</p>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-1 gap-3">
-                                                <input value={webdavUrl} onChange={(e) => { setWebdavUrl(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUrl} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <input value={webdavUser} onChange={(e) => { setWebdavUser(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavUser} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                    <input type="password" value={webdavPass} onChange={(e) => { setWebdavPass(e.target.value); setWebdavConnectionTest(null); }} placeholder={t.webdavPass} className="bg-white/60 dark:bg-black/20 px-4 py-3 rounded-xl border border-black/5 dark:border-white/10 font-bold text-[0.8em] outline-none dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                </div>
-                                            </div>
-                                            {webdavConnectionTest && (
-                                                <div role={webdavConnectionTest.ok ? "status" : "alert"} className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-[10px] font-bold ${
-                                                    webdavConnectionTest.ok
-                                                        ? "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400"
-                                                        : "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400"
-                                                }`}>
-                                                    {webdavConnectionTest.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
-                                                    <span>{webdavConnectionTest.ok
-                                                        ? t.connectionSuccess.replace("{latency}", String(webdavConnectionTest.latencyMs || 0))
-                                                        : webDavErrorText(t, webdavConnectionTest.error?.code, webdavConnectionTest.error?.message || t.connectionFailed)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {lastSyncSummary && (
-                                                <div className="grid grid-cols-3 gap-2 rounded-2xl border border-black/5 bg-white/35 p-3 dark:border-white/10 dark:bg-white/5">
-                                                    {[
-                                                        { label: t.syncAdded, value: lastSyncSummary.added },
-                                                        { label: t.syncUpdated, value: lastSyncSummary.updated },
-                                                        { label: t.syncUploaded, value: lastSyncSummary.uploaded },
-                                                    ].map(item => (
-                                                        <div key={item.label} className="rounded-xl bg-white/55 px-2 py-2 text-center dark:bg-black/15">
-                                                            <div className="text-sm font-black text-accent">{item.value}</div>
-                                                            <div className="text-[8px] font-bold text-zinc-400">{item.label}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleTestWebdavConnection}
-                                                    disabled={isTestingWebdav || isSyncing || !webdavUrl.trim()}
-                                                    className="flex items-center justify-center gap-2 rounded-xl border border-accent/20 bg-accent/10 py-3 text-[10px] font-black text-accent transition-all hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                    {isTestingWebdav ? <RotateCcw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                                                    {isTestingWebdav ? t.connectionTesting : t.testConnection}
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={handleSync}
-                                                    disabled={isSyncing || isTestingWebdav || !webdavUrl.trim()}
-                                                    className={`flex items-center justify-center gap-2 rounded-xl py-3 text-[10px] font-black transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isSyncing ? 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800' : 'bg-zinc-900 text-white hover:scale-[1.01] dark:bg-white dark:text-zinc-900'}`}
-                                                >
-                                                    <RotateCcw size={14} className={isSyncing ? "animate-spin" : ""} />
-                                                    {isSyncing ? t.syncing : t.syncNow}
-                                                </button>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-
-                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-8 space-y-4 shadow-apple border-white/50`}>
-                                <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4">{t.storage}</h3>
-                                <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                    <div><label className="text-[0.9em] font-black block">{t.cacheSize}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{t.storageDesc}</span></div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-[11px] font-black text-zinc-500">{cacheSize}</span>
-                                        <button onClick={handleClearCache} className="px-4 py-1.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20 text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.clearCache}</button>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                    <div><label className="text-[0.9em] font-black block">{t.backupRestore}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase tracking-tighter">{t.backupDesc}</span></div>
-                                    <div className="flex items-center gap-2">
-                                        <button onClick={handleExport} className="px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all uppercase">{t.exportData}</button>
-                                        <button onClick={handleImport} className="px-4 py-1.5 rounded-full bg-zinc-900/10 dark:bg-white/10 text-zinc-900 dark:text-white border border-black/5 dark:border-white/10 text-[10px] font-black hover:bg-zinc-900 dark:hover:bg-white hover:text-white dark:hover:text-zinc-900 transition-all uppercase">{t.importData}</button>
-                                    </div>
-                                </div>
-                                <div className="flex items-center justify-between gap-4 p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                    <div>
-                                        <label className="text-[0.9em] font-black flex items-center gap-2"><Info size={14} className="text-accent" />{t.diagnosticsReport}</label>
-                                        <span className="text-[0.7em] text-zinc-400 font-bold opacity-60">{t.diagnosticsDesc}</span>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={handleExportDiagnostics}
-                                        disabled={isExportingDiagnostics}
-                                        className="shrink-0 flex items-center gap-2 px-4 py-1.5 rounded-full bg-accent/10 text-accent border border-accent/20 text-[10px] font-black hover:bg-accent hover:text-white transition-all disabled:cursor-not-allowed disabled:opacity-50 uppercase"
-                                    >
-                                        {isExportingDiagnostics && <RotateCcw size={12} className="animate-spin" />}
-                                        {isExportingDiagnostics ? t.exportingDiagnostics : t.exportDiagnostics}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                        <Suspense fallback={<div className="h-64 animate-pulse rounded-[28px] bg-black/5 dark:bg-white/5" />}>
+                            <GeneralSettingsTab
+                                labels={t}
+                                value={{
+                                    lang,
+                                    autoLaunch,
+                                    sourceLang,
+                                    targetLang,
+                                    ocrLang,
+                                    autoCopy,
+                                    clipboardMonitor,
+                                }}
+                                interfaceLanguageOptions={interfaceLanguageOptions}
+                                languageOptions={languageOptions}
+                                ocrLanguageOptions={ocrLanguageOptions}
+                                shortcuts={{ q: shortcutQ, w: shortcutW, recording: recordingKey }}
+                                webdav={{
+                                    enabled: webdavEnabled,
+                                    url: webdavUrl,
+                                    user: webdavUser,
+                                    password: webdavPass,
+                                    lastSyncTime,
+                                    lastSyncSummary,
+                                }}
+                                webdavConnection={webdavConnectionTest}
+                                isTestingWebdav={isTestingWebdav}
+                                isSyncing={isSyncing}
+                                cacheSize={cacheSize}
+                                isExportingDiagnostics={isExportingDiagnostics}
+                                onChange={handleGeneralSettingsChange}
+                                onToggleAutoLaunch={() => void toggleAutoLaunch()}
+                                onRecordingChange={setRecordingKey}
+                                onWebDavChange={handleWebDavSettingsChange}
+                                onTestWebdav={() => void handleTestWebdavConnection()}
+                                onSync={() => void handleSync()}
+                                onClearCache={() => void handleClearCache()}
+                                onExport={() => void handleExport()}
+                                onImport={() => void handleImport()}
+                                onExportDiagnostics={() => void handleExportDiagnostics()}
+                            />
+                        </Suspense>
                     )}
 
                     {activeTab === "batch" && (
