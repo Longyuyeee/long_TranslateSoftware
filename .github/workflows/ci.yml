@@ -51,6 +51,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Audit frontend bundle size
+        run: npm run audit:bundle
+
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
         env:
