@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Palette, Monitor, Sparkles, ExternalLink, Languages, Copy, X as CloseIcon, Clock, Bell, Brain, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Palette, Monitor, Sparkles, Languages, Copy, Clock, Bell, Brain, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -29,6 +29,7 @@ import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } 
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
+import { useGlossary } from "../hooks/useGlossary";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -36,6 +37,7 @@ const ModelConfigTab = lazy(() => import("./ModelConfigTab"));
 const AppearanceSettingsTab = lazy(() => import("./AppearanceSettingsTab"));
 const GeneralSettingsTab = lazy(() => import("./GeneralSettingsTab"));
 const WordbookTab = lazy(() => import("./WordbookTab"));
+const GlossaryEditor = lazy(() => import("./GlossaryEditor"));
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -202,38 +204,16 @@ export default function Dashboard() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
   const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
-  // Glossary state
-  interface GlossaryEntry { id: number; source_term: string; target_term: string; created_at: string; }
-  const [glossary, setGlossary] = useState<GlossaryEntry[]>([]);
-  const [newSourceTerm, setNewSourceTerm] = useState("");
-  const [newTargetTerm, setNewTargetTerm] = useState("");
-  const [editingGlossaryId, setEditingGlossaryId] = useState<number | null>(null);
-  const [editSourceTerm, setEditSourceTerm] = useState("");
-  const [editTargetTerm, setEditTargetTerm] = useState("");
-
-  const loadGlossary = async () => {
-    try { setGlossary(await invoke<GlossaryEntry[]>("get_glossary_entries")); } catch { /* empty */ }
-  };
-
-  const addGlossaryEntry = async () => {
-    if (!newSourceTerm.trim() || !newTargetTerm.trim()) return;
-    await invoke("add_glossary_entry", { sourceTerm: newSourceTerm.trim(), targetTerm: newTargetTerm.trim() });
-    setNewSourceTerm("");
-    setNewTargetTerm("");
-    await loadGlossary();
-  };
-
-  const deleteGlossaryEntry = async (id: number) => {
-    await invoke("delete_glossary_entry", { id });
-    await loadGlossary();
-  };
-
-  const saveEditGlossaryEntry = async () => {
-    if (editingGlossaryId === null || !editSourceTerm.trim() || !editTargetTerm.trim()) return;
-    await invoke("update_glossary_entry", { id: editingGlossaryId, sourceTerm: editSourceTerm.trim(), targetTerm: editTargetTerm.trim() });
-    setEditingGlossaryId(null);
-    await loadGlossary();
-  };
+  const {
+    entries: glossary,
+    isLoading: isGlossaryLoading,
+    isMutating: isGlossaryMutating,
+    hasError: hasGlossaryError,
+    load: loadGlossary,
+    add: addGlossaryEntry,
+    update: updateGlossaryEntry,
+    remove: deleteGlossaryEntry,
+  } = useGlossary();
 
   const refreshStats = async () => {
     try {
@@ -364,7 +344,6 @@ export default function Dashboard() {
     loadWordbook();
     refreshCacheSize();
     refreshStats();
-    loadGlossary();
 
     const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
         loadWordbook();
@@ -1093,43 +1072,19 @@ export default function Dashboard() {
                                 </div>
                             </div>
 
-                            {/* Glossary */}
-                            <div className="shrink-0 glass-card rounded-[24px] p-5 shadow-apple border-white/50 space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">{t.glossary} ({glossary.length})</span>
-                                    <p className="text-[8px] text-zinc-400 font-bold opacity-60">{t.glossaryDesc}</p>
-                                </div>
-                                {glossary.length > 0 && (
-                                    <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
-                                        {glossary.map(g => (
-                                            <div key={g.id} className="flex items-center gap-3 text-[10px]">
-                                                {editingGlossaryId === g.id ? (
-                                                    <>
-                                                        <input value={editSourceTerm} onChange={e => setEditSourceTerm(e.target.value)} className="flex-1 py-1.5 px-3 rounded-lg bg-white/60 dark:bg-white/10 border border-accent/50 text-[10px] font-bold outline-none" />
-                                                        <span className="text-zinc-400">→</span>
-                                                        <input value={editTargetTerm} onChange={e => setEditTargetTerm(e.target.value)} className="flex-1 py-1.5 px-3 rounded-lg bg-white/60 dark:bg-white/10 border border-accent/50 text-[10px] font-bold outline-none" />
-                                                        <button onClick={saveEditGlossaryEntry} className="p-1 text-green-500 hover:bg-green-500/10 rounded-full"><CheckCircle size={14} /></button>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span className="font-bold text-zinc-700 dark:text-zinc-200 flex-1">{g.source_term}</span>
-                                                        <span className="text-zinc-400">→</span>
-                                                        <span className="font-bold text-accent flex-1">{g.target_term}</span>
-                                                        <button onClick={() => { setEditingGlossaryId(g.id); setEditSourceTerm(g.source_term); setEditTargetTerm(g.target_term); }} className="p-1 text-zinc-400 hover:text-accent rounded-full hover:bg-accent/10"><ExternalLink size={11} /></button>
-                                                        <button onClick={() => deleteGlossaryEntry(g.id)} className="p-1 text-zinc-400 hover:text-red-500 rounded-full hover:bg-red-500/10"><CloseIcon size={11} /></button>
-                                                    </>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                <div className="flex gap-2">
-                                    <input value={newSourceTerm} onChange={e => setNewSourceTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGlossaryEntry()} placeholder={t.glossaryTerm} className="flex-1 py-2 px-3 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none focus:border-accent/50 transition-all placeholder:text-zinc-400" />
-                                    <span className="self-center text-zinc-400 text-[10px]">→</span>
-                                    <input value={newTargetTerm} onChange={e => setNewTargetTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGlossaryEntry()} placeholder={t.glossaryTranslation} className="flex-1 py-2 px-3 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none focus:border-accent/50 transition-all placeholder:text-zinc-400" />
-                                    <button onClick={addGlossaryEntry} className="px-4 py-2 bg-accent text-white rounded-xl text-[10px] font-black hover:bg-accent/90 transition-all">{t.addTerm}</button>
-                                </div>
-                            </div>
+                            <Suspense fallback={<div className="h-28 animate-pulse rounded-[24px] bg-black/5 dark:bg-white/5" />}>
+                                <GlossaryEditor
+                                    labels={t}
+                                    entries={glossary}
+                                    isLoading={isGlossaryLoading}
+                                    isMutating={isGlossaryMutating}
+                                    hasError={hasGlossaryError}
+                                    onRetry={() => void loadGlossary()}
+                                    onAdd={addGlossaryEntry}
+                                    onUpdate={updateGlossaryEntry}
+                                    onDelete={deleteGlossaryEntry}
+                                />
+                            </Suspense>
                         </div>
                     )}
 
