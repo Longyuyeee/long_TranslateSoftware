@@ -8,14 +8,23 @@ import {
   inspectSpeechAudio,
   resolveEdgeVoice,
 } from "./speechQuality";
+import {
+  chatCompletionsEndpoint,
+  normalizeTranslationError,
+  resolveTranslationProvider,
+  TranslationRequestError,
+  translationHttpError,
+  type TranslationErrorCode,
+} from "./translationProvider";
 
 export {
   detectSpeechLocale,
   inspectSpeechAudio,
   resolveEdgeVoice,
 } from "./speechQuality";
+export type { TranslationErrorCode } from "./translationProvider";
 
-const FETCH_TIMEOUT_MS = 60000; // 60 seconds
+const DEFAULT_FETCH_TIMEOUT_MS = 60_000;
 
 export type TranslationPhase =
   | "idle"
@@ -26,17 +35,6 @@ export type TranslationPhase =
   | "success"
   | "error"
   | "cancelled";
-
-export type TranslationErrorCode =
-  | "missing-api-key"
-  | "unauthorized"
-  | "model-not-found"
-  | "rate-limited"
-  | "timeout"
-  | "network"
-  | "server"
-  | "format-invalid"
-  | "unknown";
 
 export interface TranslationTaskState {
   requestId: string;
@@ -98,14 +96,7 @@ export interface TranslationComparisonCallbacks {
   onText?: (side: ComparisonSide, text: string, requestId: string) => void;
 }
 
-class TranslationRequestError extends Error {
-  constructor(public readonly code: TranslationErrorCode, message: string) {
-    super(message);
-    this.name = "TranslationRequestError";
-  }
-}
-
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const abortFromExternal = () => controller.abort(externalSignal?.reason);
   if (externalSignal?.aborted) abortFromExternal();
@@ -246,7 +237,8 @@ async function doTranslate(
   glossary?: GlossaryEntry[],
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+  const provider = resolveTranslationProvider(baseUrl);
+  const response = await fetchWithTimeout(chatCompletionsEndpoint(baseUrl), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -255,21 +247,13 @@ async function doTranslate(
     body: JSON.stringify({
       model: modelName,
       messages: buildTranslationMessages(text, targetLang, sourceLang, customPrompt, glossary),
-      stream: true,
+      stream: provider.capabilities.streaming,
     }),
-  }, FETCH_TIMEOUT_MS, signal);
+  }, provider.capabilities.requestTimeoutMs, signal);
 
   if (!response.ok) {
-    const code: TranslationErrorCode = response.status === 401 || response.status === 403
-      ? "unauthorized"
-      : response.status === 404
-        ? "model-not-found"
-        : response.status === 429
-          ? "rate-limited"
-          : response.status >= 500
-            ? "server"
-            : "unknown";
-    throw new TranslationRequestError(code, `Translation service returned HTTP ${response.status}`);
+    const error = translationHttpError(response.status);
+    throw new TranslationRequestError(error.code, error.message);
   }
   const reader = response.body?.getReader();
   if (!reader) throw new TranslationRequestError("server", "Translation service returned an empty response");
@@ -282,16 +266,6 @@ async function doTranslate(
   }
   for (const content of parser.finish()) onChunk(content);
   return true;
-}
-
-function normalizeTranslationError(error: unknown): { code: TranslationErrorCode; message: string } {
-  if (error instanceof TranslationRequestError) return { code: error.code, message: error.message };
-  if (error instanceof DOMException && error.name === "TimeoutError") {
-    return { code: "timeout", message: "Translation request timed out" };
-  }
-  if (error instanceof TypeError) return { code: "network", message: "Unable to reach the translation service" };
-  if (error instanceof Error) return { code: "unknown", message: error.message };
-  return { code: "unknown", message: "Unknown translation error" };
 }
 
 function requireTranslationFormat(
@@ -323,14 +297,15 @@ export interface ConnectionTestResult {
 /** Performs a minimal non-streaming request against an OpenAI-compatible chat endpoint. */
 export async function testTranslationConnection(config: { apiKey: string; baseUrl: string; model: string }): Promise<ConnectionTestResult> {
   const apiKey = config.apiKey.trim();
-  const baseUrl = config.baseUrl.trim().replace(/\/+$/, "");
+  const baseUrl = config.baseUrl;
   const model = config.model.trim();
   if (!apiKey) return { ok: false, error: { code: "missing-api-key", message: "API key is not configured" } };
-  if (!baseUrl || !model) return { ok: false, error: { code: "unknown", message: "Base URL and model are required" } };
+  if (!baseUrl.trim() || !model) return { ok: false, error: { code: "unknown", message: "Base URL and model are required" } };
 
   const startedAt = performance.now();
   try {
-    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+    const provider = resolveTranslationProvider(baseUrl);
+    const response = await fetchWithTimeout(chatCompletionsEndpoint(baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -339,16 +314,9 @@ export async function testTranslationConnection(config: { apiKey: string; baseUr
         max_tokens: 2,
         stream: false,
       }),
-    }, 15000);
+    }, provider.capabilities.connectionTimeoutMs);
     if (!response.ok) {
-      const code: TranslationErrorCode = response.status === 401 || response.status === 403
-        ? "unauthorized"
-        : response.status === 404
-          ? "model-not-found"
-          : response.status === 429
-            ? "rate-limited"
-            : response.status >= 500 ? "server" : "unknown";
-      return { ok: false, error: { code, message: `Translation service returned HTTP ${response.status}` } };
+      return { ok: false, error: translationHttpError(response.status) };
     }
     await response.text();
     return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };

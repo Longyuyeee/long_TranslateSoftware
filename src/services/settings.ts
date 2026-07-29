@@ -1,14 +1,16 @@
 import { Lang } from "../i18n";
 import { OcrLanguageInfo, resolveOcrLanguageTag } from "./ocr";
+import {
+  identifyTranslationProvider,
+  type TranslationProviderId,
+} from "./translationProvider";
 import { parseStoredSyncSummary, WebDavSyncSummary } from "./webdav";
 
-export const TRANSLATION_PROVIDERS = [
-  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  { id: "custom", label: "Custom", baseUrl: "", model: "" },
-] as const;
-
-export type TranslationProviderId = typeof TRANSLATION_PROVIDERS[number]["id"];
+export {
+  identifyTranslationProvider,
+  TRANSLATION_PROVIDERS,
+  type TranslationProviderId,
+} from "./translationProvider";
 
 export interface SettingsSnapshot {
   transApiKey: string;
@@ -85,20 +87,9 @@ export const DEFAULT_SETTINGS: SettingsSnapshot = {
   webdavPass: "",
 };
 
-function normalizeBaseUrl(value: string): string {
-  return value.replace(/\/+$/, "");
-}
-
 function parseFontSize(value: string): number {
   const parsed = Number.parseInt(value || String(DEFAULT_SETTINGS.fontSize), 10);
   return Number.isFinite(parsed) ? Math.min(24, Math.max(10, parsed)) : DEFAULT_SETTINGS.fontSize;
-}
-
-export function identifyTranslationProvider(baseUrl: string): TranslationProviderId {
-  const normalized = normalizeBaseUrl(baseUrl);
-  return TRANSLATION_PROVIDERS.find(
-    (provider) => provider.baseUrl && normalizeBaseUrl(provider.baseUrl) === normalized,
-  )?.id ?? "custom";
 }
 
 export function parseStoredSettings(
