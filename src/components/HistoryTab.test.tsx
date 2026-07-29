@@ -59,8 +59,10 @@ describe("HistoryTab", () => {
     expect(await screen.findByText("translated text")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle(translations.en.delete));
 
-    await waitFor(() => expect(deleteHistoryMock).toHaveBeenCalledWith(42));
-    expect(screen.queryByText("translated text")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(deleteHistoryMock).toHaveBeenCalledWith(42);
+      expect(screen.queryByText("translated text")).not.toBeInTheDocument();
+    });
     view.unmount();
     await waitFor(() => expect(disposeMock).toHaveBeenCalledOnce());
   });
