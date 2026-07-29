@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -15,7 +15,6 @@ import { WordAnalysis } from "../services/wordbook";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
-import ReviewTab from "./ReviewTab";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
@@ -24,6 +23,8 @@ import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
 import { TRANSLATION_PROVIDERS } from "../services/settings";
+
+const ReviewTab = lazy(() => import("./ReviewTab"));
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -1585,7 +1586,15 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "review" && (
-                        <ReviewTab lang={lang} onRefreshStats={refreshStats} />
+                        <Suspense
+                            fallback={(
+                                <div className="flex h-full items-center justify-center" role="status" aria-label={t.loading}>
+                                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+                                </div>
+                            )}
+                        >
+                            <ReviewTab lang={lang} onRefreshStats={refreshStats} />
+                        </Suspense>
                     )}
 
                     {activeTab === "history" && (
