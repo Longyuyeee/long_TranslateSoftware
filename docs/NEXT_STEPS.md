@@ -1,0 +1,23 @@
+# 开发接手说明
+
+## 当前情况
+
+- 当前稳定版为 `v0.4.8`，正在完成 `v0.4.9` 的架构与回归收口，暂不提升版本号。
+- 设置、历史、生词本、模型/TTS、外观、通用设置和术语表已经从 `Dashboard` 拆出独立组件、hook 或 service。
+- 当前自动化基线：前端 29 个测试文件、130 项测试，Rust 40 项测试；生产 JavaScript 最大块为 234.39 KiB。
+- GitHub Actions 负责持续集成和正式 Release 构建；本地提交前仍需执行前端、Rust、依赖和质量报告审计。
+
+## 接手后按顺序处理
+
+1. 把批量翻译的大段界面从 `Dashboard.tsx` 拆成独立懒加载组件，保留现有 `useBatchTranslation` 状态机。
+2. 继续减少 `Dashboard` 中的跨域命令编排，并检查 `src-tauri/src/lib.rs` 剩余命令是否应迁入对应 Rust 模块。
+3. 增加主进程单实例、托盘、首次启动显示、通知清除和窗口恢复的进程级回归测试。
+4. 定义桌面端与浏览器扩展之间的版本化 Native Messaging 协议，明确配对、授权、断线恢复和兼容规则。
+5. 完成全量审计并发布 `v0.4.9`；确认稳定后进入 `v0.5.0` Chrome / Edge 扩展开发。
+
+## 每一步的交付要求
+
+- 每次只做一个边界清晰的改动，并补对应测试。
+- 运行 `npm test`、`npm run build`、`npm run audit:bundle`、`npm audit`、`cargo test`、`cargo clippy` 和质量报告。
+- 更新本说明或开发计划，显式提交文件，推送分支并等待 GitHub CI 通过。
+- 不提交 `releases/` 下的历史本地安装包，也不在代码、日志或文档中写入密钥。
