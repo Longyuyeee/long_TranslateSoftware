@@ -8,40 +8,23 @@ mod history;
 mod ocr;
 mod review;
 mod secure_config;
+mod shortcuts;
 mod system_integration;
 mod tray;
 mod tts;
 mod webdav;
 mod wordbook;
 
-use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
-use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri::{AppHandle, Manager, Emitter, WindowEvent};
 use base64::{Engine as _, engine::general_purpose};
-use enigo::{Enigo, Key, Keyboard, Settings, Direction};
-use std::thread;
-use std::time::Duration;
 use std::fs;
 use std::path::PathBuf;
 use rusqlite::OptionalExtension;
-use std::sync::Mutex;
-
-struct AppState {
-    shortcuts_paused: Mutex<bool>,
-    clipboard_lock: Mutex<bool>,
-}
 
 fn resolve_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map_err(|error| format!("Cannot resolve application data directory: {error}"))
-}
-
-#[tauri::command]
-fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
-    if let Ok(mut current) = state.shortcuts_paused.lock() {
-        *current = paused;
-    }
 }
 
 #[tauri::command]
@@ -86,78 +69,6 @@ fn export_diagnostics(app: AppHandle) -> Result<String, String> {
     fs::write(&path, contents)
         .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
     Ok(path.to_string_lossy().into_owned())
-}
-
-fn parse_shortcut(shortcut_str: &str) -> Result<Shortcut, String> {
-    let parts: Vec<&str> = shortcut_str.split('+').collect();
-    let mut mods = Modifiers::empty();
-    let mut key_code = None;
-
-    for part in parts {
-        match part.to_uppercase().as_str() {
-            "CTRL" | "CONTROL" => mods.insert(Modifiers::CONTROL),
-            "ALT" => mods.insert(Modifiers::ALT),
-            "SHIFT" => mods.insert(Modifiers::SHIFT),
-            "SUPER" | "COMMAND" | "WIN" => mods.insert(Modifiers::SUPER),
-            key => {
-                let code = match key {
-                    "A" => Code::KeyA, "B" => Code::KeyB, "C" => Code::KeyC, "D" => Code::KeyD,
-                    "E" => Code::KeyE, "F" => Code::KeyF, "G" => Code::KeyG, "H" => Code::KeyH,
-                    "I" => Code::KeyI, "J" => Code::KeyJ, "K" => Code::KeyK, "L" => Code::KeyL,
-                    "M" => Code::KeyM, "N" => Code::KeyN, "O" => Code::KeyO, "P" => Code::KeyP,
-                    "Q" => Code::KeyQ, "R" => Code::KeyR, "S" => Code::KeyS, "T" => Code::KeyT,
-                    "U" => Code::KeyU, "V" => Code::KeyV, "W" => Code::KeyW, "X" => Code::KeyX,
-                    "Y" => Code::KeyY, "Z" => Code::KeyZ,
-                    "0" => Code::Digit0, "1" => Code::Digit1, "2" => Code::Digit2, "3" => Code::Digit3,
-                    "4" => Code::Digit4, "5" => Code::Digit5, "6" => Code::Digit6, "7" => Code::Digit7,
-                    "8" => Code::Digit8, "9" => Code::Digit9,
-                    "F1" => Code::F1, "F2" => Code::F2, "F3" => Code::F3, "F4" => Code::F4,
-                    "F5" => Code::F5, "F6" => Code::F6, "F7" => Code::F7, "F8" => Code::F8,
-                    "F9" => Code::F9, "F10" => Code::F10, "F11" => Code::F11, "F12" => Code::F12,
-                    _ => return Err(format!("Unsupported key: {}", key)),
-                };
-                key_code = Some(code);
-            }
-        }
-    }
-
-    if let Some(code) = key_code {
-        Ok(Shortcut::new(Some(mods), code))
-    } else {
-        Err("No key specified".to_string())
-    }
-}
-
-#[tauri::command]
-fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String, shortcut_str: String) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    
-    let old_shortcut_str = db::get_config(&conn, &format!("shortcut_{}", name)).unwrap_or_default();
-    if !old_shortcut_str.is_empty() {
-        if let Ok(old_s) = parse_shortcut(&old_shortcut_str) {
-            let _ = app.global_shortcut().unregister(old_s);
-        }
-    }
-
-    let new_s = parse_shortcut(&shortcut_str)?;
-    let name_for_closure = name.clone();
-    app.global_shortcut().on_shortcut(new_s, move |app, _shortcut, event| {
-        let state = app.state::<AppState>();
-        let Ok(paused) = state.shortcuts_paused.lock() else { return; };
-        if *paused { return; }
-
-        if event.state() == ShortcutState::Pressed {
-            if name_for_closure == "q" {
-                handle_translate_request(app);
-            } else {
-                system_integration::show_ocr_overlay(app);
-            }
-        }
-    }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
-
-    db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -385,77 +296,6 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
 #[tauri::command]
 fn get_available_ocr_languages() -> Result<Vec<ocr::OcrLanguageInfo>, String> {
     ocr::available_ocr_languages().map_err(|error| error.to_string())
-}
-
-fn handle_translate_request<R: Runtime>(app: &AppHandle<R>) {
-    // Prevent concurrent clipboard operations
-    let app_handle = app.clone();
-    {
-        let state = app.state::<AppState>();
-        let Ok(mut lock) = state.clipboard_lock.lock() else { return; };
-        if *lock {
-            return; // Another translation is in progress
-        }
-        *lock = true;
-    }
-
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(200));
-        let clipboard = app_handle.clipboard();
-        let original_text = clipboard.read_text().unwrap_or_default();
-        let token = "__DETECT_TOKEN__";
-        let _ = clipboard.write_text(token.to_string());
-
-        let mut enigo = match Enigo::new(&Settings::default()) {
-            Ok(e) => e,
-            Err(_) => {
-                // Failed to init Enigo, restore clipboard and unlock
-                let _ = clipboard.write_text(original_text);
-                if let Ok(mut lock) = app_handle.state::<AppState>().clipboard_lock.lock() {
-                    *lock = false;
-                }
-                return;
-            }
-        };
-
-        let _ = enigo.key(Key::Control, Direction::Press);
-        thread::sleep(Duration::from_millis(50));
-        let _ = enigo.key(Key::C, Direction::Press);
-        thread::sleep(Duration::from_millis(100));
-        let _ = enigo.key(Key::C, Direction::Release);
-        thread::sleep(Duration::from_millis(50));
-        let _ = enigo.key(Key::Control, Direction::Release);
-
-        let mut final_text = String::new();
-        let mut success = false;
-        for _ in 0..10 {
-            thread::sleep(Duration::from_millis(50));
-            let current = clipboard.read_text().unwrap_or_default();
-            if current != token && !current.trim().is_empty() {
-                final_text = current;
-                success = true;
-                break;
-            }
-        }
-
-        if !success {
-            let _ = clipboard.write_text(original_text.clone());
-            final_text = original_text;
-        }
-
-        if !final_text.trim().is_empty() {
-            if let Some(floating) = app_handle.get_webview_window("floating") {
-                let _ = floating.show();
-                let _ = floating.set_focus();
-                let _ = app_handle.emit("shortcut-triggered", final_text);
-            }
-        }
-
-        // Release lock
-        if let Ok(mut lock) = app_handle.state::<AppState>().clipboard_lock.lock() {
-            *lock = false;
-        }
-    });
 }
 
 #[allow(dead_code)]
@@ -755,7 +595,7 @@ pub fn run() {
     }
 
     if let Err(error) = builder
-        .manage(AppState { shortcuts_paused: Mutex::new(false), clipboard_lock: Mutex::new(false) })
+        .manage(shortcuts::ShortcutState::default())
         .plugin(tauri_plugin_log::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -792,43 +632,7 @@ pub fn run() {
                 tray::show_main_window(&app_handle);
             }
 
-            let q_shortcut_str = db::get_config(&conn, "shortcut_q").unwrap_or_else(|_| "Alt+Q".to_string());
-            let w_shortcut_str = db::get_config(&conn, "shortcut_w").unwrap_or_else(|_| "Alt+W".to_string());
-            
-            let q_shortcut_str = if q_shortcut_str.is_empty() { "Alt+Q".to_string() } else { q_shortcut_str };
-            let w_shortcut_str = if w_shortcut_str.is_empty() { "Alt+W".to_string() } else { w_shortcut_str };
-
-            let global_shortcut = app.global_shortcut();
-            
-            if let Ok(s) = parse_shortcut(&q_shortcut_str) {
-                let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
-                    let paused = app
-                        .state::<AppState>()
-                        .shortcuts_paused
-                        .lock()
-                        .map(|value| *value)
-                        .unwrap_or(true);
-                    if paused { return; }
-                    if event.state() == ShortcutState::Pressed {
-                        handle_translate_request(app);
-                    }
-                });
-            }
-
-            if let Ok(s) = parse_shortcut(&w_shortcut_str) {
-                let _ = global_shortcut.on_shortcut(s, move |app, _shortcut, event| {
-                    let paused = app
-                        .state::<AppState>()
-                        .shortcuts_paused
-                        .lock()
-                        .map(|value| *value)
-                        .unwrap_or(true);
-                    if paused { return; }
-                    if event.state() == ShortcutState::Pressed {
-                        system_integration::show_ocr_overlay(app);
-                    }
-                });
-            }
+            shortcuts::register_saved_shortcuts(app.handle(), &conn);
 
             Ok(())
         })
@@ -842,7 +646,8 @@ pub fn run() {
             system_integration::clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, tts::proxy_fetch_audio, tts::get_audio_cache_size,
             tts::clear_audio_cache, tts::check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
-            update_shortcut, set_shortcuts_paused, backup::export_data, backup::import_data, tts::save_audio_cache,
+            shortcuts::update_shortcut, shortcuts::set_shortcuts_paused,
+            backup::export_data, backup::import_data, tts::save_audio_cache,
             history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
             export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
             review::get_due_reviews, review::submit_review, review::get_review_stats, anki::export_anki,
