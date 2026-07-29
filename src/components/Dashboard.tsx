@@ -28,6 +28,7 @@ import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } 
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
+import { useClipboardMonitor } from "../hooks/useClipboardMonitor";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -493,31 +494,7 @@ export default function Dashboard() {
     applyAccent(accentColor);
   }, [accentColor]);
 
-  // Clipboard monitoring
-  const lastClipboardRef = useRef("");
-  const clipboardTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (clipboardMonitor) {
-      clipboardTimerRef.current = setInterval(async () => {
-        try {
-          const text = await invoke<string>("get_clipboard_text");
-          if (text && text !== lastClipboardRef.current) {
-            lastClipboardRef.current = text;
-            await invoke("clipboard_detect", { text });
-          }
-        } catch { /* clipboard read can fail */ }
-      }, 900);
-    } else {
-      lastClipboardRef.current = "";
-    }
-    return () => {
-      if (clipboardTimerRef.current) {
-        clearInterval(clipboardTimerRef.current);
-        clipboardTimerRef.current = null;
-      }
-    };
-  }, [clipboardMonitor]);
+  useClipboardMonitor(clipboardMonitor);
 
   // Theme effect
   useEffect(() => {
