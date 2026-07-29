@@ -5,6 +5,7 @@ mod db;
 mod diagnostics;
 mod glossary;
 mod history;
+mod lifecycle;
 mod ocr;
 mod review;
 mod secure_config;
@@ -588,7 +589,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if should_show_main_window(&args) {
+            if lifecycle::LaunchMode::from_args(&args).should_restore_main_window() {
                 tray::show_main_window(app);
             }
         }));
@@ -623,12 +624,12 @@ pub fn run() {
             main_win.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = main_win_clone.hide();
+                    let _ = lifecycle::hide_main_window(&main_win_clone);
                 }
             });
 
             let launch_args = std::env::args().collect::<Vec<_>>();
-            if should_show_main_window(&launch_args) {
+            if lifecycle::LaunchMode::from_args(&launch_args).should_restore_main_window() {
                 tray::show_main_window(&app_handle);
             }
 
@@ -660,20 +661,6 @@ pub fn run() {
     }
 }
 
-fn should_show_main_window(args: &[String]) -> bool {
-    !args.iter().any(|arg| arg == "--autostart")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::should_show_main_window;
-
-    #[test]
-    fn manual_launch_shows_main_window_but_autostart_stays_in_tray() {
-        assert!(should_show_main_window(&["long-translate.exe".into()]));
-        assert!(!should_show_main_window(&[
-            "long-translate.exe".into(),
-            "--autostart".into(),
-        ]));
-    }
+pub fn lifecycle_probe_output(args: &[String]) -> Option<String> {
+    lifecycle::probe_output(args)
 }

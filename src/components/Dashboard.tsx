@@ -30,6 +30,7 @@ import { useSettings } from "../hooks/useSettings";
 import { useClipboardMonitor } from "../hooks/useClipboardMonitor";
 import { useShortcutRecorder } from "../hooks/useShortcutRecorder";
 import { useSystemMaintenance } from "../hooks/useSystemMaintenance";
+import { useNotifications } from "../hooks/useNotifications";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -154,41 +155,16 @@ export default function Dashboard() {
     saveSettings,
   } = useSettings();
 
-  const [notifications, setNotifications] = useState<{msg: string; time: string}[]>([]);
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const isNotificationsOpenRef = useRef(false);
-
-  const addNotification = (msg: string) => {
-    if (!msg) return;
-    const time = new Date().toLocaleTimeString();
-    setNotifications(prev => [{msg, time}, ...prev].slice(0, 10));
-    if (!isNotificationsOpenRef.current) {
-      setUnreadNotificationCount(prev => Math.min(prev + 1, 99));
-    }
-  };
-
-  const toggleNotifications = () => {
-    const next = notifications.length > 0 && !isNotificationsOpenRef.current;
-    isNotificationsOpenRef.current = next;
-    setIsNotificationsOpen(next);
-    if (next || notifications.length === 0) setUnreadNotificationCount(0);
-  };
-
-  const dismissNotification = (index: number) => {
-    setNotifications(prev => prev.filter((_, itemIndex) => itemIndex !== index));
-    if (notifications.length <= 1) {
-      isNotificationsOpenRef.current = false;
-      setIsNotificationsOpen(false);
-    }
-  };
-
-  const clearNotifications = () => {
-    setNotifications([]);
-    setUnreadNotificationCount(0);
-    isNotificationsOpenRef.current = false;
-    setIsNotificationsOpen(false);
-  };
+  const {
+    notifications,
+    unreadNotificationCount,
+    isNotificationsOpen,
+    addNotification,
+    toggleNotifications,
+    closeNotifications,
+    dismissNotification,
+    clearNotifications,
+  } = useNotifications();
   const [isSyncing, setIsSyncing] = useState(false);
   const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
 
@@ -621,13 +597,12 @@ export default function Dashboard() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
-        isNotificationsOpenRef.current = false;
-        setIsNotificationsOpen(false);
+        closeNotifications();
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [closeNotifications]);
 
   const tabs = [
     { id: "general", label: t.general, icon: Settings },

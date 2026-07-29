@@ -54,6 +54,9 @@ jobs:
       - name: Audit frontend bundle size
         run: npm run audit:bundle
 
+      - name: Test Windows lifecycle process contract
+        run: cargo test --manifest-path src-tauri/Cargo.toml --test lifecycle_process
+
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
         env:
