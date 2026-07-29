@@ -4,6 +4,8 @@
 
 审计基线：`v0.4.8`；2026-07-30 滚动复审至 Native Messaging v1 协议阶段
 
+最新的发布阻塞项、代码规模和逐阶段执行门槛见 [`DEVELOPMENT_STATUS_2026-07-30.md`](DEVELOPMENT_STATUS_2026-07-30.md)。
+
 ## 1. 结论
 
 Long翻译已经完成从“功能原型”到“可持续发布的 Windows 产品”的第一阶段：
@@ -130,7 +132,7 @@ Long翻译已经完成从“功能原型”到“可持续发布的 Windows 产�
 - 新增真实可执行文件探针，Windows CI 分别启动手动与 `--autostart` 子进程并校验 JSON 决策；该探针在创建 WebView 前退出，避免无交互桌面导致不稳定测试。
 - 通知历史迁入独立 hook，清空、末项移除、面板关闭和未读归零通过原子状态更新验证。
 - 前端自动化增至 35 个文件 / 150 项，Rust 自动化增至 56 项（含 2 项子进程测试）；`Dashboard.tsx` 降至 958 行，`lib.rs` 降至 666 行。
-- 双实例、单托盘、前台恢复、自启动和通知的签名安装包人工检查已固化为 `RELEASE_DESKTOP_SMOKE.md`。
+- 双实例、单托盘、前台恢复、自启动和通知的 Windows 发布候选人工检查已固化为 `RELEASE_DESKTOP_SMOKE.md`。
 - Native Messaging v1 协议、威胁模型、兼容规则及 Rust/TypeScript 契约测试已完成；前端自动化增至 36 个文件 / 154 项，Rust 自动化增至 64 项（含 2 项子进程测试）。
 - 下一阶段实现只负责 framing、来源校验和协议解析的最小 Native Host，再接桌面私有 IPC 与配对。
 
@@ -233,11 +235,13 @@ Long翻译已经完成从“功能原型”到“可持续发布的 Windows 产�
 
 ## 6. 推荐执行顺序
 
-1. 在签名安装包上执行并留档交互桌面烟雾清单。
-2. 实现最小 Native Host 的标准输入输出 framing、消息上限、来源校验和协议解析。
-3. 实现 Host 与桌面端私有 IPC、一次性配对、权限分发和断线恢复。
-4. 完成桌面桥接安全审计后创建 Manifest V3 service worker，再实现划词 UI。
-5. 继续补真实翻译、OCR、TTS 样本与 WebDAV 服务兼容矩阵。
-6. 评估 Authenticode 证书成本；获得证书后接入现有 Release 工作流。
+1. 合并 Native Messaging v1 协议基线，但不把它视为可运行扩展。
+2. 完成 `Dashboard.tsx`、`api.ts`、`lib.rs` 和 Tauri 错误结构的 `v0.4.9` 剩余收口。
+3. 构建 `v0.4.9` 候选安装包，执行并留档交互桌面及 `v0.4.8` 升级烟雾。
+4. 发布并核验 `v0.4.9` 全部资产。
+5. 在 `v0.5.0` 实现最小 Native Host，再推进私有 IPC、配对和 Manifest V3 service worker。
+6. 桌面桥接通过安全审计后再实现划词 UI。
+7. 持续补真实翻译、OCR、TTS 样本与 WebDAV 服务兼容矩阵。
+8. 评估 Authenticode 证书成本；获得证书后接入现有 Release 工作流。
 
 这套顺序可以让 v0.5.0 复用稳定边界，而不是把桌面端现有复杂度复制进扩展。

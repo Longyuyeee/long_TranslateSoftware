@@ -1,10 +1,12 @@
 # Windows 交互桌面发布前烟雾检查
 
-该检查用于签名安装包候选版本。GitHub Runner 没有可靠交互桌面，因此以下断言必须在真实 Windows 用户会话中执行并记录。
+该检查用于 Windows 发布候选安装包。GitHub Runner 没有可靠交互桌面，因此以下断言必须在真实 Windows 用户会话中执行并记录。
+
+Tauri Updater `.sig` 用于应用内更新真实性校验，不等同于 Windows Authenticode。未配置 Authenticode 时，候选安装包仍可能触发 SmartScreen。
 
 ## 环境
 
-- 使用即将发布的签名 NSIS 安装包完成覆盖安装；
+- 使用即将发布的 NSIS 候选安装包完成覆盖安装；
 - 关闭开发版和旧版本进程；
 - 保留一个可见任务栏和系统托盘；
 - 记录 Windows 版本、显示器数量及缩放比例。

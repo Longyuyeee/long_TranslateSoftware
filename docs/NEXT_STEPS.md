@@ -9,17 +9,20 @@
 - 快捷键解析、启动注册、运行时更新、暂停状态与模拟复制已收敛到 `shortcuts.rs`；更新失败保留旧快捷键，复制流程恢复原文本剪贴板。
 - 快捷键录制、自启动切换、音频缓存维护和诊断导出已从 `Dashboard` 收敛到独立 hook/service；卸载恢复、重复操作和迟到响应已有测试。
 - 生命周期策略已从应用壳提取：CI 运行真实可执行文件探针验证手动/自启模式，单实例回调、窗口恢复、关闭到托盘和托盘菜单共用受测路径；通知历史的清除与末项关闭也有独立 hook 回归。
-- 签名安装包的交互桌面检查已经固化为 `RELEASE_DESKTOP_SMOKE.md`，覆盖双实例、单托盘、前台恢复、自启动和通知路径。
+- Windows 发布候选安装包的交互桌面检查已经固化为 `RELEASE_DESKTOP_SMOKE.md`，覆盖双实例、单托盘、前台恢复、自启动和通知路径。
 - Native Messaging v1 已完成严格 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、大小/并发限制、精确来源校验和威胁模型；当前没有 Native Host、注册器或扩展 UI。
 - GitHub Actions 负责持续集成和正式 Release 构建；本地提交前仍需执行前端、Rust、依赖和质量报告审计。
 
 ## 接手后按顺序处理
 
-1. 使用签名安装包在带交互桌面的 Windows 环境执行 `RELEASE_DESKTOP_SMOKE.md`，记录安装包 SHA、操作者和结果。
-2. 按 `NATIVE_MESSAGING_PROTOCOL.md` 实现最小 Native Host：先完成二进制 framing、1 MiB 限制、精确扩展来源校验和协议解析，不连接真实翻译能力。
-3. 再实现 Host 与桌面端之间的私有 IPC、一次性配对和最小权限分发，补断线、超时、取消和并发测试。
-4. 桌面桥接通过安全审计后再创建 Manifest V3 service worker 与扩展 UI。
-5. 完成全量审计并发布 `v0.4.9`；确认稳定后推进 `v0.5.0` Chrome / Edge 扩展。
+1. 审阅、转为 Ready 并合并 Draft PR #22；它只交付协议契约，不交付可运行扩展。
+2. 完成 `v0.4.9` 剩余架构门槛：`Dashboard.tsx` ≤600 行，拆分 `api.ts`，把 `lib.rs` 的数据库/同步/导出逻辑迁入领域模块，并逐步统一 Tauri 错误。
+3. 三处版本提升到 `0.4.9`，创建版本化发布说明并构建候选安装包。
+4. 使用候选安装包执行 `RELEASE_DESKTOP_SMOKE.md`，记录 SHA-256、操作者和结果，并验证从 `v0.4.8` 应用内升级。
+5. 发布并核验 `v0.4.9` 的 EXE、MSI、Updater 签名、`latest.json` 和质量报告。
+6. 从最新 `master` 开始 `v0.5.0`：先实现最小 Native Host，再实现私有 IPC、配对、Manifest V3 service worker，最后进入扩展 UI。
+
+详细风险、证据和阶段退出门槛见 `DEVELOPMENT_STATUS_2026-07-30.md`。
 
 ## 每一步的交付要求
 

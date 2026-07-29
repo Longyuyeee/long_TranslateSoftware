@@ -479,9 +479,10 @@
 当前稳定版为 v0.4.8，下一阶段先完成 v0.4.9 架构与回归收口，再进入 v0.5.0 Chrome / Edge 浏览器扩展。详细判断、风险和退出门槛见：
 
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
+- [当前开发状态审计与执行计划（2026-07-30）](docs/DEVELOPMENT_STATUS_2026-07-30.md)
 - [开发接手说明](docs/NEXT_STEPS.md)
 - [Native Messaging v1 协议与安全边界](docs/NATIVE_MESSAGING_PROTOCOL.md)
-- [签名安装包桌面交互烟雾清单](docs/RELEASE_DESKTOP_SMOKE.md)
+- [Windows 发布候选桌面交互烟雾清单](docs/RELEASE_DESKTOP_SMOKE.md)
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
