@@ -1,5 +1,6 @@
 mod anki;
 mod backup;
+mod config;
 mod db;
 mod diagnostics;
 mod glossary;
@@ -418,21 +419,6 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
     } else {
         Err("User cancelled".to_string())
     }
-}
-
-#[tauri::command]
-fn set_config_value(app: AppHandle, key: String, value: String) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let store_value = secure_config::prepare_value(&key, &value)?;
-    db::set_config(&conn, &key, &store_value).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_config_value(app: AppHandle, key: String) -> Result<String, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    secure_config::load_value(&conn, &key, &app_dir)
 }
 
 #[tauri::command]
@@ -931,8 +917,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages, get_screen_bounds, get_clipboard_text, set_config_value, get_config_value,
-            get_config_values, set_config_values, updater_configured,
+            run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages, get_screen_bounds, get_clipboard_text,
+            config::set_config_value, config::get_config_value,
+            config::get_config_values, config::set_config_values, updater_configured,
             export_diagnostics,
             hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, tts::proxy_fetch_audio, tts::get_audio_cache_size,
@@ -966,30 +953,4 @@ mod tests {
             "--autostart".into(),
         ]));
     }
-
-}
-
-#[tauri::command]
-fn get_config_values(app: AppHandle, keys: Vec<String>) -> Result<std::collections::HashMap<String, String>, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let mut values = std::collections::HashMap::new();
-    for key in keys {
-        let value = secure_config::load_value(&conn, &key, &app_dir)?;
-        values.insert(key, value);
-    }
-    Ok(values)
-}
-
-#[tauri::command]
-fn set_config_values(app: AppHandle, values: std::collections::HashMap<String, String>) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let mut conn = db::init_db(app_dir.clone()).map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
-    for (key, value) in values {
-        let stored = secure_config::prepare_value(&key, &value)?;
-        tx.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?1, ?2)", [&key, &stored])
-            .map_err(|e| e.to_string())?;
-    }
-    tx.commit().map_err(|e| e.to_string())
 }
