@@ -471,6 +471,7 @@
 当前稳定版为 v0.4.8，下一阶段先完成 v0.4.9 架构与回归收口，再进入 v0.5.0 Chrome / Edge 浏览器扩展。详细判断、风险和退出门槛见：
 
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
+- [开发接手说明](docs/NEXT_STEPS.md)
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
