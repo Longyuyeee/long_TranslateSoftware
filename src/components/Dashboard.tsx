@@ -25,6 +25,7 @@ import { useSettings } from "../hooks/useSettings";
 import { TRANSLATION_PROVIDERS } from "../services/settings";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
+const HistoryTab = lazy(() => import("./HistoryTab"));
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -238,9 +239,6 @@ export default function Dashboard() {
     await loadGlossary();
   };
 
-  // Translation History state
-  const [history, setHistory] = useState<any[]>([]);
-
   const refreshStats = async () => {
     try {
       const stats = await invoke<any>("get_app_stats");
@@ -368,12 +366,9 @@ export default function Dashboard() {
   useEffect(() => {
     loadSettings();
     loadWordbook();
-    loadHistory();
     refreshCacheSize();
     refreshStats();
     loadGlossary();
-
-    const unlistenHistory = listen("history-updated", () => { loadHistory(); });
 
     const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
         loadWordbook();
@@ -403,7 +398,6 @@ export default function Dashboard() {
     });
 
     return () => {
-        unlistenHistory.then(f => f());
         unlistenWordbook.then(f => f());
         unlistenShortcutError.then(f => f());
         unlistenConfigImport.then(f => f());
@@ -619,13 +613,6 @@ export default function Dashboard() {
     } finally {
       setIsExportingDiagnostics(false);
     }
-  };
-
-  const loadHistory = async () => {
-    try {
-      const data = await invoke<any[]>("get_translation_history", { limit: 100, offset: 0 });
-      setHistory(data);
-    } catch (e) { console.error(e); }
   };
 
   const handleSync = async () => {
@@ -1598,66 +1585,15 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "history" && (
-                        <div className="flex flex-col h-full gap-4 overflow-hidden">
-                            <div className="flex items-center justify-between shrink-0">
-                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{history.length} {t.translations}</span>
-                                {history.length > 0 && (
-                                    <button
-                                        onClick={async () => { await invoke("clear_translation_history"); setHistory([]); }}
-                                        className="px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all"
-                                    >
-                                        {t.clearAll}
-                                    </button>
-                                )}
-                            </div>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3">
-                                {history.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-full text-zinc-300 dark:text-zinc-700 opacity-40 gap-3">
-                                        <Clock size={48} />
-                                        <p className="font-black uppercase tracking-[0.4em] text-[10px]">{t.noHistory}</p>
-                                    </div>
-                                ) : (
-                                    history.map((h: any) => (
-                                        <motion.div
-                                            key={h.id}
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            className="glass-card rounded-2xl p-5 border border-black/5 dark:border-white/5 group hover:border-accent/20 transition-all"
-                                        >
-                                            <div className="flex items-start justify-between gap-4">
-                                                <div className="flex-1 min-w-0 space-y-3">
-                                                    <p className="text-[11px] text-zinc-500 font-medium italic line-clamp-2 break-words">{h.source_text}</p>
-                                                    <p className="text-[13px] text-zinc-800 dark:text-zinc-100 font-bold break-words">{h.translated_text}</p>
-                                                    <div className="flex items-center gap-3">
-                                                        <span className="text-[8px] text-zinc-400 font-black uppercase tracking-wider">{h.created_at?.split(" ")[0]}</span>
-                                                        {h.target_lang && <span className="text-[8px] text-accent/60 font-black uppercase">{h.target_lang}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-1 shrink-0">
-                                                    <button
-                                                        onClick={() => navigator.clipboard.writeText(h.translated_text)}
-                                                        className="p-2 text-zinc-300 hover:text-accent rounded-lg hover:bg-accent/10 transition-all"
-                                                        title={t.copyTranslation}
-                                                    >
-                                                        <Copy size={14} />
-                                                    </button>
-                                                    <button
-                                                        onClick={async () => {
-                                                            await invoke("delete_translation", { id: h.id });
-                                                            loadHistory();
-                                                        }}
-                                                        className="p-2 text-zinc-300 hover:text-red-500 rounded-lg hover:bg-red-500/10 transition-all"
-                                                        title={t.delete}
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
+                        <Suspense
+                            fallback={(
+                                <div className="flex h-full items-center justify-center" role="status" aria-label={t.loading}>
+                                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+                                </div>
+                            )}
+                        >
+                            <HistoryTab labels={t} />
+                        </Suspense>
                     )}
                 </motion.div>
             </AnimatePresence>
