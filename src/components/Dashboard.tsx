@@ -1,17 +1,15 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Monitor, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Palette, Monitor, Sparkles, ExternalLink, Languages, Copy, X as CloseIcon, Clock, Bell, Brain, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
-  contextSourceText,
   translations,
   translationErrorText,
   webDavErrorText,
   Lang,
 } from "../i18n";
-import { WordAnalysis } from "../services/wordbook";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
@@ -37,6 +35,7 @@ const HistoryTab = lazy(() => import("./HistoryTab"));
 const ModelConfigTab = lazy(() => import("./ModelConfigTab"));
 const AppearanceSettingsTab = lazy(() => import("./AppearanceSettingsTab"));
 const GeneralSettingsTab = lazy(() => import("./GeneralSettingsTab"));
+const WordbookTab = lazy(() => import("./WordbookTab"));
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -504,6 +503,28 @@ export default function Dashboard() {
       await refreshCacheSize();
       toast("success", t.cacheCleared);
     } catch (e) { console.error(e); }
+  };
+
+  const handleWordbookExport = async (format: "csv" | "json") => {
+    try {
+      await invoke("export_wordbook", { format });
+      addNotification(`${t.exportSuccess} (${format.toUpperCase()})`);
+    } catch (error) {
+      addNotification(`${t.exportFailed}: ${error}`);
+    }
+  };
+
+  const handleAnkiExport = async () => {
+    try {
+      const path = await invoke<string>("export_anki");
+      toast("success", `${t.exportAnkiSuccess}: ${path}`);
+    } catch (error) {
+      toast("error", `${t.exportFailed}: ${error}`);
+    }
+  };
+
+  const handleSpeakWordbookText = (text: string) => {
+    void speak(text).then(refreshCacheSize);
   };
 
   // Accent color effect
@@ -1164,169 +1185,33 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "wordbook" && (
-                        <div className="flex h-full gap-8 relative overflow-hidden">
-                            <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-3 shrink-0" style={{ width: 'min(30%, 260px)', minWidth: '160px' }}>
-                                {/* Search & Sort */}
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex-1 relative">
-                                        <input
-                                            type="text"
-                                            value={wordbookSearch}
-                                            onChange={(e) => setWordbookSearch(e.target.value)}
-                                            placeholder={t.searchWords}
-                                            className="w-full py-2.5 pl-8 pr-8 rounded-xl bg-white/60 dark:bg-white/10 border border-black/5 dark:border-white/10 text-[10px] font-bold outline-none text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:border-accent/50 focus:ring-2 ring-blue-500/10 transition-all"
-                                        />
-                                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
-                                        {wordbookSearch && (
-                                            <button onClick={() => setWordbookSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-                                                <CloseIcon size={12} />
-                                            </button>
-                                        )}
-                                    </div>
-                                    <ThemedSelect
-                                        value={wordbookSort}
-                                        onChange={setWordbookSort}
-                                        options={[
-                                            { value: "newest", label: t.sortNewest },
-                                            { value: "az", label: t.sortAZ },
-                                            { value: "za", label: t.sortZA },
-                                        ]}
-                                        ariaLabel={t.sortWords}
-                                        className="w-full"
-                                        compact
-                                    />
-                                </div>
-
-                                {/* Word count */}
-                                <div className="flex items-center justify-between px-1">
-                                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">
-                                        {words.length} / {wordbookTotal} {t.wordCount}
-                                    </span>
-                                </div>
-
-                                {words.length > 0 && (
-                                    <div className="flex gap-2">
-                                        <button onClick={() => invoke("export_wordbook", { format: "csv" }).then(() => addNotification(t.exportSuccess + " (CSV)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-accent hover:border-accent/20 transition-all">{t.exportCsv}</button>
-                                        <button onClick={() => invoke("export_wordbook", { format: "json" }).then(() => addNotification(t.exportSuccess + " (JSON)")).catch(e => addNotification(`${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 text-[9px] font-black text-zinc-500 hover:text-accent hover:border-accent/20 transition-all">{t.exportJson}</button>
-                                        <button onClick={() => invoke<string>("export_anki").then(path => toast("success", `${t.exportAnkiSuccess}: ${path}`)).catch(e => toast("error", `${t.exportFailed}: ${e}`))} className="flex-1 py-2 rounded-xl bg-orange-50/80 dark:bg-orange-500/10 border border-orange-500/20 text-[9px] font-black text-orange-600 hover:bg-orange-500 hover:text-white transition-all">{t.exportAnki}</button>
-                                    </div>
-                                )}
-                                <div className="mb-2"><AnimatePresence mode="wait">{!isAdding ? (
-                                    <motion.button key="add-btn" initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} onClick={() => setIsAdding(true)} className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] flex items-center justify-center gap-2 hover:bg-accent/20 transition-all"><Plus size={14} /> {t.addWord}</motion.button>
-                                ) : (
-                                    <motion.div key="add-input" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative"><input autoFocus value={newWord} onChange={(e) => setNewWord(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addManualWord()} placeholder={t.enterWord} className="w-full py-3 px-4 rounded-2xl bg-white/80 dark:bg-white/10 border border-accent/50 outline-none text-[11px] font-bold pr-10 text-zinc-800 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500" /><button onClick={cancelAdding} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-red-500"><CloseIcon size={14} /></button></motion.div>
-                                )}</AnimatePresence></div>
-                                {words.map(w => (
-                                    <motion.div layout key={w.id} onClick={() => setSelectedWord(w)} className={`group p-5 rounded-[24px] border cursor-pointer transition-all duration-500 relative ${selectedWord?.id === w.id ? 'bg-accent border-accent shadow-2xl' : 'glass-card border-transparent hover:border-accent/30 hover:bg-white/80'}`}>
-                                        <div className="flex justify-between items-start mb-1.5">
-                                            <h3 className={`font-black text-[0.95em] truncate pr-4 ${selectedWord?.id === w.id ? 'text-white' : 'text-zinc-800 dark:text-zinc-100'}`}>{w.word}</h3>
-                                            <button onClick={(e) => { e.stopPropagation(); speak(w.word).then(refreshCacheSize); }} className={`p-1 rounded-lg transition-all ${selectedWord?.id === w.id ? 'text-white/40 hover:text-white hover:bg-white/10' : 'text-zinc-300 hover:text-accent hover:bg-accent/10'}`}><Volume2 size={13}/></button>
-                                        </div>
-                                        <p className={`text-[0.7em] font-bold truncate opacity-80 ${selectedWord?.id === w.id ? 'text-white/70' : 'text-zinc-400'}`}>{w.meaning || t.analyzing}</p>
-                                        {selectedWord?.id === w.id && <motion.div layoutId="selectIndicator" className="absolute left-0 top-5 bottom-5 w-1 bg-white rounded-r-full" />}
-                                    </motion.div>
-                                ))}
-                                {wordbookHasMore && (
-                                    <button
-                                        type="button"
-                                        disabled={isWordbookLoading}
-                                        onClick={loadMore}
-                                        className="w-full py-3 rounded-2xl bg-accent/10 text-accent border border-accent/20 font-black text-[10px] hover:bg-accent/20 transition-all disabled:cursor-wait disabled:opacity-50"
-                                    >
-                                        {isWordbookLoading ? t.loading : `${t.loadMore} (${t.remaining} ${wordbookTotal - words.length})`}
-                                    </button>
-                                )}
-                            </div>
-                            <div className="flex-1 glass-card rounded-[32px] flex flex-col overflow-hidden relative shadow-2xl border-white/40">
-                                <AnimatePresence mode="wait">
-                                    {selectedWord ? (!selectedWord.analysis ? (
-                                        <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex-1 flex flex-col items-center justify-center space-y-6">
-                                            <div className="relative">
-                                                <div className="w-14 h-14 border-4 border-accent/10 rounded-full animate-spin border-t-accent shadow-inner" />
-                                                <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-accent" size={24} />
-                                            </div>
-                                            <div className="text-center">
-                                                <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 text-zinc-400">{t.neuralSync}</p>
-                                                <p className="text-[10px] text-zinc-300 dark:text-zinc-500 font-bold uppercase tracking-widest animate-pulse">{t.processing}</p>
-                                            </div>
-                                            <div className="pt-4">
-                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => deleteWord(selectedWord.id)} className="px-6 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-full text-[10px] font-black hover:bg-red-500 hover:text-white transition-all">{t.abortDelete}</motion.button>
-                                            </div>
-                                        </motion.div>
-                                    ) : (() => {
-                                        const analysis: WordAnalysis = JSON.parse(selectedWord.analysis);
-                                        
-                                        // Handle Failure State
-                                        if (analysis.status === "failed") {
-                                            return (
-                                                <motion.div key="failed" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="flex-1 flex flex-col items-center justify-center p-10 space-y-6">
-                                                    <div className="w-16 h-16 bg-red-500/10 rounded-3xl flex items-center justify-center text-red-500 shadow-inner"><Info size={32} /></div>
-                                                    <div className="text-center max-w-sm">
-                                                        <h3 className="text-lg font-black tracking-tight mb-2">{t.analysisFailed}</h3>
-                                                        <p className="text-[11px] text-zinc-400 font-bold leading-relaxed">{analysis.error_msg || "Unknown AI error. Please check your model configuration and internet connection."}</p>
-                                                    </div>
-                                                    <div className="flex gap-3">
-                                                        <button 
-                                                            onClick={retrySelectedAnalysis}
-                                                            className="px-8 py-3 bg-accent text-white rounded-2xl text-[11px] font-black shadow-lg shadow-accent flex items-center gap-2"
-                                                        >
-                                                            <RotateCcw size={14} /> {t.retryAnalysis}
-                                                        </button>
-                                                        <button onClick={() => deleteWord(selectedWord.id)} className="px-8 py-3 bg-white dark:bg-white/10 border border-black/5 dark:border-white/5 rounded-2xl text-[11px] font-black hover:bg-red-500 hover:text-white transition-all">{t.delete}</button>
-                                                    </div>
-                                                </motion.div>
-                                            );
-                                        }
-
-                                        return (
-                                            <motion.div key={selectedWord.id} initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.5 }} className="flex-1 overflow-y-auto custom-scrollbar p-10 space-y-10">
-                                                <div className="flex items-start justify-between pb-8 border-b border-black/5 dark:border-white/5">
-                                                    <div className="flex flex-col gap-3 min-w-0"><h2 className="text-3xl font-black text-accent tracking-tighter break-words">{selectedWord.word}</h2>
-                                                        <div className="flex items-center gap-3"><span className="text-zinc-400 font-mono text-[0.85em] bg-black/5 dark:bg-white/5 px-4 py-1 rounded-full border border-black/5">/{analysis.phonetic}/</span><button onClick={() => speak(selectedWord.word).then(refreshCacheSize)} className="p-2 bg-accent/10 text-accent rounded-full hover:bg-accent hover:text-white transition-all"><Volume2 size={14} /></button></div>
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => deleteWord(selectedWord.id)} className="w-12 h-12 rounded-[18px] bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"><Trash2 size={20} /></motion.button>
-                                                        <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} className="w-12 h-12 rounded-[18px] bg-white dark:bg-white/10 border border-black/5 dark:border-white/5 flex items-center justify-center text-zinc-400 hover:text-accent shadow-md transition-all shrink-0"><ExternalLink size={20} /></motion.button>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-6">
-                                                    <div className="p-7 bg-white/50 dark:bg-white/5 rounded-[28px] border border-white/50 dark:border-white/10 shadow-sm relative overflow-hidden group"><div className="absolute top-0 left-0 w-1.5 h-full bg-accent/20" /><h4 className="text-[10px] font-black uppercase text-accent mb-3 tracking-[0.4em]">{t.meaning}</h4><p className="font-bold leading-relaxed">{analysis.meaning}</p></div>
-                                                    {analysis.mnemonic && (
-                                                        <div className="p-7 bg-amber-50/80 dark:bg-amber-500/5 rounded-[28px] border border-amber-500/20 relative overflow-hidden group">
-                                                            <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-400/60" />
-                                                            <h4 className="text-[10px] font-black uppercase text-amber-500 mb-3 tracking-[0.4em]">💡 {t.mnemonic}</h4>
-                                                            <p className="text-[0.85em] text-amber-800 dark:text-amber-300 font-medium leading-relaxed">{analysis.mnemonic}</p>
-                                                        </div>
-                                                    )}
-                                                    <div className="p-7 bg-black/[0.02] dark:bg-white/[0.02] rounded-[28px] border border-black/5 dark:border-white/5"><h4 className="text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.4em]">{t.etymology}</h4><p className="text-[0.85em] text-zinc-500 dark:text-zinc-400 font-medium italic leading-relaxed">{analysis.etymology}</p></div>
-                                                    <div className="p-7 bg-black/[0.02] dark:bg-white/[0.02] rounded-[28px] border border-black/5 dark:border-white/5"><h4 className="text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.4em]">{t.synonyms}</h4><div className="flex flex-wrap gap-2.5">{analysis.synonyms.map(s => (<span key={s} className="px-3 py-1.5 bg-accent/5 text-accent dark:text-blue-400 text-[10px] font-black rounded-xl border border-accent/10 transition-all">{s}</span>))}</div></div>
-                                                    {selectedWord.contexts?.length > 0 && (
-                                                        <div className="space-y-4 pt-2">
-                                                            <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.savedContext}</h4>
-                                                            {selectedWord.contexts.map((context) => (
-                                                                <div key={context.id} className="p-6 rounded-[24px] bg-accent/[0.035] border border-accent/10 space-y-3">
-                                                                    <div className="flex items-center justify-between gap-4 text-[9px] font-black uppercase tracking-wider text-zinc-400">
-                                                                        <span>{contextSourceText(t, context.source_type)}</span>
-                                                                        <time>{new Date(context.created_at).toLocaleString()}</time>
-                                                                    </div>
-                                                                    <div><span className="text-[9px] font-black text-accent uppercase">{t.originalContext}</span><p className="mt-1 text-[12px] font-semibold leading-relaxed">{context.source_text}</p></div>
-                                                                    {context.translated_text && <div><span className="text-[9px] font-black text-zinc-400 uppercase">{t.translatedContext}</span><p className="mt-1 text-[12px] text-zinc-500 dark:text-zinc-300 leading-relaxed">{context.translated_text}</p></div>}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    <div className="space-y-4 pt-4"><h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-[0.4em] pl-6">{t.examples}</h4>
-                                                        <div className="space-y-4">{analysis.examples.map((ex, i) => (<div key={i} className="p-7 bg-white/20 dark:bg-white/2 rounded-[28px] border border-black/5 dark:border-white/5 group transition-all hover:bg-white/40 dark:hover:bg-white/5 relative overflow-hidden"><div className="absolute top-0 left-0 bottom-0 w-1 bg-accent/10 group-hover:bg-accent transition-all" /><div className="flex justify-between items-start mb-2"><p className="font-black text-[0.9em] text-zinc-800 dark:text-zinc-100 leading-relaxed group-hover:text-accent transition-colors">"{ex.en}"</p><button onClick={() => speak(ex.en).then(refreshCacheSize)} className="p-1.5 text-zinc-300 hover:text-accent opacity-0 group-hover:opacity-100 transition-all"><Volume2 size={12} /></button></div><p className="text-[0.8em] text-zinc-400 font-bold border-l-3 border-accent/20 pl-4">{ex.zh}</p></div>))}</div>
-                                                    </div>
-                                                </div>
-                                            </motion.div>
-                                        );
-                                    })()) : (
-                                        <div className="flex-1 flex flex-col items-center justify-center text-zinc-200 dark:text-zinc-800 opacity-20"><Book size={80} className="mb-4" /><p className="font-black uppercase tracking-[0.6em] text-[10px]">{t.noWordSelected}</p></div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        </div>
+                        <Suspense fallback={<div className="h-full min-h-80 animate-pulse rounded-[32px] bg-black/5 dark:bg-white/5" />}>
+                            <WordbookTab
+                                labels={t}
+                                words={words}
+                                selectedWord={selectedWord}
+                                total={wordbookTotal}
+                                hasMore={wordbookHasMore}
+                                isLoading={isWordbookLoading}
+                                search={wordbookSearch}
+                                sort={wordbookSort}
+                                newWord={newWord}
+                                isAdding={isAdding}
+                                onSearchChange={setWordbookSearch}
+                                onSortChange={setWordbookSort}
+                                onSelectWord={setSelectedWord}
+                                onStartAdding={() => setIsAdding(true)}
+                                onNewWordChange={setNewWord}
+                                onAddWord={() => void addManualWord()}
+                                onCancelAdding={cancelAdding}
+                                onLoadMore={loadMore}
+                                onDeleteWord={(id) => void deleteWord(id)}
+                                onRetryAnalysis={() => void retrySelectedAnalysis()}
+                                onSpeak={handleSpeakWordbookText}
+                                onExport={(format) => void handleWordbookExport(format)}
+                                onExportAnki={() => void handleAnkiExport()}
+                            />
+                        </Suspense>
                     )}
 
                     {activeTab === "review" && (
