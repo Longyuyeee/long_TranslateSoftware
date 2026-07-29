@@ -2,7 +2,6 @@ import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { Settings, Book, Cpu, Save, CheckCircle, Palette, Monitor, Sparkles, Languages, Clock, Bell, Brain } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   translations,
@@ -29,6 +28,8 @@ import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
 import { useClipboardMonitor } from "../hooks/useClipboardMonitor";
+import { useShortcutRecorder } from "../hooks/useShortcutRecorder";
+import { useSystemMaintenance } from "../hooks/useSystemMaintenance";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -189,20 +190,15 @@ export default function Dashboard() {
     setIsNotificationsOpen(false);
   };
   const [isSyncing, setIsSyncing] = useState(false);
-  const [cacheSize, setCacheSize] = useState("0 B");
   const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
 
   // WebDAV Config
   const [isTestingWebdav, setIsTestingWebdav] = useState(false);
   const [webdavConnectionTest, setWebdavConnectionTest] = useState<{ ok: boolean; latencyMs?: number; error?: WebDavError } | null>(null);
 
-  // Shortcuts
-  const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
-
   // Translation Model Config
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
-  const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
   const refreshStats = async () => {
     try {
       const stats = await invoke<any>("get_app_stats");
@@ -262,6 +258,30 @@ export default function Dashboard() {
   const syncTimerRef = useRef<any>(null);
   const webdavEnabledRef = useRef(webdavEnabled);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const { recordingKey, setRecordingKey } = useShortcutRecorder({
+    onUpdated: (action, shortcut) => {
+      if (action === "q") setShortcutQ(shortcut);
+      else setShortcutW(shortcut);
+    },
+    onResult: (result) => {
+      if (result.status === "success") {
+        toast("success", t.shortcutUpdated);
+        addNotification(t.shortcutUpdated);
+      } else {
+        const message = `${t.shortcutFailed}: ${result.error}`;
+        toast("error", message);
+        addNotification(message);
+      }
+    },
+  });
+  const {
+    cacheSize,
+    isExportingDiagnostics,
+    refreshCacheSize,
+    clearCache,
+    toggleAutoLaunch: updateAutoLaunch,
+    exportDiagnostics,
+  } = useSystemMaintenance({ setAutoLaunch });
   const updater = useUpdater({
     labels: t,
     addNotification,
@@ -321,7 +341,6 @@ export default function Dashboard() {
   useEffect(() => {
     loadSettings();
     loadWordbook();
-    refreshCacheSize();
     refreshStats();
 
     const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
@@ -390,77 +409,8 @@ export default function Dashboard() {
     }
   };
 
-  // Shortcut Recording Logic
-  useEffect(() => {
-    if (!recordingKey) {
-        invoke("set_shortcuts_paused", { paused: false });
-        return;
-    }
-
-    invoke("set_shortcuts_paused", { paused: true });
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Only track if there's at least one modifier or it's a function key
-      const hasModifier = e.ctrlKey || e.altKey || e.shiftKey || e.metaKey;
-      
-      // Skip pure modifier keys alone
-      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
-
-      const parts = [];
-      if (e.ctrlKey) parts.push('Ctrl');
-      if (e.altKey) parts.push('Alt');
-      if (e.shiftKey) parts.push('Shift');
-      if (e.metaKey) parts.push('Win');
-      
-      let key = e.key.toUpperCase();
-      if (key === ' ') key = 'Space';
-      
-      // We accept modifier+key OR Function keys (F1-F12)
-      if (hasModifier || key.startsWith('F')) {
-        if (key.length === 1 || key.startsWith('F')) {
-            parts.push(key);
-            const newShortcut = parts.join('+');
-            handleUpdateShortcut(recordingKey, newShortcut);
-            setRecordingKey(null);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => {
-        window.removeEventListener('keydown', handleKeyDown, true);
-    };
-  }, [recordingKey]);
-
-  const handleUpdateShortcut = async (name: "q" | "w", shortcut: string) => {
-    try {
-        await invoke("update_shortcut", { name, shortcutStr: shortcut });
-        if (name === 'q') setShortcutQ(shortcut);
-        else setShortcutW(shortcut);
-        toast("success", t.shortcutUpdated);
-        addNotification(t.shortcutUpdated);
-    } catch (e) {
-        toast("error", `${t.shortcutFailed}: ${e}`);
-        addNotification(`${t.shortcutFailed}: ${e}`);
-    }
-  };
-
-  const refreshCacheSize = async () => {
-    try {
-      const size = await invoke<string>("get_audio_cache_size");
-      setCacheSize(size);
-    } catch (e) { console.error(e); }
-  };
-
   const handleClearCache = async () => {
-    try {
-      await invoke("clear_audio_cache");
-      await refreshCacheSize();
-      toast("success", t.cacheCleared);
-    } catch (e) { console.error(e); }
+    if (await clearCache()) toast("success", t.cacheCleared);
   };
 
   const handleWordbookExport = async (format: "csv" | "json") => {
@@ -517,53 +467,28 @@ export default function Dashboard() {
   }, [theme]);
 
   const toggleAutoLaunch = async () => {
-    const prevState = autoLaunch;
-    try {
-        const current = await isEnabled();
-        if (current) {
-            await disable();
-        } else {
-            await enable();
-        }
-        
-        // Registry changes can take a moment, wait briefly before checking
-        await new Promise(r => setTimeout(r, 500));
-        
-        const nowEnabled = await isEnabled();
-        setAutoLaunch(nowEnabled);
-        
-        if (nowEnabled === prevState) {
-            // If it didn't change, it might be blocked by system or antivirus
-            toast("warning", t.autoLaunchDenied);
-            addNotification(t.autoLaunchDenied);
-        } else {
-            toast("success", t.success);
-            addNotification(t.success);
-        }
-    } catch (e) {
-        console.error("Toggle autostart failed:", e);
-        // Sync UI with reality
-        const realState = await isEnabled();
-        setAutoLaunch(realState);
+    const result = await updateAutoLaunch();
+    if (result === "denied") {
+        toast("warning", t.autoLaunchDenied);
+        addNotification(t.autoLaunchDenied);
+    } else if (result === "success") {
+        toast("success", t.success);
+        addNotification(t.success);
+    } else if (result === "failed") {
         toast("error", t.autoLaunchFailed);
         addNotification(t.autoLaunchFailed);
     }
   };
 
   const handleExportDiagnostics = async () => {
-    if (isExportingDiagnostics) return;
-    setIsExportingDiagnostics(true);
-    try {
-      await invoke<string>("export_diagnostics");
+    const result = await exportDiagnostics();
+    if (result.status === "success") {
       toast("success", t.diagnosticsExportSuccess);
       addNotification(t.diagnosticsExportSuccess);
-    } catch (e: any) {
-      if (e !== "User cancelled") {
-        toast("error", `${t.diagnosticsExportFailed}: ${e}`);
-        addNotification(`${t.diagnosticsExportFailed}: ${e}`);
-      }
-    } finally {
-      setIsExportingDiagnostics(false);
+    } else if (result.status === "failed") {
+      const message = `${t.diagnosticsExportFailed}: ${result.error}`;
+      toast("error", message);
+      addNotification(message);
     }
   };
 
