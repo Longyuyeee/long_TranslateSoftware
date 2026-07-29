@@ -1,7 +1,12 @@
 export type Lang = "zh" | "en";
 
-export const translations: Record<Lang, any> = {
-  zh: {
+type TranslationShape<T> = {
+  [Key in keyof T]: T[Key] extends string ? string : TranslationShape<T[Key]>;
+};
+
+const PREFERRED_LANGUAGE_KEY = "long-translate.interface-language";
+
+const zh = {
     general: "通用设置",
     mainNavigation: "主功能导航",
     batchTranslate: "文本翻译",
@@ -28,7 +33,17 @@ export const translations: Record<Lang, any> = {
     language: "界面语言",
     interfaceLangDesc: "选择软件界面显示语言",
     simplifiedChinese: "简体中文",
+    english: "English",
     systemDefault: "跟随系统默认",
+    brandName: "Long Trans",
+    brandEdition: "专业版",
+    brandCompact: "Long AI",
+    brandSubtitle: "Long翻译 · 智能助手",
+    dismissNotification: "关闭通知",
+    dayUnit: "天",
+    millisecondsShort: "毫秒",
+    speedMultiplierSuffix: "倍",
+    pixelsShort: "像素",
     languageNames: {
       Chinese: "中文",
       English: "英语",
@@ -80,6 +95,7 @@ export const translations: Record<Lang, any> = {
     success: "设置已保存",
     error: "设置保存失败",
     baseUrl: "接口地址",
+    baseUrlExample: "https://api.example.com/v1",
     apiKey: "密钥 (API Key)",
     modelName: "模型名称",
     transModel: "翻译模型",
@@ -98,12 +114,14 @@ export const translations: Record<Lang, any> = {
     ttsOnline: "在线",
     ttsModel: "语音模型",
     ttsVoice: "预设音色",
+    ttsVoicePlaceholder: "例如：alloy / Cherry",
     ttsSpeed: "语速倍率",
     ttsPlaybackFailed: "语音播放失败",
     ocrLang: "OCR 语言",
     ocrLangDesc: "优先显示 Windows 已安装的文字识别语言",
     customPrompt: "自定义提示词",
     customPromptDesc: "使用 {{targetLang}} 和 {{text}} 占位符。留空使用默认。",
+    customPromptExample: "你是一名专业翻译。请将 {{text}} 翻译为 {{targetLang}}，只返回译文。",
     inputPlaceholder: "在此输入或粘贴需要翻译的文本...",
     outputPlaceholder: "翻译结果将在此实时显示...",
     translate: "立即翻译",
@@ -316,8 +334,11 @@ export const translations: Record<Lang, any> = {
     updateNow: "立即更新",
     autoLaunchDenied: "权限被拒：系统阻止了开机自启更改。",
     autoLaunchFailed: "开机自启更改失败。请尝试以管理员身份运行。",
-  },
-  en: {
+} as const;
+
+export type TranslationCatalog = TranslationShape<typeof zh>;
+
+const en: TranslationCatalog = {
     general: "General",
     mainNavigation: "Main navigation",
     batchTranslate: "Batch",
@@ -344,7 +365,17 @@ export const translations: Record<Lang, any> = {
     language: "Language",
     interfaceLangDesc: "Choose the language used throughout the interface",
     simplifiedChinese: "Simplified Chinese",
+    english: "English",
     systemDefault: "System Default",
+    brandName: "Long Trans",
+    brandEdition: "Professional",
+    brandCompact: "Long AI",
+    brandSubtitle: "Long Translate · AI Assistant",
+    dismissNotification: "Dismiss notification",
+    dayUnit: "d",
+    millisecondsShort: "ms",
+    speedMultiplierSuffix: "x",
+    pixelsShort: "px",
     languageNames: {
       Chinese: "Chinese",
       English: "English",
@@ -396,6 +427,7 @@ export const translations: Record<Lang, any> = {
     success: "Settings saved",
     error: "Failed to save settings",
     baseUrl: "Base URL",
+    baseUrlExample: "https://api.example.com/v1",
     apiKey: "API Key",
     modelName: "Model Name",
     transModel: "Translation",
@@ -414,12 +446,14 @@ export const translations: Record<Lang, any> = {
     ttsOnline: "Online",
     ttsModel: "Model",
     ttsVoice: "Voice",
+    ttsVoicePlaceholder: "For example: alloy / Cherry",
     ttsSpeed: "Speed",
     ttsPlaybackFailed: "Speech playback failed",
     ocrLang: "OCR Language",
     ocrLangDesc: "Uses OCR languages installed in Windows when available",
     customPrompt: "Custom Prompt",
     customPromptDesc: "Use {{targetLang}} and {{text}} placeholders. Leave blank for default.",
+    customPromptExample: "You are a professional translator. Translate {{text}} to {{targetLang}}. Return only the translated text.",
     inputPlaceholder: "Type or paste text here...",
     outputPlaceholder: "Translation result will appear here...",
     translate: "Translate",
@@ -632,5 +666,78 @@ export const translations: Record<Lang, any> = {
     updateNow: "Update now",
     autoLaunchDenied: "Permission Denied: System blocked auto-launch change.",
     autoLaunchFailed: "Auto-launch change failed. Try running as Admin.",
-  }
 };
+
+export const translations: Record<Lang, TranslationCatalog> = {
+  zh,
+  en,
+};
+
+function translatedCode(
+  catalog: TranslationCatalog,
+  prefix: "translationError_" | "webdavError_" | "contextSource_",
+  code: string | undefined,
+): string | undefined {
+  if (!code) return undefined;
+  const value = (catalog as unknown as Record<string, unknown>)[`${prefix}${code}`];
+  return typeof value === "string" ? value : undefined;
+}
+
+export function translationErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+  message?: string,
+): string {
+  return translatedCode(catalog, "translationError_", code)
+    ?? message
+    ?? catalog.translationError_unknown;
+}
+
+export function webDavErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+  message?: string,
+): string {
+  return translatedCode(catalog, "webdavError_", code)
+    ?? message
+    ?? catalog.webdavError_unknown;
+}
+
+export function contextSourceText(
+  catalog: TranslationCatalog,
+  source?: string,
+): string {
+  return translatedCode(catalog, "contextSource_", source)
+    ?? source
+    ?? catalog.contextSource_manual;
+}
+
+export function isSupportedLanguage(value: unknown): value is Lang {
+  return value === "zh" || value === "en";
+}
+
+function systemLanguage(): Lang {
+  try {
+    return navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+export function cachePreferredLanguage(language: Lang): void {
+  try {
+    localStorage.setItem(PREFERRED_LANGUAGE_KEY, language);
+  } catch {
+    // Storage may be unavailable in restricted webviews; the system locale remains a safe fallback.
+  }
+}
+
+export function getPreferredLanguage(): Lang {
+  try {
+    const cached = localStorage.getItem(PREFERRED_LANGUAGE_KEY);
+    if (isSupportedLanguage(cached)) return cached;
+  } catch {
+    // Ignore storage failures and fall back to the system locale.
+  }
+  return systemLanguage();
+}

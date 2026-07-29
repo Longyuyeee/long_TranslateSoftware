@@ -4,7 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
-import { translations, Lang } from "../i18n";
+import {
+  contextSourceText,
+  translations,
+  translationErrorText,
+  webDavErrorText,
+  Lang,
+} from "../i18n";
 import { WordAnalysis } from "../services/wordbook";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
 import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
@@ -318,7 +324,7 @@ export default function Dashboard() {
   const interfaceLanguageOptions = useMemo(
     () => [
       { value: "zh" as Lang, label: t.simplifiedChinese },
-      { value: "en" as Lang, label: "English" },
+      { value: "en" as Lang, label: t.english },
     ],
     [t],
   );
@@ -642,7 +648,7 @@ export default function Dashboard() {
     } catch (e) {
       console.error(e);
       const error = normalizeWebDavError(e);
-      toast("error", t[`webdavError_${error.code}`] || error.message || t.syncFailed);
+      toast("error", webDavErrorText(t, error.code, error.message || t.syncFailed));
     } finally {
       setIsSyncing(false);
     }
@@ -663,7 +669,7 @@ export default function Dashboard() {
     } catch (e) {
       const error = normalizeWebDavError(e);
       setWebdavConnectionTest({ ok: false, error });
-      toast("error", t[`webdavError_${error.code}`] || error.message || t.connectionFailed);
+      toast("error", webDavErrorText(t, error.code, error.message || t.connectionFailed));
     } finally {
       setIsTestingWebdav(false);
     }
@@ -682,7 +688,7 @@ export default function Dashboard() {
     setConnectionTest(result);
     setIsTestingConnection(false);
     if (result.ok) toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs || 0)));
-    else toast("error", t[`translationError_${result.error?.code}`] || result.error?.message || t.connectionFailed);
+    else toast("error", translationErrorText(t, result.error?.code, result.error?.message || t.connectionFailed));
   };
 
   const handleSave = async () => {
@@ -729,7 +735,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-shell flex h-dvh min-h-0 apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
-      <ToastContainer />
+      <ToastContainer dismissLabel={t.dismissNotification} />
       {/* Sidebar */}
       <div 
         className="dashboard-sidebar glass border-r border-black/5 dark:border-white/5 flex flex-col min-h-0 z-20 shadow-xl shrink-0"
@@ -741,8 +747,8 @@ export default function Dashboard() {
                 <Sparkles size={20} className="text-white/90" />
               </div>
               <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-black tracking-tighter leading-none mb-1">Long Trans</span>
-                <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest opacity-60">Professional</span>
+                <span className="text-sm font-black tracking-tighter leading-none mb-1">{t.brandName}</span>
+                <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest opacity-60">{t.brandEdition}</span>
               </div>
             </div>
             
@@ -800,7 +806,7 @@ export default function Dashboard() {
                 </div>
                 <div className="dashboard-stat-row flex items-center justify-between">
                     <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.streak}</span></div>
-                    <span className="text-[10px] font-black text-accent">{appStats.days_active}d</span>
+                    <span className="text-[10px] font-black text-accent">{appStats.days_active}{t.dayUnit}</span>
                 </div>
                 <button onClick={() => void updater.checkForUpdate(true)} disabled={updater.isChecking} className="w-full py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-[9px] font-black hover:bg-accent/20 transition-all mt-1 disabled:opacity-50">{updater.isChecking ? t.updateChecking : t.checkUpdate}</button>
             </div>
@@ -816,9 +822,9 @@ export default function Dashboard() {
                         {tabs.find(t_ => t_.id === activeTab)?.label}
                     </h1>
                     <span className="w-1 h-1 rounded-full bg-accent/40" />
-                    <span className="text-[10px] font-black text-accent/60 dark:text-accent/60 tracking-widest uppercase italic">LONG AI</span>
+                    <span className="text-[10px] font-black text-accent/60 dark:text-accent/60 tracking-widest uppercase italic">{t.brandCompact}</span>
                 </div>
-                <p className="dashboard-subtitle text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">Long翻译 · 智能助手</p>
+                <p className="dashboard-subtitle text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">{t.brandSubtitle}</p>
             </div>
             <div className="flex items-center gap-4">
                 {/* Notification Bell */}
@@ -993,7 +999,7 @@ export default function Dashboard() {
                                                     {webdavConnectionTest.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
                                                     <span>{webdavConnectionTest.ok
                                                         ? t.connectionSuccess.replace("{latency}", String(webdavConnectionTest.latencyMs || 0))
-                                                        : t[`webdavError_${webdavConnectionTest.error?.code}`] || webdavConnectionTest.error?.message || t.connectionFailed}
+                                                        : webDavErrorText(t, webdavConnectionTest.error?.code, webdavConnectionTest.error?.message || t.connectionFailed)}
                                                     </span>
                                                 </div>
                                             )}
@@ -1133,12 +1139,12 @@ export default function Dashboard() {
                                             <div className="flex flex-col gap-1.5 min-h-0">
                                                 <div className="flex items-center justify-between px-2">
                                                     <span className="text-[8px] font-black text-accent uppercase tracking-wider">{primaryComparisonState?.model || transModelName || "Primary"}</span>
-                                                    {primaryComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{primaryComparisonState.durationMs} ms</span>}
+                                                    {primaryComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{primaryComparisonState.durationMs} {t.millisecondsShort}</span>}
                                                 </div>
                                                 <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
                                                     <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
                                                         {batchOutput || (primaryComparisonState?.phase === "error"
-                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{t[`translationError_${primaryComparisonState.error?.code}`] || primaryComparisonState.error?.message}</span>
+                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{translationErrorText(t, primaryComparisonState.error?.code, primaryComparisonState.error?.message)}</span>
                                                             : primaryComparisonState?.phase === "cancelled" ? <span className="opacity-30 italic">{t.translationCancelled}</span>
                                                             : <span className="opacity-30 italic">{primaryComparisonState?.phase === "translating" ? t.translationPrimary : "..."}</span>)}
                                                         {primaryComparisonState?.phase === "translating" && !batchOutput && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-accent align-middle" />}
@@ -1150,12 +1156,12 @@ export default function Dashboard() {
                                             <div className="flex flex-col gap-1.5 min-h-0">
                                                 <div className="flex items-center justify-between px-2">
                                                     <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">{backupComparisonState?.model || backupModelName || "Backup"}</span>
-                                                    {backupComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{backupComparisonState.durationMs} ms</span>}
+                                                    {backupComparisonState?.durationMs !== undefined && <span className="text-[8px] font-bold text-zinc-400">{backupComparisonState.durationMs} {t.millisecondsShort}</span>}
                                                 </div>
                                                 <div className="flex-1 glass-card rounded-[24px] overflow-hidden p-5 border-white/50 bg-black/[0.02] dark:bg-white/[0.02]">
                                                     <div className="w-full h-full custom-scrollbar overflow-y-auto font-medium text-[0.8em] leading-relaxed selectable-text whitespace-pre-wrap">
                                                         {batchOutputBackup || (backupComparisonState?.phase === "error"
-                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{t[`translationError_${backupComparisonState.error?.code}`] || backupComparisonState.error?.message}</span>
+                                                            ? <span className="text-red-500"><AlertCircle size={13} className="inline mr-1.5" />{translationErrorText(t, backupComparisonState.error?.code, backupComparisonState.error?.message)}</span>
                                                             : backupComparisonState?.phase === "cancelled" ? <span className="opacity-30 italic">{t.translationCancelled}</span>
                                                             : <span className="opacity-30 italic">{backupComparisonState?.phase === "translating" ? t.translationBackupModel : "..."}</span>)}
                                                         {backupComparisonState?.phase === "translating" && !batchOutputBackup && <motion.span animate={{ opacity: [1, 0, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} className="inline-block w-1 h-4 ml-1 bg-zinc-400 align-middle" />}
@@ -1173,7 +1179,7 @@ export default function Dashboard() {
                                             {batchTaskState.phase === "error" && (
                                                 <div className="absolute inset-x-5 bottom-5 flex items-center gap-3 rounded-2xl border border-red-500/15 bg-red-50/95 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-400">
                                                     <AlertCircle size={15} className="shrink-0" />
-                                                    <span className="min-w-0 flex-1 text-[10px] font-bold">{t[`translationError_${batchTaskState.error?.code}`] || batchTaskState.error?.message}</span>
+                                                    <span className="min-w-0 flex-1 text-[10px] font-bold">{translationErrorText(t, batchTaskState.error?.code, batchTaskState.error?.message)}</span>
                                                     <button onClick={startBatchTranslation} className="text-[10px] font-black hover:underline">{t.retry}</button>
                                                 </div>
                                             )}
@@ -1282,7 +1288,7 @@ export default function Dashboard() {
                                         {connectionTest && (
                                             <span className={`flex items-center gap-1.5 text-[10px] font-bold ${connectionTest.ok ? "text-emerald-500" : "text-red-500"}`}>
                                                 {connectionTest.ok ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
-                                                {connectionTest.ok ? t.connectionSuccess.replace("{latency}", String(connectionTest.latencyMs || 0)) : t[`translationError_${connectionTest.error?.code}`] || connectionTest.error?.message}
+                                                {connectionTest.ok ? t.connectionSuccess.replace("{latency}", String(connectionTest.latencyMs || 0)) : translationErrorText(t, connectionTest.error?.code, connectionTest.error?.message)}
                                             </span>
                                         )}
                                     </div>
@@ -1298,11 +1304,11 @@ export default function Dashboard() {
                                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
                                                 <div className="space-y-5 pt-4">
                                                     <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.baseUrl}</label>
-                                                        <div className="relative"><input value={transBaseUrl} onChange={(e) => { setTransBaseUrl(e.target.value); setTranslationProvider("custom"); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder="https://api.example.com/v1" /><ExternalLink className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
+                                                        <div className="relative"><input value={transBaseUrl} onChange={(e) => { setTransBaseUrl(e.target.value); setTranslationProvider("custom"); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={t.baseUrlExample} /><ExternalLink className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
                                                     </div>
                                                     <div>
                                                         <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.customPrompt}</label>
-                                                        <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder="You are a professional translator. Translate to {{targetLang}}. Return only the translated text." className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
+                                                        <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder={t.customPromptExample} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
                                                         <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
                                                     </div>
                                                     <div className="border-t border-black/5 dark:border-white/5 pt-5">
@@ -1353,13 +1359,13 @@ export default function Dashboard() {
                                                 </div>
                                             ))}
                                             <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsVoice}</label>
-                                                <div className="relative"><input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500" placeholder="alloy / Cherry..." />
+                                                <div className="relative"><input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500" placeholder={t.ttsVoicePlaceholder} />
                                                     <div className="mt-2 flex flex-wrap gap-2 px-2">{['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'Cherry', 'Serena'].map(v => (<button key={v} onClick={() => setTtsVoice(v)} className="text-[9px] px-2 py-1 rounded-md bg-black/5 dark:bg-white/5 hover:bg-accent hover:text-white transition-all">{v}</button>))}</div>
                                                 </div>
                                             </div>
                                         </motion.div>
                                     )}
-                                    <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsSpeed} ({ttsSpeed}x)</label><input type="range" min="0.5" max="2.0" step="0.1" value={ttsSpeed} onChange={(e) => setTtsSpeed(e.target.value)} className="w-full accent-[var(--accent)] h-1.5 bg-black/5 dark:bg-white/5 rounded-full appearance-none" /></div>
+                                    <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsSpeed} ({ttsSpeed}{t.speedMultiplierSuffix})</label><input type="range" min="0.5" max="2.0" step="0.1" value={ttsSpeed} onChange={(e) => setTtsSpeed(e.target.value)} className="w-full accent-[var(--accent)] h-1.5 bg-black/5 dark:bg-white/5 rounded-full appearance-none" /></div>
                                 </div>
                             </div>
                         </div>
@@ -1403,7 +1409,7 @@ export default function Dashboard() {
                                     </div>
                                 </div>
 
-                                <div className="pt-4"><div className="flex items-center justify-between mb-8 px-2"><div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.interfaceScale}</h3><p className="text-[10px] text-zinc-400 font-bold opacity-60">{t.scaleDesc}</p></div><div className="px-5 py-2.5 bg-accent rounded-2xl text-white font-black text-[12px] shadow-xl shadow-accent">{fontSize}px</div></div>
+                                <div className="pt-4"><div className="flex items-center justify-between mb-8 px-2"><div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.interfaceScale}</h3><p className="text-[10px] text-zinc-400 font-bold opacity-60">{t.scaleDesc}</p></div><div className="px-5 py-2.5 bg-accent rounded-2xl text-white font-black text-[12px] shadow-xl shadow-accent">{fontSize}{t.pixelsShort}</div></div>
                                     <div className="px-4"><input type="range" min="10" max="24" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full accent-[var(--accent)] cursor-pointer h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full appearance-none mb-10" />
                                         <div className="p-8 bg-black/5 dark:bg-white/5 rounded-[28px] border border-black/5 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[10px] font-black text-zinc-300 uppercase tracking-[0.4em] mb-4 opacity-60">{t.scalePreview}</p><p className="font-bold leading-relaxed max-w-sm transition-all duration-300">{t.scalePreviewText}</p></div>
                                     </div>
@@ -1555,7 +1561,7 @@ export default function Dashboard() {
                                                             {selectedWord.contexts.map((context) => (
                                                                 <div key={context.id} className="p-6 rounded-[24px] bg-accent/[0.035] border border-accent/10 space-y-3">
                                                                     <div className="flex items-center justify-between gap-4 text-[9px] font-black uppercase tracking-wider text-zinc-400">
-                                                                        <span>{t[`contextSource_${context.source_type}`] || context.source_type}</span>
+                                                                        <span>{contextSourceText(t, context.source_type)}</span>
                                                                         <time>{new Date(context.created_at).toLocaleString()}</time>
                                                                     </div>
                                                                     <div><span className="text-[9px] font-black text-accent uppercase">{t.originalContext}</span><p className="mt-1 text-[12px] font-semibold leading-relaxed">{context.source_text}</p></div>
@@ -1622,7 +1628,7 @@ export default function Dashboard() {
                                                     <button
                                                         onClick={() => navigator.clipboard.writeText(h.translated_text)}
                                                         className="p-2 text-zinc-300 hover:text-accent rounded-lg hover:bg-accent/10 transition-all"
-                                                        title="Copy translation"
+                                                        title={t.copyTranslation}
                                                     >
                                                         <Copy size={14} />
                                                     </button>
@@ -1632,7 +1638,7 @@ export default function Dashboard() {
                                                             loadHistory();
                                                         }}
                                                         className="p-2 text-zinc-300 hover:text-red-500 rounded-lg hover:bg-red-500/10 transition-all"
-                                                        title="Delete"
+                                                        title={t.delete}
                                                     >
                                                         <Trash2 size={14} />
                                                     </button>

@@ -2,8 +2,24 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Download, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { useRef } from "react";
 import { useFocusTrap } from "../hooks/useFocusTrap";
+import type { TranslationCatalog } from "../i18n";
 
 export type UpdatePhase = "available" | "downloading" | "installing" | "error";
+
+type UpdateDialogLabels = Pick<
+  TranslationCatalog,
+  | "updateAvailableTitle"
+  | "updateVersionLabel"
+  | "close"
+  | "updateSignatureHint"
+  | "updateInstalling"
+  | "updateDownloading"
+  | "updateDoNotClose"
+  | "updateInstallFailed"
+  | "updateLater"
+  | "retry"
+  | "updateNow"
+>;
 
 interface UpdateDialogProps {
   open: boolean;
@@ -12,7 +28,7 @@ interface UpdateDialogProps {
   phase: UpdatePhase;
   progress: number | null;
   error?: string;
-  labels: Record<string, string>;
+  labels: UpdateDialogLabels;
   onInstall: () => void;
   onClose: () => void;
 }

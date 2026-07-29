@@ -22,6 +22,7 @@ import {
   TranslationProviderId,
 } from "../services/settings";
 import { WebDavSyncSummary } from "../services/webdav";
+import { cachePreferredLanguage } from "../i18n";
 
 function applyStateAction<T>(current: T, action: SetStateAction<T>): T {
   return typeof action === "function"
@@ -70,6 +71,10 @@ export function useSettings() {
       setSavedFingerprint(currentFingerprint);
     }
   }, [configHydrated, currentFingerprint, savedFingerprint]);
+
+  useEffect(() => {
+    if (configHydrated) cachePreferredLanguage(settings.lang);
+  }, [configHydrated, settings.lang]);
 
   useEffect(() => {
     const warnBeforeClose = (event: BeforeUnloadEvent) => {

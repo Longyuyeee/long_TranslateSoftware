@@ -26,7 +26,7 @@ export function toast(type: ToastType, message: string) {
 }
 
 /** Render once near the root of the component tree. */
-export function ToastContainer() {
+export function ToastContainer({ dismissLabel }: { dismissLabel: string }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -75,7 +75,7 @@ export function ToastContainer() {
               <span className="text-[11px] font-bold text-zinc-800 dark:text-zinc-100 leading-snug">{t.message}</span>
               <button
                 onClick={() => dismiss(t.id)}
-                aria-label="Dismiss notification"
+                aria-label={dismissLabel}
                 className="shrink-0 p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
               >
                 <X size={12} />

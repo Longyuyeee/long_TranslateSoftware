@@ -5,7 +5,7 @@ import { Copy, Star, Volume2, X, RotateCcw, Sparkles, ArrowLeftRight, CircleStop
 import { motion, AnimatePresence } from "framer-motion";
 import { startTranslationTask, translateStreaming, speak, TranslationTask, TranslationTaskState } from "../services/api";
 import { analyzeAndSaveWord, checkWordExists } from "../services/wordbook";
-import { translations, Lang } from "../i18n";
+import { translations, translationErrorText, Lang } from "../i18n";
 
 export default function FloatingWindow() {
   const [text, setText] = useState("");
@@ -159,7 +159,7 @@ export default function FloatingWindow() {
             )}
           </div>
           <div className="flex flex-col">
-            <span className="text-[11px] font-black text-zinc-800 dark:text-zinc-200 uppercase tracking-widest leading-none">Long AI</span>
+            <span className="text-[11px] font-black text-zinc-800 dark:text-zinc-200 uppercase tracking-widest leading-none">{t.brandCompact}</span>
             <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-tighter">{statusText}</span>
           </div>
         </div>
@@ -202,7 +202,7 @@ export default function FloatingWindow() {
                             <AlertCircle size={16} className="mt-0.5 shrink-0" />
                             <div className="min-w-0 flex-1">
                                 <div className="text-[10px] font-black uppercase tracking-wider">{t.translationFailed}</div>
-                                <div className="mt-1 text-[11px] leading-relaxed opacity-80">{t[`translationError_${taskState.error?.code}`] || taskState.error?.message}</div>
+                                <div className="mt-1 text-[11px] leading-relaxed opacity-80">{translationErrorText(t, taskState.error?.code, taskState.error?.message)}</div>
                             </div>
                             <button onClick={() => startTranslation(text)} className="text-[10px] font-black hover:underline">{t.retry}</button>
                         </div>
