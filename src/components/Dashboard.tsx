@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Sun, Moon, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
+import { Settings, Book, Cpu, Save, CheckCircle, Trash2, Palette, Monitor, ChevronRight, Sparkles, ExternalLink, Info, Languages, Copy, RotateCcw, Plus, X as CloseIcon, Volume2, Clock, Bell, Brain, Search, ArrowLeftRight, CircleStop, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
@@ -22,6 +22,7 @@ import type {
   TranslationModelPatch,
   TtsModelConfig,
 } from "./ModelConfigTab";
+import type { AppearanceConfigPatch } from "./AppearanceSettingsTab";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
@@ -30,17 +31,7 @@ import { useSettings } from "../hooks/useSettings";
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
 const ModelConfigTab = lazy(() => import("./ModelConfigTab"));
-
-const ACCENT_PALETTE = [
-  { id: "blue",   value: "#007aff" },
-  { id: "indigo", value: "#5856d6" },
-  { id: "violet", value: "#af52de" },
-  { id: "pink",   value: "#ff2d55" },
-  { id: "orange", value: "#ff9500" },
-  { id: "green",  value: "#34c759" },
-  { id: "teal",   value: "#5ac8fa" },
-  { id: "mint",   value: "#00c7be" },
-];
+const AppearanceSettingsTab = lazy(() => import("./AppearanceSettingsTab"));
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -703,6 +694,12 @@ export default function Dashboard() {
     if (patch.speed !== undefined) setTtsSpeed(patch.speed);
   };
 
+  const handleAppearanceChange = (patch: AppearanceConfigPatch) => {
+    if (patch.theme !== undefined) setTheme(patch.theme);
+    if (patch.accentColor !== undefined) setAccentColor(patch.accentColor);
+    if (patch.fontSize !== undefined) setFontSize(patch.fontSize);
+  };
+
   const handleSave = async () => {
     const result = await saveSettings();
     if (result === "saved") {
@@ -1301,50 +1298,13 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "appearance" && (
-                        <div className="space-y-6 max-w-3xl mx-auto w-full">
-                            <div className="glass-card rounded-[28px] p-8 space-y-8 shadow-apple border-white/50">
-                                <div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-6 pl-2">{t.themeMode}</h3>
-                                    <div className="grid grid-cols-3 gap-5">
-                                        {[
-                                            { id: "light", icon: Sun, label: t.themeLight, color: "from-orange-400 to-orange-500" },
-                                            { id: "dark", icon: Moon, label: t.themeDark, color: "from-zinc-700 to-black" },
-                                            { id: "system", icon: Monitor, label: t.themeSystem, color: "from-blue-400 to-indigo-600" }
-                                        ].map(item => (
-                                            <button key={item.id} onClick={() => setTheme(item.id)} className={`group flex flex-col items-center gap-4 p-6 rounded-[24px] border transition-all duration-500 relative overflow-hidden ${theme === item.id ? 'bg-white dark:bg-white/10 border-accent shadow-2xl scale-[1.02]' : 'bg-black/5 dark:bg-white/5 border-transparent text-zinc-500 hover:bg-black/10'}`}><div className={`w-14 h-14 rounded-[20px] bg-gradient-to-br ${item.color} flex items-center justify-center text-white shadow-lg ${theme === item.id ? 'shadow-accent' : ''} transition-all`}><item.icon size={28} /></div><span className={`text-[10px] font-black uppercase tracking-widest ${theme === item.id ? 'text-accent' : 'text-zinc-400'}`}>{item.label}</span></button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Accent Color Picker */}
-                                <div className="pt-4">
-                                    <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em] mb-4 pl-2">{t.accentColor}</h3>
-                                    <div className="flex gap-3 px-2 flex-wrap">
-                                        {ACCENT_PALETTE.map(c => (
-                                            <button
-                                                key={c.id}
-                                                onClick={() => setAccentColor(c.value)}
-                                                className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 ${
-                                                    accentColor === c.value ? 'ring-2 ring-offset-2 ring-zinc-400 dark:ring-zinc-300 scale-110' : ''
-                                                }`}
-                                                style={{ backgroundColor: c.value }}
-                                            >
-                                                {accentColor === c.value && (
-                                                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}>
-                                                        <CheckCircle size={12} className="text-white drop-shadow-md" fill="white" />
-                                                    </motion.div>
-                                                )}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="pt-4"><div className="flex items-center justify-between mb-8 px-2"><div><h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{t.interfaceScale}</h3><p className="text-[10px] text-zinc-400 font-bold opacity-60">{t.scaleDesc}</p></div><div className="px-5 py-2.5 bg-accent rounded-2xl text-white font-black text-[12px] shadow-xl shadow-accent">{fontSize}{t.pixelsShort}</div></div>
-                                    <div className="px-4"><input type="range" min="10" max="24" step="1" value={fontSize} onChange={(e) => setFontSize(parseInt(e.target.value))} className="w-full accent-[var(--accent)] cursor-pointer h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full appearance-none mb-10" />
-                                        <div className="p-8 bg-black/5 dark:bg-white/5 rounded-[28px] border border-black/5 dark:border-white/5 flex flex-col items-center text-center"><p className="text-[10px] font-black text-zinc-300 uppercase tracking-[0.4em] mb-4 opacity-60">{t.scalePreview}</p><p className="font-bold leading-relaxed max-w-sm transition-all duration-300">{t.scalePreviewText}</p></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <Suspense fallback={<div className="h-64 animate-pulse rounded-[28px] bg-black/5 dark:bg-white/5" />}>
+                            <AppearanceSettingsTab
+                                labels={t}
+                                value={{ theme, accentColor, fontSize }}
+                                onChange={handleAppearanceChange}
+                            />
+                        </Suspense>
                     )}
 
                     {activeTab === "wordbook" && (
