@@ -2,6 +2,7 @@ mod anki;
 mod backup;
 mod db;
 mod diagnostics;
+mod glossary;
 mod history;
 mod ocr;
 mod review;
@@ -794,68 +795,6 @@ fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
     }))
 }
 
-// ── Glossary CRUD ──
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct GlossaryEntry {
-    id: i64,
-    source_term: String,
-    target_term: String,
-    created_at: String,
-}
-
-#[tauri::command]
-fn add_glossary_entry(app: AppHandle, source_term: String, target_term: String) -> Result<GlossaryEntry, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute(
-        "INSERT INTO glossary (source_term, target_term) VALUES (?1, ?2)",
-        rusqlite::params![source_term, target_term],
-    ).map_err(|e| e.to_string())?;
-    let id = conn.last_insert_rowid();
-    Ok(GlossaryEntry { id, source_term, target_term, created_at: String::new() })
-}
-
-#[tauri::command]
-fn get_glossary_entries(app: AppHandle) -> Result<Vec<GlossaryEntry>, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    let mut stmt = conn.prepare(
-        "SELECT id, source_term, target_term, created_at FROM glossary ORDER BY created_at DESC"
-    ).map_err(|e| e.to_string())?;
-    let entries = stmt.query_map([], |row| {
-        Ok(GlossaryEntry {
-            id: row.get(0)?,
-            source_term: row.get(1)?,
-            target_term: row.get(2)?,
-            created_at: row.get(3)?,
-        })
-    }).map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    Ok(entries)
-}
-
-#[tauri::command]
-fn delete_glossary_entry(app: AppHandle, id: i64) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM glossary WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn update_glossary_entry(app: AppHandle, id: i64, source_term: String, target_term: String) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE glossary SET source_term = ?1, target_term = ?2 WHERE id = ?3",
-        rusqlite::params![source_term, target_term, id],
-    ).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
     let old_identifier = "com.ai.trans.assistant";
@@ -1002,7 +941,8 @@ pub fn run() {
             history::save_translation, history::get_translation_history, history::delete_translation, history::clear_translation_history,
             export_wordbook, history::lookup_translation_memory, history::save_translation_memory,
             review::get_due_reviews, review::submit_review, review::get_review_stats, anki::export_anki,
-            add_glossary_entry, get_glossary_entries, delete_glossary_entry, update_glossary_entry
+            glossary::add_glossary_entry, glossary::get_glossary_entries,
+            glossary::delete_glossary_entry, glossary::update_glossary_entry
         ])
         .run(tauri::generate_context!())
     {
