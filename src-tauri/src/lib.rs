@@ -8,12 +8,13 @@ mod history;
 mod ocr;
 mod review;
 mod secure_config;
+mod system_integration;
 mod tray;
 mod tts;
 mod webdav;
 mod wordbook;
 
-use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent, WebviewWindow};
+use tauri::{AppHandle, Manager, Emitter, Runtime, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Modifiers, Code, ShortcutState};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use base64::{Engine as _, engine::general_purpose};
@@ -41,41 +42,6 @@ fn set_shortcuts_paused(state: tauri::State<AppState>, paused: bool) {
     if let Ok(mut current) = state.shortcuts_paused.lock() {
         *current = paused;
     }
-}
-
-#[tauri::command]
-fn get_screen_bounds(app: AppHandle) -> Result<serde_json::Value, String> {
-    let screens = screenshots::Screen::all().map_err(|e| e.to_string())?;
-    let mut min_x = 0i32; let mut min_y = 0i32;
-    let mut max_x = 0i32; let mut max_y = 0i32;
-    for s in &screens {
-        let d = &s.display_info;
-        if d.x < min_x { min_x = d.x; }
-        if d.y < min_y { min_y = d.y; }
-        let right = d.x + d.width as i32;
-        let bottom = d.y + d.height as i32;
-        if right > max_x { max_x = right; }
-        if bottom > max_y { max_y = bottom; }
-    }
-    // Get scale factor from primary screen
-    let factor = if let Some(win) = app.get_webview_window("ocr-overlay") {
-        win.scale_factor().unwrap_or(1.0)
-    } else { 1.0 };
-    Ok(serde_json::json!({
-        "x": min_x, "y": min_y,
-        "width": (max_x - min_x) as f64 / factor,
-        "height": (max_y - min_y) as f64 / factor,
-        "physical_x": min_x, "physical_y": min_y,
-        "physical_width": max_x - min_x,
-        "physical_height": max_y - min_y,
-        "factor": factor,
-        "count": screens.len()
-    }))
-}
-
-#[tauri::command]
-fn hide_floating_window(app: AppHandle) {
-    if let Some(win) = app.get_webview_window("floating") { let _ = win.hide(); }
 }
 
 #[tauri::command]
@@ -185,18 +151,13 @@ fn update_shortcut(app: AppHandle, _state: tauri::State<AppState>, name: String,
             if name_for_closure == "q" {
                 handle_translate_request(app);
             } else {
-                show_ocr_overlay(app);
+                system_integration::show_ocr_overlay(app);
             }
         }
     }).map_err(|e| format!("Shortcut registration failed: {}", e))?;
 
     db::set_config(&conn, &format!("shortcut_{}", name), &shortcut_str).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[tauri::command]
-fn start_window_drag(window: WebviewWindow) {
-    let _ = window.start_dragging();
 }
 
 #[tauri::command]
@@ -418,48 +379,6 @@ fn export_wordbook(app: AppHandle, format: String) -> Result<String, String> {
         Ok("Export successful".to_string())
     } else {
         Err("User cancelled".to_string())
-    }
-}
-
-#[tauri::command]
-fn get_clipboard_text(app: AppHandle) -> Result<String, String> {
-    let clipboard = app.clipboard();
-    clipboard.read_text().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn clipboard_detect(app: AppHandle, text: String) {
-    if let Some(floating) = app.get_webview_window("floating") {
-        let _ = floating.show();
-        let _ = floating.set_focus();
-        let _ = app.emit("shortcut-triggered", text);
-    }
-}
-
-fn show_ocr_overlay(app: &AppHandle) {
-    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-        // Span all monitors for dual/multi-monitor support
-        if let Ok(screens) = screenshots::Screen::all() {
-            let mut min_x = 0i32; let mut min_y = 0i32;
-            let mut max_x = 0i32; let mut max_y = 0i32;
-            for s in &screens {
-                let d = &s.display_info;
-                if d.x < min_x { min_x = d.x; }
-                if d.y < min_y { min_y = d.y; }
-                let right = d.x + d.width as i32;
-                let bottom = d.y + d.height as i32;
-                if right > max_x { max_x = right; }
-                if bottom > max_y { max_y = bottom; }
-            }
-            let factor = overlay.scale_factor().unwrap_or(1.0);
-            let _ = overlay.set_position(tauri::PhysicalPosition::new(min_x, min_y));
-            let _ = overlay.set_size(tauri::PhysicalSize::new(
-                ((max_x - min_x) as f64 / factor) as u32,
-                ((max_y - min_y) as f64 / factor) as u32,
-            ));
-        }
-        let _ = overlay.show();
-        let _ = overlay.set_focus();
     }
 }
 
@@ -906,10 +825,7 @@ pub fn run() {
                         .unwrap_or(true);
                     if paused { return; }
                     if event.state() == ShortcutState::Pressed {
-                        if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-                            let _ = overlay.show();
-                            let _ = overlay.set_focus();
-                        }
+                        system_integration::show_ocr_overlay(app);
                     }
                 });
             }
@@ -917,11 +833,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages, get_screen_bounds, get_clipboard_text,
+            run_ocr, capture_and_ocr, confirm_ocr_text, get_available_ocr_languages,
+            system_integration::get_screen_bounds, system_integration::get_clipboard_text,
             config::set_config_value, config::get_config_value,
             config::get_config_values, config::set_config_values, updater_configured,
             export_diagnostics,
-            hide_floating_window, start_window_drag, clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
+            system_integration::hide_floating_window, system_integration::start_window_drag,
+            system_integration::clipboard_detect, add_to_wordbook, get_wordbook, wordbook::get_wordbook_page, delete_word,
             check_word_exists, update_word_analysis, tts::proxy_fetch_audio, tts::get_audio_cache_size,
             tts::clear_audio_cache, tts::check_audio_cache, webdav::sync_wordbook, webdav::test_webdav_connection, increment_translate_count, get_app_stats,
             update_shortcut, set_shortcuts_paused, backup::export_data, backup::import_data, tts::save_audio_cache,
