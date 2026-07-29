@@ -18,14 +18,18 @@ import { useUpdater } from "../hooks/useUpdater";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
 import ThemedSelect from "./ThemedSelect";
+import type {
+  TranslationModelPatch,
+  TtsModelConfig,
+} from "./ModelConfigTab";
 import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
-import { TRANSLATION_PROVIDERS } from "../services/settings";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
+const ModelConfigTab = lazy(() => import("./ModelConfigTab"));
 
 const ACCENT_PALETTE = [
   { id: "blue",   value: "#007aff" },
@@ -119,7 +123,6 @@ export default function Dashboard() {
     customPrompt,
     setCustomPrompt,
     translationProvider,
-    setTranslationProvider,
     applyTranslationProvider,
     backupApiKey,
     setBackupApiKey,
@@ -201,7 +204,6 @@ export default function Dashboard() {
   const [recordingKey, setRecordingKey] = useState<"q" | "w" | null>(null);
 
   // Translation Model Config
-  const [showAdvancedModel, setShowAdvancedModel] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
@@ -677,6 +679,28 @@ export default function Dashboard() {
     setIsTestingConnection(false);
     if (result.ok) toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs || 0)));
     else toast("error", translationErrorText(t, result.error?.code, result.error?.message || t.connectionFailed));
+  };
+
+  const handleTranslationConfigChange = (patch: TranslationModelPatch) => {
+    if (patch.apiKey !== undefined) setTransApiKey(patch.apiKey);
+    if (patch.baseUrl !== undefined) setTransBaseUrl(patch.baseUrl);
+    if (patch.modelName !== undefined) setTransModelName(patch.modelName);
+    if (patch.customPrompt !== undefined) setCustomPrompt(patch.customPrompt);
+    if (patch.backupApiKey !== undefined) setBackupApiKey(patch.backupApiKey);
+    if (patch.backupBaseUrl !== undefined) setBackupBaseUrl(patch.backupBaseUrl);
+    if (patch.backupModelName !== undefined) setBackupModelName(patch.backupModelName);
+    if (patch.apiKey !== undefined || patch.baseUrl !== undefined || patch.modelName !== undefined) {
+      setConnectionTest(null);
+    }
+  };
+
+  const handleTtsConfigChange = (patch: Partial<TtsModelConfig>) => {
+    if (patch.engine !== undefined) setTtsEngine(patch.engine);
+    if (patch.apiKey !== undefined) setTtsApiKey(patch.apiKey);
+    if (patch.baseUrl !== undefined) setTtsBaseUrl(patch.baseUrl);
+    if (patch.modelName !== undefined) setTtsModelName(patch.modelName);
+    if (patch.voice !== undefined) setTtsVoice(patch.voice);
+    if (patch.speed !== undefined) setTtsSpeed(patch.speed);
   };
 
   const handleSave = async () => {
@@ -1236,127 +1260,44 @@ export default function Dashboard() {
                     )}
 
                     {activeTab === "model" && (
-                        <div className="space-y-8 max-w-3xl mx-auto w-full pb-20">
-                            <div className="flex justify-end">
-                                <button type="button" onClick={() => setShowAdvancedSettings(value => !value)} className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 text-[10px] font-black text-zinc-400 hover:text-accent transition-colors">
-                                    <Settings size={13} /> {showAdvancedSettings ? t.hideAdvancedSettings : t.showAdvancedSettings}
-                                </button>
-                            </div>
-                            <div className="glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50">
-                                <div className="flex items-center gap-5 mb-4">
-                                    <div className="w-14 h-14 bg-zinc-200 dark:bg-white/10 rounded-[20px] flex items-center justify-center text-zinc-600 dark:text-zinc-300 shadow-inner"><Cpu size={28} /></div>
-                                    <div><h3 className="text-lg font-black tracking-tight">{t.transModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">{t.transIntelligence}</p></div>
+                        <Suspense
+                            fallback={(
+                                <div className="flex h-full items-center justify-center" role="status" aria-label={t.loading}>
+                                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
                                 </div>
-                                <div className="space-y-5">
-                                    <div>
-                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.translationService}</label>
-                                        <div className="grid grid-cols-3 gap-2 rounded-[20px] bg-black/[0.03] dark:bg-white/[0.04] p-1.5">
-                                            {TRANSLATION_PROVIDERS.map(provider => (
-                                                <button key={provider.id} onClick={() => { applyTranslationProvider(provider.id); setConnectionTest(null); }} className={`rounded-[15px] px-3 py-3 text-[10px] font-black transition-all ${translationProvider === provider.id ? "bg-white dark:bg-white/10 text-accent shadow-sm" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"}`}>
-                                                    {provider.id === "custom" ? t.customService : provider.label}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {[
-                                        { label: t.apiKey, val: transApiKey, set: setTransApiKey, placeholder: "sk-...", icon: Save, type: "password" },
-                                        { label: t.modelName, val: transModelName, set: setTransModelName, placeholder: "deepseek-chat", icon: Sparkles, type: "text" }
-                                    ].map((f, i) => (
-                                        <div key={i}><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{f.label}</label>
-                                            <div className="relative"><input type={f.type} value={f.val} onChange={(e) => { f.set(e.target.value); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
-                                        </div>
-                                    ))}
-
-                                    <div className="flex items-center gap-3">
-                                        <button onClick={handleTestTranslationConnection} disabled={isTestingConnection} className="flex items-center gap-2 rounded-full bg-accent/10 px-5 py-2.5 text-[10px] font-black text-accent hover:bg-accent/15 disabled:opacity-50 transition-all">
-                                            {isTestingConnection ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-accent/20 border-t-accent" /> : <CheckCircle size={14} />}
-                                            {isTestingConnection ? t.connectionTesting : t.testConnection}
-                                        </button>
-                                        {connectionTest && (
-                                            <span className={`flex items-center gap-1.5 text-[10px] font-bold ${connectionTest.ok ? "text-emerald-500" : "text-red-500"}`}>
-                                                {connectionTest.ok ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
-                                                {connectionTest.ok ? t.connectionSuccess.replace("{latency}", String(connectionTest.latencyMs || 0)) : translationErrorText(t, connectionTest.error?.code, connectionTest.error?.message)}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="border-t border-black/5 dark:border-white/5 pt-4">
-                                    <button onClick={() => setShowAdvancedModel(value => !value)} className="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400 hover:text-accent transition-colors">
-                                        {t.advancedSettings}
-                                        <ChevronRight size={15} className={`transition-transform ${showAdvancedModel ? "rotate-90" : ""}`} />
-                                    </button>
-                                    <AnimatePresence initial={false}>
-                                        {showAdvancedModel && (
-                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                                                <div className="space-y-5 pt-4">
-                                                    <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.baseUrl}</label>
-                                                        <div className="relative"><input value={transBaseUrl} onChange={(e) => { setTransBaseUrl(e.target.value); setTranslationProvider("custom"); setConnectionTest(null); }} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={t.baseUrlExample} /><ExternalLink className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.customPrompt}</label>
-                                                        <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} placeholder={t.customPromptExample} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.8em] font-medium dark:text-white outline-none focus:ring-4 ring-blue-500/10 transition-all resize-none h-28 custom-scrollbar placeholder:text-zinc-400 dark:placeholder:text-zinc-500" />
-                                                        <p className="text-[9px] text-zinc-400 font-bold mt-1.5 ml-2">{t.customPromptDesc}</p>
-                                                    </div>
-                                                    <div className="border-t border-black/5 dark:border-white/5 pt-5">
-                                                        <label className="block text-[10px] font-black uppercase text-zinc-400 mb-3 tracking-[0.2em] ml-2">{t.backupModel}</label>
-                                                        <div className="space-y-4">
-                                                            {[
-                                                                { label: t.baseUrl, val: backupBaseUrl, set: setBackupBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
-                                                                { label: t.apiKey, val: backupApiKey, set: setBackupApiKey, placeholder: "sk-...", icon: Save, type: "password" },
-                                                                { label: t.modelName, val: backupModelName, set: setBackupModelName, placeholder: "gpt-4o-mini", icon: Sparkles, type: "text" }
-                                                            ].map((f, i) => (
-                                                                <div key={i}><label className="block text-[9px] font-black uppercase text-zinc-400 mb-1.5 tracking-[0.15em] ml-2">{f.label}</label>
-                                                                    <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-3.5 bg-white/40 dark:bg-black/20 rounded-[18px] border border-black/5 dark:border-white/10 text-[0.8em] font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={18} /></div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            </div>
-                            <div className={`${showAdvancedSettings ? "block" : "hidden"} glass-card rounded-[28px] p-10 space-y-6 shadow-apple border-white/50`}>
-                                <div className="flex items-center gap-5 mb-4">
-                                    <div className="w-14 h-14 bg-accent/10 rounded-[20px] flex items-center justify-center text-accent shadow-inner"><Volume2 size={28} /></div>
-                                    <div><h3 className="text-lg font-black tracking-tight">{t.audioModel}</h3><p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest opacity-60">{t.voiceEngine}</p></div>
-                                </div>
-                                <div className="space-y-6">
-                                    <div className="flex items-center justify-between p-5 bg-white/20 dark:bg-white/5 rounded-[22px] border border-white/30 dark:border-white/5">
-                                        <div><label className="text-[0.9em] font-black block">{t.ttsEngine}</label><span className="text-[0.7em] text-zinc-400 font-bold opacity-60 uppercase">
-                                            {ttsEngine === "local" ? t.ttsLocal : ttsEngine === "edge" ? t.ttsEdge : t.ttsOnline}
-                                        </span></div>
-                                        <div className="flex bg-black/5 dark:bg-white/5 p-1 rounded-full border border-black/5">
-                                            <button onClick={() => setTtsEngine("local")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "local" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsLocal}</button>
-                                            <button onClick={() => setTtsEngine("edge")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "edge" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsEdge}</button>
-                                            <button onClick={() => setTtsEngine("online")} className={`px-4 py-1.5 rounded-full text-[10px] font-black transition-all ${ttsEngine === "online" ? "bg-white dark:bg-zinc-800 shadow-md text-accent" : "text-zinc-400"}`}>{t.ttsOnline}</button>
-                                        </div>
-                                    </div>
-                                    {ttsEngine === "online" && (
-                                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5">
-                                            {[
-                                                { label: t.baseUrl, val: ttsBaseUrl, set: setTtsBaseUrl, placeholder: "https://api.openai.com/v1", icon: ExternalLink, type: "text" },
-                                                { label: t.apiKey, val: ttsApiKey, set: setTtsApiKey, placeholder: "sk-...", icon: Save, type: "password" },
-                                                { label: t.ttsModel, val: ttsModelName, set: setTtsModelName, placeholder: "tts-1", icon: Sparkles, type: "text" }
-                                            ].map((f, i) => (
-                                                <div key={i}><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{f.label}</label>
-                                                    <div className="relative"><input type={f.type} value={f.val} onChange={(e) => f.set(e.target.value)} className="w-full pl-5 pr-12 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:ring-4 ring-blue-500/10 transition-all" placeholder={f.placeholder} /><f.icon className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-300" size={20} /></div>
-                                                </div>
-                                            ))}
-                                            <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsVoice}</label>
-                                                <div className="relative"><input value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)} className="w-full px-5 py-4 bg-white/40 dark:bg-black/20 rounded-[20px] border border-black/5 dark:border-white/10 text-[0.85em] dark:text-white font-bold outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500" placeholder={t.ttsVoicePlaceholder} />
-                                                    <div className="mt-2 flex flex-wrap gap-2 px-2">{['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'Cherry', 'Serena'].map(v => (<button key={v} onClick={() => setTtsVoice(v)} className="text-[9px] px-2 py-1 rounded-md bg-black/5 dark:bg-white/5 hover:bg-accent hover:text-white transition-all">{v}</button>))}</div>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                    <div><label className="block text-[10px] font-black uppercase text-zinc-400 mb-2 tracking-[0.2em] ml-2">{t.ttsSpeed} ({ttsSpeed}{t.speedMultiplierSuffix})</label><input type="range" min="0.5" max="2.0" step="0.1" value={ttsSpeed} onChange={(e) => setTtsSpeed(e.target.value)} className="w-full accent-[var(--accent)] h-1.5 bg-black/5 dark:bg-white/5 rounded-full appearance-none" /></div>
-                                </div>
-                            </div>
-                        </div>
+                            )}
+                        >
+                            <ModelConfigTab
+                                labels={t}
+                                translation={{
+                                    providerId: translationProvider,
+                                    apiKey: transApiKey,
+                                    baseUrl: transBaseUrl,
+                                    modelName: transModelName,
+                                    customPrompt,
+                                    backupApiKey,
+                                    backupBaseUrl,
+                                    backupModelName,
+                                }}
+                                tts={{
+                                    engine: ttsEngine,
+                                    apiKey: ttsApiKey,
+                                    baseUrl: ttsBaseUrl,
+                                    modelName: ttsModelName,
+                                    voice: ttsVoice,
+                                    speed: ttsSpeed,
+                                }}
+                                connectionTest={connectionTest}
+                                isTestingConnection={isTestingConnection}
+                                onProviderChange={(providerId) => {
+                                    applyTranslationProvider(providerId);
+                                    setConnectionTest(null);
+                                }}
+                                onTranslationChange={handleTranslationConfigChange}
+                                onTtsChange={handleTtsConfigChange}
+                                onTestConnection={() => void handleTestTranslationConnection()}
+                            />
+                        </Suspense>
                     )}
 
                     {activeTab === "appearance" && (
