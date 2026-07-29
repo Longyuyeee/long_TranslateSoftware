@@ -19,6 +19,61 @@ export interface WordAnalysis {
   error_msg?: string;
 }
 
+export function parseWordAnalysis(value: string): WordAnalysis | null {
+  if (!value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<WordAnalysis>;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.status === "failed") {
+      return {
+        phonetic: "",
+        meaning: "",
+        etymology: "",
+        mnemonic: "",
+        examples: [],
+        synonyms: [],
+        status: "failed",
+        error_msg:
+          typeof parsed.error_msg === "string" ? parsed.error_msg : undefined,
+      };
+    }
+    if (
+      typeof parsed.phonetic !== "string" ||
+      typeof parsed.meaning !== "string"
+    ) {
+      return null;
+    }
+    const examples = Array.isArray(parsed.examples)
+      ? parsed.examples.filter(
+          (example): example is { en: string; zh: string } =>
+            Boolean(
+              example &&
+                typeof example.en === "string" &&
+                typeof example.zh === "string",
+            ),
+        )
+      : [];
+    const synonyms = Array.isArray(parsed.synonyms)
+      ? parsed.synonyms.filter(
+          (synonym): synonym is string => typeof synonym === "string",
+        )
+      : [];
+    return {
+      phonetic: parsed.phonetic,
+      meaning: parsed.meaning,
+      etymology:
+        typeof parsed.etymology === "string" ? parsed.etymology : "",
+      mnemonic:
+        typeof parsed.mnemonic === "string" ? parsed.mnemonic : "",
+      examples,
+      synonyms,
+      status: "success",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface WordContextInput {
   sourceText: string;
   translatedText?: string;
