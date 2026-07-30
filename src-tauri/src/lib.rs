@@ -1,4 +1,5 @@
 mod anki;
+mod app_stats;
 mod backup;
 mod config;
 mod db;
@@ -122,58 +123,6 @@ fn get_available_ocr_languages() -> Result<Vec<ocr::OcrLanguageInfo>, String> {
     ocr::available_ocr_languages().map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-fn increment_translate_count(app: AppHandle) -> Result<(), String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
-    let count_str = db::get_config(&conn, "translated_count").unwrap_or_default();
-    let count: i32 = count_str.parse().unwrap_or(0);
-    db::set_config(&conn, "translated_count", &(count + 1).to_string())
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn get_app_stats(app: AppHandle) -> Result<serde_json::Value, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
-    let word_count: i32 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM wordbook WHERE is_deleted = 0",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
-    let trans_count: i32 = db::get_config(&conn, "translated_count")
-        .unwrap_or_default()
-        .parse()
-        .unwrap_or(0);
-    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let due_count: i32 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM wordbook
-             WHERE is_deleted = 0
-               AND (next_review IS NULL OR next_review <= ?1)",
-            [&now_str],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
-    let install_date_str = db::get_config(&conn, "install_date").unwrap_or_default();
-    let days = if !install_date_str.is_empty() {
-        let install_date = chrono::NaiveDate::parse_from_str(&install_date_str, "%Y-%m-%d")
-            .unwrap_or_else(|_| chrono::Local::now().date_naive());
-        (chrono::Local::now().date_naive() - install_date).num_days() + 1
-    } else {
-        1
-    };
-
-    Ok(serde_json::json!({
-        "word_count": word_count,
-        "trans_count": trans_count,
-        "days_active": days,
-        "due_today": due_count
-    }))
-}
-
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
     let old_data_dir = if let Some(parent) = new_data_dir.parent() {
@@ -294,8 +243,8 @@ pub fn run() {
             tts::check_audio_cache,
             webdav::sync_wordbook,
             webdav::test_webdav_connection,
-            increment_translate_count,
-            get_app_stats,
+            app_stats::increment_translate_count,
+            app_stats::get_app_stats,
             shortcuts::update_shortcut,
             shortcuts::set_shortcuts_paused,
             backup::export_data,
