@@ -1,4 +1,4 @@
-use crate::db;
+use crate::{command_error::CommandError, db};
 use base64::{engine::general_purpose, Engine as _};
 use rusqlite::Connection;
 use screenshots::Screen;
@@ -20,12 +20,16 @@ pub struct OcrLanguageInfo {
     pub native_name: String,
 }
 
-fn open_database(app: &AppHandle) -> Result<Connection, String> {
+fn open_database(app: &AppHandle) -> Result<Connection, CommandError> {
     let app_dir = app
         .path()
         .app_data_dir()
-        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
-    db::init_db(app_dir).map_err(|error| error.to_string())
+        .map_err(|error| {
+            CommandError::system(format!(
+                "Cannot resolve application data directory: {error}"
+            ))
+        })?;
+    db::init_db(app_dir).map_err(|error| CommandError::database(error.to_string()))
 }
 
 fn configured_language(conn: &Connection) -> Result<String, String> {
@@ -260,13 +264,13 @@ pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn s
 }
 
 #[tauri::command]
-pub async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, String> {
+pub async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, CommandError> {
     let conn = open_database(&app)?;
-    let ocr_lang = configured_language(&conn)?;
-    let bytes = decode_image_payload(&image_base64)?;
+    let ocr_lang = configured_language(&conn).map_err(CommandError::database)?;
+    let bytes = decode_image_payload(&image_base64).map_err(CommandError::invalid_input)?;
     recognize_text(bytes, &ocr_lang)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| CommandError::ocr(error.to_string()))
 }
 
 #[tauri::command]
@@ -276,18 +280,20 @@ pub async fn capture_and_ocr(
     y: i32,
     w: u32,
     h: u32,
-) -> Result<String, String> {
+) -> Result<String, CommandError> {
     let conn = open_database(&app)?;
-    let ocr_lang = configured_language(&conn)?;
-    let bytes = capture_rect(x, y, w, h).map_err(|error| error.to_string())?;
+    let ocr_lang = configured_language(&conn).map_err(CommandError::database)?;
+    capture_center(x, y, w, h).map_err(CommandError::invalid_input)?;
+    let bytes =
+        capture_rect(x, y, w, h).map_err(|error| CommandError::ocr(error.to_string()))?;
     recognize_text(bytes, &ocr_lang)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| CommandError::ocr(error.to_string()))
 }
 
 #[tauri::command]
-pub fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
-    let text = confirmed_text(&text)?;
+pub fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), CommandError> {
+    let text = confirmed_text(&text).map_err(CommandError::invalid_input)?;
     if let Some(overlay) = app.get_webview_window("ocr-overlay") {
         let _ = overlay.hide();
     }
@@ -296,12 +302,12 @@ pub fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
         let _ = floating.set_focus();
     }
     app.emit("ocr-triggered", text)
-        .map_err(|error| error.to_string())
+        .map_err(|error| CommandError::system(error.to_string()))
 }
 
 #[tauri::command]
-pub fn get_available_ocr_languages() -> Result<Vec<OcrLanguageInfo>, String> {
-    available_ocr_languages().map_err(|error| error.to_string())
+pub fn get_available_ocr_languages() -> Result<Vec<OcrLanguageInfo>, CommandError> {
+    available_ocr_languages().map_err(|error| CommandError::ocr(error.to_string()))
 }
 
 #[cfg(test)]

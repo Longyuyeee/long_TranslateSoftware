@@ -122,7 +122,7 @@ describe("useSystemMaintenance", () => {
     await act(async () => {
       const first = result.current.exportDiagnostics();
       expect(await result.current.exportDiagnostics()).toEqual({ status: "busy" });
-      rejectExport?.("User cancelled");
+      rejectExport?.({ code: "cancelled", message: "User cancelled" });
       firstResult = await first;
     });
 

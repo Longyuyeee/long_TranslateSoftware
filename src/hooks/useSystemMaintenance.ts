@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
+import { isCommandError } from "../services/commandErrors";
 
 export type AutoLaunchToggleResult =
   | "success"
@@ -109,7 +110,9 @@ export function useSystemMaintenance({
         return { status: "success" };
       } catch (error) {
         if (!mountedRef.current) return { status: "ignored" };
-        if (error === "User cancelled") return { status: "cancelled" };
+        if (error === "User cancelled" || isCommandError(error, "cancelled")) {
+          return { status: "cancelled" };
+        }
         return { status: "failed", error };
       } finally {
         exportingDiagnosticsRef.current = false;

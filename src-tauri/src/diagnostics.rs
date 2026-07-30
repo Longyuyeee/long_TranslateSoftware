@@ -4,7 +4,7 @@ use std::fs;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{db, updater};
+use crate::{command_error::CommandError, db, updater};
 
 const EXCLUDED_DATA: &[&str] = &[
     "API keys and authentication tokens",
@@ -140,19 +140,22 @@ pub fn build_report(
 }
 
 #[tauri::command]
-pub fn export_diagnostics(app: AppHandle) -> Result<String, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
+pub fn export_diagnostics(app: AppHandle) -> Result<String, CommandError> {
+    let app_dir = app.path().app_data_dir().map_err(|error| {
+        CommandError::system(format!(
+            "Cannot resolve application data directory: {error}"
+        ))
+    })?;
+    let conn = db::init_db(app_dir).map_err(|error| CommandError::database(error.to_string()))?;
     let report = build_report(
         &conn,
         &app.package_info().version.to_string(),
         updater::is_configured(&app),
-    )?;
-    let contents = serde_json::to_vec_pretty(&report)
-        .map_err(|error| format!("Cannot serialize diagnostic report: {error}"))?;
+    )
+    .map_err(CommandError::database)?;
+    let contents = serde_json::to_vec_pretty(&report).map_err(|error| {
+        CommandError::serialization(format!("Cannot serialize diagnostic report: {error}"))
+    })?;
     let file_name = format!(
         "LongTranslate_Diagnostics_{}.json",
         chrono::Local::now().format("%Y%m%d_%H%M%S")
@@ -164,15 +167,16 @@ pub fn export_diagnostics(app: AppHandle) -> Result<String, String> {
         .add_filter("JSON diagnostic report", &["json"])
         .set_file_name(file_name)
         .blocking_save_file()
-        .ok_or_else(|| "User cancelled".to_string())?;
+        .ok_or_else(|| CommandError::cancelled("User cancelled"))?;
     let path = match file_path {
         tauri_plugin_dialog::FilePath::Path(path) => path,
-        tauri_plugin_dialog::FilePath::Url(url) => url
-            .to_file_path()
-            .map_err(|_| "The selected diagnostic destination is not a local file".to_string())?,
+        tauri_plugin_dialog::FilePath::Url(url) => url.to_file_path().map_err(|_| {
+            CommandError::invalid_input("The selected diagnostic destination is not a local file")
+        })?,
     };
-    fs::write(&path, contents)
-        .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
+    fs::write(&path, contents).map_err(|error| {
+        CommandError::storage(format!("Cannot write diagnostic report: {error}"))
+    })?;
     Ok(path.to_string_lossy().into_owned())
 }
 
