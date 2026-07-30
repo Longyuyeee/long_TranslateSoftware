@@ -1,14 +1,11 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import {
   translations,
   translationErrorText,
-  webDavErrorText,
   Lang,
 } from "../i18n";
 import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
-import { normalizeWebDavError, WebDavConnectionResult, WebDavError, WebDavSyncSummary } from "../services/webdav";
 import { useUpdater } from "../hooks/useUpdater";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
@@ -29,6 +26,7 @@ import { useClipboardMonitor } from "../hooks/useClipboardMonitor";
 import { useShortcutRecorder } from "../hooks/useShortcutRecorder";
 import { useSystemMaintenance } from "../hooks/useSystemMaintenance";
 import { useNotifications } from "../hooks/useNotifications";
+import { useAppStats, useDashboardSync } from "../hooks/useDashboardSync";
 import DashboardShell from "./DashboardShell";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
@@ -164,24 +162,11 @@ export default function Dashboard() {
     dismissNotification,
     clearNotifications,
   } = useNotifications();
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [appStats, setAppStats] = useState({ word_count: 0, trans_count: 0, days_active: 1, due_today: 0 });
-
-  // WebDAV Config
-  const [isTestingWebdav, setIsTestingWebdav] = useState(false);
-  const [webdavConnectionTest, setWebdavConnectionTest] = useState<{ ok: boolean; latencyMs?: number; error?: WebDavError } | null>(null);
+  const { appStats, refreshStats } = useAppStats();
 
   // Translation Model Config
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
-  const refreshStats = async () => {
-    try {
-      const stats = await invoke<any>("get_app_stats");
-      setAppStats(stats);
-    } catch (error) {
-      console.error(error);
-    }
-  };
 
   const {
     words,
@@ -230,9 +215,30 @@ export default function Dashboard() {
     onCompleted: refreshStats,
   });
 
-  const syncTimerRef = useRef<any>(null);
-  const webdavEnabledRef = useRef(webdavEnabled);
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const {
+    isSyncing,
+    isTestingWebdav,
+    webdavConnectionTest,
+    sync: syncWebdav,
+    testConnection: testWebdavConnection,
+    resetConnectionTest: resetWebdavConnectionTest,
+  } = useDashboardSync({
+    labels: t,
+    webdav: {
+      enabled: webdavEnabled,
+      url: webdavUrl,
+      user: webdavUser,
+      password: webdavPass,
+    },
+    loadSettings,
+    loadWordbook,
+    refreshStats,
+    setLastSyncTime,
+    setLastSyncSummary,
+    addNotification,
+    showToast: toast,
+  });
   const { recordingKey, setRecordingKey } = useShortcutRecorder({
     onUpdated: (action, shortcut) => {
       if (action === "q") setShortcutQ(shortcut);
@@ -301,49 +307,6 @@ export default function Dashboard() {
     },
     [installedOcrLanguages, t],
   );
-  useEffect(() => { webdavEnabledRef.current = webdavEnabled; }, [webdavEnabled]);
-
-  useEffect(() => {
-    loadSettings();
-    loadWordbook();
-    refreshStats();
-
-    const unlistenWordbook = listen<string>("wordbook-updated", (event) => {
-        loadWordbook();
-        refreshStats();
-        // 1-minute auto sync logic - only for local changes
-        if (webdavEnabledRef.current && event.payload === "local") {
-            if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-            syncTimerRef.current = setTimeout(() => {
-                invoke("sync_wordbook").catch(error => console.error("Background sync failed", error));
-            }, 60000); // 1 minute
-        }
-    });
-
-    const unlistenShortcutError = listen<string>("shortcut-error", (event) => {
-        toast("error", `${translationRef.current.runtimeError}: ${event.payload}`);
-    });
-
-    const unlistenConfigImport = listen("config-updated", () => {
-        loadSettings();
-        loadWordbook();
-        refreshStats();
-        toast("success", translationRef.current.importSuccess);
-    });
-    const unlistenWebdavSync = listen<WebDavSyncSummary>("webdav-sync-completed", (event) => {
-        setLastSyncSummary(event.payload);
-        setLastSyncTime(event.payload.completedAt);
-    });
-
-    return () => {
-        unlistenWordbook.then(f => f());
-        unlistenShortcutError.then(f => f());
-        unlistenConfigImport.then(f => f());
-        unlistenWebdavSync.then(f => f());
-        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    };
-  }, []);
-
   const handleExport = async () => {
     try {
         const pw = window.prompt(t.exportPassword);
@@ -457,54 +420,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleSync = async () => {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const summary = await invoke<WebDavSyncSummary>("sync_wordbook", {
-        url: webdavUrl,
-        user: webdavUser,
-        password: webdavPass,
-        enabled: webdavEnabled,
-      });
-      setLastSyncSummary(summary);
-      setLastSyncTime(summary.completedAt);
-      toast("success", t.syncSuccess);
-      addNotification(t.syncSummary
-        .replace("{added}", String(summary.added))
-        .replace("{updated}", String(summary.updated))
-        .replace("{uploaded}", String(summary.uploaded)));
-      await loadWordbook();
-    } catch (e) {
-      console.error(e);
-      const error = normalizeWebDavError(e);
-      toast("error", webDavErrorText(t, error.code, error.message || t.syncFailed));
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const handleTestWebdavConnection = async () => {
-    if (isTestingWebdav || !webdavUrl.trim()) return;
-    setIsTestingWebdav(true);
-    setWebdavConnectionTest(null);
-    try {
-      const result = await invoke<WebDavConnectionResult>("test_webdav_connection", {
-        url: webdavUrl,
-        user: webdavUser,
-        password: webdavPass,
-      });
-      setWebdavConnectionTest({ ok: true, latencyMs: result.latencyMs });
-      toast("success", t.connectionSuccess.replace("{latency}", String(result.latencyMs)));
-    } catch (e) {
-      const error = normalizeWebDavError(e);
-      setWebdavConnectionTest({ ok: false, error });
-      toast("error", webDavErrorText(t, error.code, error.message || t.connectionFailed));
-    } finally {
-      setIsTestingWebdav(false);
-    }
-  };
-
   const handleTestTranslationConnection = async () => {
     if (isTestingConnection) return;
     setIsTestingConnection(true);
@@ -565,7 +480,7 @@ export default function Dashboard() {
       patch.user !== undefined ||
       patch.password !== undefined
     ) {
-      setWebdavConnectionTest(null);
+      resetWebdavConnectionTest();
     }
   };
 
@@ -634,8 +549,8 @@ export default function Dashboard() {
                                 onToggleAutoLaunch={() => void toggleAutoLaunch()}
                                 onRecordingChange={setRecordingKey}
                                 onWebDavChange={handleWebDavSettingsChange}
-                                onTestWebdav={() => void handleTestWebdavConnection()}
-                                onSync={() => void handleSync()}
+                                onTestWebdav={() => void testWebdavConnection()}
+                                onSync={() => void syncWebdav()}
                                 onClearCache={() => void handleClearCache()}
                                 onExport={() => void handleExport()}
                                 onImport={() => void handleImport()}
