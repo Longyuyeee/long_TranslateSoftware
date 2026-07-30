@@ -305,6 +305,7 @@
 - OCR Base64 识别、截图识别、确认文本和语言枚举四个命令从 Rust 主入口迁入 `ocr.rs`，命令名称、参数、窗口恢复与 `ocr-triggered` 事件保持不变。图像输入兼容原始 Base64 和 Data URL，配置读取错误不再静默降级；截图请求拒绝零尺寸和中心坐标溢出，`lib.rs` 降至约 229 行。
 - 脱敏诊断导出迁入 `diagnostics.rs`，更新器公钥配置判断迁入独立 `updater.rs`；命令名称、返回值与导出内容保持兼容，占位或空白公钥边界已有测试，`lib.rs` 降至约 176 行且不再直接定义 Tauri 命令。
 - 新增统一 `CommandError` 契约，以稳定的 `cancelled`、`invalid_input`、`storage`、`database`、`system`、`ocr` 和 `serialization` 代码区分失败类别；应用统计、OCR 与诊断命令完成首批迁移，前端解析器兼容结构化对象、旧字符串和 JavaScript `Error`，取消操作继续保持静默。
+- 前端、Cargo 与 Tauri 源版本已统一提升到 `0.4.9`，两份锁文件同步更新；版本化说明位于 `docs/releases/v0.4.9.md`。正式标签与 Release 必须等待签名候选安装包的 Windows 交互烟雾通过。
 
 ### 自动化验收
 
