@@ -10,6 +10,7 @@ import {
   detectSpeechLocale,
   resolveEdgeVoice,
   selectRelevantGlossary,
+  speak,
   startTranslationComparisonTask,
   startTranslationTask,
   testTranslationConnection,
@@ -19,6 +20,7 @@ import {
 } from "./api";
 import * as translationComparison from "./translationComparison";
 import * as translationTask from "./translationTask";
+import * as speech from "./speech";
 
 const config: Record<string, string> = {
   trans_api_key: "primary-key",
@@ -237,6 +239,10 @@ describe("api compatibility exports", () => {
     );
     expect(translateStreaming).toBe(translationComparison.translateStreaming);
     expect(translateCompare).toBe(translationComparison.translateCompare);
+  });
+
+  it("keeps speech exports bound to the extracted module", () => {
+    expect(speak).toBe(speech.speak);
   });
 });
 
