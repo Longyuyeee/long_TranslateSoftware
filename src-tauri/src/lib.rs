@@ -15,65 +15,12 @@ mod shortcuts;
 mod system_integration;
 mod tray;
 mod tts;
+mod updater;
 mod webdav;
 mod wordbook;
 
 use std::fs;
-use std::path::PathBuf;
-use tauri::{AppHandle, Manager, WindowEvent};
-
-fn resolve_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|error| format!("Cannot resolve application data directory: {error}"))
-}
-
-#[tauri::command]
-fn updater_configured(app: AppHandle) -> bool {
-    app.config()
-        .plugins
-        .0
-        .get("updater")
-        .and_then(|config| config.get("pubkey"))
-        .and_then(|key| key.as_str())
-        .is_some_and(|key| !key.trim().is_empty() && !key.contains("REPLACE_WITH"))
-}
-
-#[tauri::command]
-fn export_diagnostics(app: AppHandle) -> Result<String, String> {
-    use tauri_plugin_dialog::DialogExt;
-
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
-    let report = diagnostics::build_report(
-        &conn,
-        &app.package_info().version.to_string(),
-        updater_configured(app.clone()),
-    )?;
-    let contents = serde_json::to_vec_pretty(&report)
-        .map_err(|error| format!("Cannot serialize diagnostic report: {error}"))?;
-    let file_name = format!(
-        "LongTranslate_Diagnostics_{}.json",
-        chrono::Local::now().format("%Y%m%d_%H%M%S")
-    );
-    let file_path = app
-        .dialog()
-        .file()
-        .set_title("Export privacy-safe diagnostics")
-        .add_filter("JSON diagnostic report", &["json"])
-        .set_file_name(file_name)
-        .blocking_save_file()
-        .ok_or_else(|| "User cancelled".to_string())?;
-    let path = match file_path {
-        tauri_plugin_dialog::FilePath::Path(path) => path,
-        tauri_plugin_dialog::FilePath::Url(url) => url
-            .to_file_path()
-            .map_err(|_| "The selected diagnostic destination is not a local file".to_string())?,
-    };
-    fs::write(&path, contents)
-        .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
-    Ok(path.to_string_lossy().into_owned())
-}
+use tauri::{Manager, WindowEvent};
 
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
@@ -178,8 +125,8 @@ pub fn run() {
             config::get_config_value,
             config::get_config_values,
             config::set_config_values,
-            updater_configured,
-            export_diagnostics,
+            updater::updater_configured,
+            diagnostics::export_diagnostics,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,

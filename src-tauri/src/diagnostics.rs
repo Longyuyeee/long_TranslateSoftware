@@ -1,7 +1,10 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
+use std::fs;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 
-use crate::db;
+use crate::{db, updater};
 
 const EXCLUDED_DATA: &[&str] = &[
     "API keys and authentication tokens",
@@ -134,6 +137,43 @@ pub fn build_report(
             excluded_data: EXCLUDED_DATA,
         },
     })
+}
+
+#[tauri::command]
+pub fn export_diagnostics(app: AppHandle) -> Result<String, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
+    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
+    let report = build_report(
+        &conn,
+        &app.package_info().version.to_string(),
+        updater::is_configured(&app),
+    )?;
+    let contents = serde_json::to_vec_pretty(&report)
+        .map_err(|error| format!("Cannot serialize diagnostic report: {error}"))?;
+    let file_name = format!(
+        "LongTranslate_Diagnostics_{}.json",
+        chrono::Local::now().format("%Y%m%d_%H%M%S")
+    );
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title("Export privacy-safe diagnostics")
+        .add_filter("JSON diagnostic report", &["json"])
+        .set_file_name(file_name)
+        .blocking_save_file()
+        .ok_or_else(|| "User cancelled".to_string())?;
+    let path = match file_path {
+        tauri_plugin_dialog::FilePath::Path(path) => path,
+        tauri_plugin_dialog::FilePath::Url(url) => url
+            .to_file_path()
+            .map_err(|_| "The selected diagnostic destination is not a local file".to_string())?,
+    };
+    fs::write(&path, contents)
+        .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
