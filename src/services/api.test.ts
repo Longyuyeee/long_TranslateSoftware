@@ -13,8 +13,11 @@ import {
   startTranslationComparisonTask,
   startTranslationTask,
   testTranslationConnection,
+  translateCompare,
+  translateStreaming,
   TranslationTaskState,
 } from "./api";
+import * as translationComparison from "./translationComparison";
 import * as translationTask from "./translationTask";
 
 const config: Record<string, string> = {
@@ -226,6 +229,14 @@ describe("api compatibility exports", () => {
     expect(selectRelevantGlossary).toBe(
       translationTask.selectRelevantGlossary,
     );
+  });
+
+  it("keeps comparison and legacy exports bound to the extracted module", () => {
+    expect(startTranslationComparisonTask).toBe(
+      translationComparison.startTranslationComparisonTask,
+    );
+    expect(translateStreaming).toBe(translationComparison.translateStreaming);
+    expect(translateCompare).toBe(translationComparison.translateCompare);
   });
 });
 
