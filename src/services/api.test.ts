@@ -15,6 +15,7 @@ import {
   testTranslationConnection,
   TranslationTaskState,
 } from "./api";
+import * as translationTask from "./translationTask";
 
 const config: Record<string, string> = {
   trans_api_key: "primary-key",
@@ -209,6 +210,21 @@ describe("startTranslationTask", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://api.example.com/v1/chat/completions",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+});
+
+describe("api compatibility exports", () => {
+  it("keeps task and policy exports bound to the extracted module", () => {
+    expect(startTranslationTask).toBe(translationTask.startTranslationTask);
+    expect(buildTranslationCacheContext).toBe(
+      translationTask.buildTranslationCacheContext,
+    );
+    expect(buildTranslationMessages).toBe(
+      translationTask.buildTranslationMessages,
+    );
+    expect(selectRelevantGlossary).toBe(
+      translationTask.selectRelevantGlossary,
     );
   });
 });
