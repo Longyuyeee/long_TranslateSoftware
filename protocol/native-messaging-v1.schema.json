@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://longtranslate.local/protocol/native-messaging-v1.schema.json",
+  "title": "Long Translate Native Messaging Protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/event" }
+  ],
+  "$defs": {
+    "version": { "const": 1 },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    },
+    "base": {
+      "type": "object",
+      "required": ["protocol_version", "request_id"],
+      "properties": {
+        "protocol_version": { "$ref": "#/$defs/version" },
+        "request_id": { "$ref": "#/$defs/requestId" }
+      }
+    },
+    "request": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "oneOf": [
+            { "$ref": "#/$defs/helloRequest" },
+            { "$ref": "#/$defs/pairRequest" },
+            { "$ref": "#/$defs/translateRequest" },
+            { "$ref": "#/$defs/addWordRequest" },
+            { "$ref": "#/$defs/cancelRequest" },
+            { "$ref": "#/$defs/pingRequest" }
+          ]
+        }
+      ]
+    },
+    "helloRequest": {
+      "type": "object",
+      "required": ["action", "payload"],
+      "properties": {
+        "action": { "const": "hello" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min_protocol",
+            "max_protocol",
+            "extension_version",
+            "client_nonce",
+            "capabilities"
+          ],
+          "properties": {
+            "min_protocol": { "type": "integer", "minimum": 1 },
+            "max_protocol": { "type": "integer", "minimum": 1 },
+            "extension_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "client_nonce": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "capabilities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pairRequest": {
+      "type": "object",
+      "required": ["action", "payload"],
+      "properties": {
+        "action": { "const": "pair" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["display_name"],
+          "properties": {
+            "display_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        }
+      }
+    },
+    "translateRequest": {
+      "type": "object",
+      "required": ["action", "payload"],
+      "properties": {
+        "action": { "const": "translate" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "target_language", "format", "glossary"],
+          "properties": {
+            "text": { "type": "string", "minLength": 1, "maxLength": 32768 },
+            "source_language": { "$ref": "#/$defs/language" },
+            "target_language": { "$ref": "#/$defs/language" },
+            "format": { "enum": ["plain_text", "markdown"] },
+            "glossary": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "$ref": "#/$defs/glossaryTerm" }
+            }
+          }
+        }
+      }
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]{1,35}$"
+    },
+    "glossaryTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "target": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "addWordRequest": {
+      "type": "object",
+      "required": ["action", "payload"],
+      "properties": {
+        "action": { "const": "add_word" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["word", "translation"],
+          "properties": {
+            "word": { "type": "string", "minLength": 1, "maxLength": 1024 },
+            "translation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "context": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384
+            }
+          }
+        }
+      }
+    },
+    "cancelRequest": {
+      "type": "object",
+      "required": ["action", "payload"],
+      "properties": {
+        "action": { "const": "cancel" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_request_id"],
+          "properties": {
+            "target_request_id": { "$ref": "#/$defs/requestId" }
+          }
+        }
+      }
+    },
+    "pingRequest": {
+      "type": "object",
+      "required": ["action"],
+      "properties": { "action": { "const": "ping" } }
+    },
+    "response": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["status", "payload"],
+              "properties": {
+                "status": { "const": "ok" },
+                "payload": { "$ref": "#/$defs/responsePayload" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["status", "error"],
+              "properties": {
+                "status": { "const": "error" },
+                "error": { "$ref": "#/$defs/error" }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "responsePayload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "hello" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "selected_protocol",
+                "desktop_version",
+                "session_id",
+                "client_nonce",
+                "pairing_state",
+                "capabilities",
+                "limits"
+              ],
+              "properties": {
+                "selected_protocol": { "$ref": "#/$defs/version" },
+                "desktop_version": { "type": "string", "minLength": 1 },
+                "session_id": { "$ref": "#/$defs/requestId" },
+                "client_nonce": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "pairing_state": { "$ref": "#/$defs/pairingState" },
+                "capabilities": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "uniqueItems": true
+                },
+                "limits": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "max_message_bytes",
+                    "max_text_bytes",
+                    "max_glossary_entries",
+                    "max_in_flight_requests"
+                  ],
+                  "properties": {
+                    "max_message_bytes": { "const": 1048576 },
+                    "max_text_bytes": { "const": 32768 },
+                    "max_glossary_entries": { "const": 100 },
+                    "max_in_flight_requests": { "const": 4 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "pairing" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pairing_state"],
+              "properties": {
+                "pairing_state": { "$ref": "#/$defs/pairingState" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "translation" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["text", "cached"],
+              "properties": {
+                "text": { "type": "string" },
+                "detected_language": { "$ref": "#/$defs/language" },
+                "cached": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "word_added" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["word_id"],
+              "properties": { "word_id": { "type": "string", "minLength": 1 } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "cancelled" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "pong" },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["desktop_version"],
+              "properties": {
+                "desktop_version": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pairingState": {
+      "enum": ["required", "pending", "approved"]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "$ref": "#/$defs/errorCode" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "errorCode": {
+      "enum": [
+        "invalid_message",
+        "unsupported_version",
+        "unauthorized_origin",
+        "pairing_required",
+        "permission_denied",
+        "request_too_large",
+        "invalid_request",
+        "busy",
+        "desktop_unavailable",
+        "timeout",
+        "cancelled",
+        "provider_error",
+        "internal_error"
+      ]
+    },
+    "event": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["event", "payload"],
+              "properties": {
+                "event": { "const": "translation_progress" },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["text"],
+                  "properties": { "text": { "type": "string" } }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["event", "payload"],
+              "properties": {
+                "event": { "const": "pairing_changed" },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["pairing_state"],
+                  "properties": {
+                    "pairing_state": { "$ref": "#/$defs/pairingState" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "protocol_version": 1,
+      "request_id": "hello-1",
+      "action": "hello",
+      "payload": {
+        "min_protocol": 1,
+        "max_protocol": 1,
+        "extension_version": "0.1.0",
+        "client_nonce": "random-nonce",
+        "capabilities": ["translation", "wordbook"]
+      }
+    },
+    {
+      "protocol_version": 1,
+      "request_id": "ping-1",
+      "action": "ping"
+    }
+  ]
+}

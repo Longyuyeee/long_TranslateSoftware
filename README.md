@@ -479,9 +479,14 @@
 当前稳定版为 v0.4.8，下一阶段先完成 v0.4.9 架构与回归收口，再进入 v0.5.0 Chrome / Edge 浏览器扩展。详细判断、风险和退出门槛见：
 
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
+- [当前开发状态审计与执行计划（2026-07-30）](docs/DEVELOPMENT_STATUS_2026-07-30.md)
 - [开发接手说明](docs/NEXT_STEPS.md)
+- [Native Messaging v1 协议与安全边界](docs/NATIVE_MESSAGING_PROTOCOL.md)
+- [Windows 发布候选桌面交互烟雾清单](docs/RELEASE_DESKTOP_SMOKE.md)
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
+
+浏览器扩展目前只完成协议层基线：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和精确扩展来源校验。Native Host、安装注册、桌面私有桥接和 Manifest V3 扩展尚未实现。
 
 | 层 | 技术 |
 |---|---|
@@ -495,6 +500,7 @@
 | **TTS** | Youdao API + OpenAI TTS |
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
+| **浏览器桥接** | Native Messaging v1 协议基线（Host 尚未实现） |
 
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
