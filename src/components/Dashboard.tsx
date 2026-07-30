@@ -1,11 +1,10 @@
-import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { lazy, Suspense, useState, useEffect, useMemo } from "react";
 import {
   translations,
   translationErrorText,
   Lang,
 } from "../i18n";
-import { testTranslationConnection, speak, ConnectionTestResult } from "../services/api";
+import { testTranslationConnection, ConnectionTestResult } from "../services/api";
 import { useUpdater } from "../hooks/useUpdater";
 import { ToastContainer, toast } from "./Toast";
 import UpdateDialog from "./UpdateDialog";
@@ -27,6 +26,7 @@ import { useShortcutRecorder } from "../hooks/useShortcutRecorder";
 import { useSystemMaintenance } from "../hooks/useSystemMaintenance";
 import { useNotifications } from "../hooks/useNotifications";
 import { useAppStats, useDashboardSync } from "../hooks/useDashboardSync";
+import { useDashboardActions } from "../hooks/useDashboardActions";
 import DashboardShell from "./DashboardShell";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
@@ -263,24 +263,15 @@ export default function Dashboard() {
     toggleAutoLaunch: updateAutoLaunch,
     exportDiagnostics,
   } = useSystemMaintenance({ setAutoLaunch });
+  const dashboardActions = useDashboardActions({
+    labels: t, addNotification, showToast: toast, clearCache,
+    refreshCacheSize, updateAutoLaunch, exportDiagnostics,
+  });
   const updater = useUpdater({
     labels: t,
     addNotification,
     showToast: toast,
   });
-  const translationRef = useRef(t);
-  useEffect(() => {
-    translationRef.current = t;
-  }, [t]);
-  useEffect(() => {
-    const handleTtsError = (event: Event) => {
-      const message = (event as CustomEvent<string>).detail;
-      toast("error", `${translationRef.current.ttsPlaybackFailed}${message ? `: ${message}` : ""}`);
-    };
-    window.addEventListener("tts-error", handleTtsError);
-    return () => window.removeEventListener("tts-error", handleTtsError);
-  }, []);
-
   const languageOptions = useMemo(
     () => LANGUAGES.map(value => ({ value, label: t.languageNames[value] || value })),
     [t],
@@ -307,62 +298,6 @@ export default function Dashboard() {
     },
     [installedOcrLanguages, t],
   );
-  const handleExport = async () => {
-    try {
-        const pw = window.prompt(t.exportPassword);
-        if (pw === null) return; // User cancelled
-        if (!pw.trim()) { toast("warning", t.passwordEmpty); return; }
-        await invoke<string>("export_data", { password: pw });
-        toast("success", t.exportSuccessMsg);
-        addNotification(t.exportSuccess);
-    } catch (e: any) {
-        if (e !== "User cancelled") {
-            toast("error", `${t.exportFailed}: ${e}`);
-            addNotification(`${t.exportFailed}: ${e}`);
-        }
-    }
-  };
-
-  const handleImport = async () => {
-    try {
-        const pw = window.prompt(t.importPassword);
-        if (pw === null) return;
-        await invoke("import_data", { password: pw || "" });
-        setTimeout(() => window.location.reload(), 500);
-    } catch (e: any) {
-        if (e !== "User cancelled") {
-            toast("error", `${t.importFailed}: ${e}`);
-            addNotification(`${t.importFailed}: ${e}`);
-        }
-    }
-  };
-
-  const handleClearCache = async () => {
-    if (await clearCache()) toast("success", t.cacheCleared);
-  };
-
-  const handleWordbookExport = async (format: "csv" | "json") => {
-    try {
-      await invoke("export_wordbook", { format });
-      addNotification(`${t.exportSuccess} (${format.toUpperCase()})`);
-    } catch (error) {
-      addNotification(`${t.exportFailed}: ${error}`);
-    }
-  };
-
-  const handleAnkiExport = async () => {
-    try {
-      const path = await invoke<string>("export_anki");
-      toast("success", `${t.exportAnkiSuccess}: ${path}`);
-    } catch (error) {
-      toast("error", `${t.exportFailed}: ${error}`);
-    }
-  };
-
-  const handleSpeakWordbookText = (text: string) => {
-    void speak(text).then(refreshCacheSize);
-  };
-
   // Accent color effect
   const applyAccent = (color: string) => {
     document.documentElement.style.setProperty("--accent", color);
@@ -393,32 +328,6 @@ export default function Dashboard() {
     mediaQuery.addEventListener("change", handler);
     return () => mediaQuery.removeEventListener("change", handler);
   }, [theme]);
-
-  const toggleAutoLaunch = async () => {
-    const result = await updateAutoLaunch();
-    if (result === "denied") {
-        toast("warning", t.autoLaunchDenied);
-        addNotification(t.autoLaunchDenied);
-    } else if (result === "success") {
-        toast("success", t.success);
-        addNotification(t.success);
-    } else if (result === "failed") {
-        toast("error", t.autoLaunchFailed);
-        addNotification(t.autoLaunchFailed);
-    }
-  };
-
-  const handleExportDiagnostics = async () => {
-    const result = await exportDiagnostics();
-    if (result.status === "success") {
-      toast("success", t.diagnosticsExportSuccess);
-      addNotification(t.diagnosticsExportSuccess);
-    } else if (result.status === "failed") {
-      const message = `${t.diagnosticsExportFailed}: ${result.error}`;
-      toast("error", message);
-      addNotification(message);
-    }
-  };
 
   const handleTestTranslationConnection = async () => {
     if (isTestingConnection) return;
@@ -546,15 +455,15 @@ export default function Dashboard() {
                                 cacheSize={cacheSize}
                                 isExportingDiagnostics={isExportingDiagnostics}
                                 onChange={handleGeneralSettingsChange}
-                                onToggleAutoLaunch={() => void toggleAutoLaunch()}
+                                onToggleAutoLaunch={() => void dashboardActions.toggleAutoLaunch()}
                                 onRecordingChange={setRecordingKey}
                                 onWebDavChange={handleWebDavSettingsChange}
                                 onTestWebdav={() => void testWebdavConnection()}
                                 onSync={() => void syncWebdav()}
-                                onClearCache={() => void handleClearCache()}
-                                onExport={() => void handleExport()}
-                                onImport={() => void handleImport()}
-                                onExportDiagnostics={() => void handleExportDiagnostics()}
+                                onClearCache={() => void dashboardActions.clearAudioCache()}
+                                onExport={() => void dashboardActions.exportData()}
+                                onImport={() => void dashboardActions.importData()}
+                                onExportDiagnostics={() => void dashboardActions.exportDiagnosticReport()}
                             />
                         </Suspense>
                     )}
@@ -670,9 +579,9 @@ export default function Dashboard() {
                                 onLoadMore={loadMore}
                                 onDeleteWord={(id) => void deleteWord(id)}
                                 onRetryAnalysis={() => void retrySelectedAnalysis()}
-                                onSpeak={handleSpeakWordbookText}
-                                onExport={(format) => void handleWordbookExport(format)}
-                                onExportAnki={() => void handleAnkiExport()}
+                                onSpeak={dashboardActions.speakWordbookText}
+                                onExport={(format) => void dashboardActions.exportWordbook(format)}
+                                onExportAnki={() => void dashboardActions.exportAnki()}
                             />
                         </Suspense>
                     )}
