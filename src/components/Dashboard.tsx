@@ -1,8 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
-import { Settings, Book, Cpu, Save, CheckCircle, Palette, Monitor, Sparkles, Languages, Clock, Bell, Brain } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import {
   translations,
   translationErrorText,
@@ -23,7 +21,7 @@ import type {
   GeneralSettingsPatch,
   WebDavSettingsPatch,
 } from "./GeneralSettingsTab";
-import { DashboardTabId, dashboardTabFromNavigation, dashboardTabFromShortcut } from "../services/keyboard";
+import type { DashboardTabId } from "../services/keyboard";
 import { useBatchTranslation } from "../hooks/useBatchTranslation";
 import { useWordbook } from "../hooks/useWordbook";
 import { useSettings } from "../hooks/useSettings";
@@ -31,6 +29,7 @@ import { useClipboardMonitor } from "../hooks/useClipboardMonitor";
 import { useShortcutRecorder } from "../hooks/useShortcutRecorder";
 import { useSystemMaintenance } from "../hooks/useSystemMaintenance";
 import { useNotifications } from "../hooks/useNotifications";
+import DashboardShell from "./DashboardShell";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -82,7 +81,7 @@ const OCR_LANGUAGES = [
 ] as const;
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState<DashboardTabId>("general");
   const {
     lang,
     setLang,
@@ -303,16 +302,6 @@ export default function Dashboard() {
     [installedOcrLanguages, t],
   );
   useEffect(() => { webdavEnabledRef.current = webdavEnabled; }, [webdavEnabled]);
-
-  // Keyboard shortcuts for tab switching (Ctrl+1..7)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tab = dashboardTabFromShortcut(e);
-      if (tab) { e.preventDefault(); setActiveTab(tab); }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   useEffect(() => {
     loadSettings();
@@ -590,169 +579,27 @@ export default function Dashboard() {
     }
   };
 
-  const notificationsRef = useRef<HTMLDivElement>(null);
-  const prevActiveTab = useRef("general");
-  const tabButtonRefs = useRef<Partial<Record<DashboardTabId, HTMLButtonElement | null>>>({});
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
-        closeNotifications();
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [closeNotifications]);
-
-  const tabs = [
-    { id: "general", label: t.general, icon: Settings },
-    { id: "batch", label: t.batchTranslate, icon: Languages },
-    { id: "model", label: t.modelConfig, icon: Cpu },
-    { id: "appearance", label: t.appearance, icon: Palette },
-    { id: "wordbook", label: t.wordbook, icon: Book },
-    { id: "review", label: t.review, icon: Brain },
-    { id: "history", label: t.history, icon: Clock },
-  ];
-
-  // Compute slide direction for tab transitions
-  const tabIds = ["general", "batch", "model", "appearance", "wordbook", "review", "history"];
-  const prevIdx = tabIds.indexOf(prevActiveTab.current);
-  const currIdx = tabIds.indexOf(activeTab);
-  const slideDirection = currIdx >= prevIdx ? 1 : -1;
-  prevActiveTab.current = activeTab;
-
   return (
     <div className="dashboard-shell flex h-dvh min-h-0 apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
       <ToastContainer dismissLabel={t.dismissNotification} />
-      {/* Sidebar */}
-      <div 
-        className="dashboard-sidebar glass border-r border-black/5 dark:border-white/5 flex flex-col min-h-0 z-20 shadow-xl shrink-0"
-        style={{ width: '180px', minWidth: '160px' }}
+      <DashboardShell
+        labels={t}
+        activeTab={activeTab}
+        stats={appStats}
+        notifications={notifications}
+        unreadNotificationCount={unreadNotificationCount}
+        isNotificationsOpen={isNotificationsOpen}
+        hasUnsavedChanges={hasUnsavedChanges}
+        isSavingSettings={isSavingSettings}
+        isCheckingUpdate={updater.isChecking}
+        onTabChange={setActiveTab}
+        onToggleNotifications={toggleNotifications}
+        onCloseNotifications={closeNotifications}
+        onDismissNotification={dismissNotification}
+        onClearNotifications={clearNotifications}
+        onSave={() => void handleSave()}
+        onCheckUpdate={() => void updater.checkForUpdate(true)}
       >
-        <div className="dashboard-sidebar-main flex-1 min-h-0 overflow-y-auto custom-scrollbar p-6">
-            <div className="dashboard-brand flex items-center gap-3 mb-8 group">
-              <div className="w-9 h-9 bg-gradient-to-br from-indigo-500 via-blue-600 to-blue-700 rounded-xl flex items-center justify-center text-white text-lg font-black shadow-lg shadow-accent group-hover:rotate-12 transition-transform duration-500">
-                <Sparkles size={20} className="text-white/90" />
-              </div>
-              <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-black tracking-tighter leading-none mb-1">{t.brandName}</span>
-                <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest opacity-60">{t.brandEdition}</span>
-              </div>
-            </div>
-            
-            <nav className="space-y-1" aria-label={t.mainNavigation}>
-              <LayoutGroup id="sidebar">
-                {tabs.map((tab) => (
-                    <button 
-                    key={tab.id} 
-                    ref={element => { tabButtonRefs.current[tab.id as DashboardTabId] = element; }}
-                    type="button"
-                    aria-current={activeTab === tab.id ? "page" : undefined}
-                    onClick={() => setActiveTab(tab.id)}
-                    onKeyDown={event => {
-                      const next = dashboardTabFromNavigation(tab.id as DashboardTabId, event.key);
-                      if (!next) return;
-                      event.preventDefault();
-                      setActiveTab(next);
-                      tabButtonRefs.current[next]?.focus();
-                    }}
-                    className={`dashboard-nav-item group w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all relative ${
-                        activeTab === tab.id ? "text-white" : "hover:bg-black/5 dark:hover:bg-white/5 text-zinc-500"
-                    }`}
-                    style={{ fontSize: '0.85em' }}
-                    >
-                    {activeTab === tab.id && (
-                        <motion.div 
-                        layoutId="activeTabBg" 
-                        className="absolute inset-0 bg-accent rounded-xl shadow-lg shadow-accent" 
-                        transition={{ type: "spring", bounce: 0.1, duration: 0.5 }} 
-                        />
-                    )}
-                    <span className="relative z-10 flex items-center gap-2.5 font-bold">
-                        <tab.icon size={15} className={activeTab === tab.id ? "text-white" : "text-zinc-400 dark:text-zinc-500 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors"} />
-                        <span className="truncate">{tab.label}</span>
-                    </span>
-                    </button>
-                ))}
-              </LayoutGroup>
-            </nav>
-        </div>
-        
-        <div className="dashboard-sidebar-footer shrink-0 p-4 border-t border-black/5 dark:border-white/5">
-            <div className="dashboard-stats-card p-4 bg-white/40 dark:bg-white/5 rounded-2xl border border-white/40 dark:border-white/5 space-y-3">
-                <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Book size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.words}</span></div>
-                    <span className="text-[10px] font-black text-accent">{appStats.word_count}</span>
-                </div>
-                <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Languages size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.translations}</span></div>
-                    <span className="text-[10px] font-black text-accent">{appStats.trans_count}</span>
-                </div>
-                <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Brain size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.dueToday}</span></div>
-                    <span className="text-[10px] font-black text-amber-500">{appStats.due_today || 0}</span>
-                </div>
-                <div className="dashboard-stat-row flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-zinc-400"><Monitor size={12} /><span className="text-[9px] font-black uppercase tracking-tighter">{t.streak}</span></div>
-                    <span className="text-[10px] font-black text-accent">{appStats.days_active}{t.dayUnit}</span>
-                </div>
-                <button onClick={() => void updater.checkForUpdate(true)} disabled={updater.isChecking} className="w-full py-2 rounded-xl bg-accent/10 text-accent border border-accent/20 text-[9px] font-black hover:bg-accent/20 transition-all mt-1 disabled:opacity-50">{updater.isChecking ? t.updateChecking : t.checkUpdate}</button>
-            </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-transparent relative">
-        <header className="dashboard-header h-20 flex items-center justify-between px-10 shrink-0 border-b border-black/5 dark:border-white/5 backdrop-blur-3xl bg-white/30 dark:bg-black/20 z-10">
-            <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                    <h1 className="text-xl font-black tracking-tighter bg-gradient-to-r from-zinc-800 to-zinc-500 dark:from-white dark:to-zinc-400 bg-clip-text text-transparent">
-                        {tabs.find(t_ => t_.id === activeTab)?.label}
-                    </h1>
-                    <span className="w-1 h-1 rounded-full bg-accent/40" />
-                    <span className="text-[10px] font-black text-accent/60 dark:text-accent/60 tracking-widest uppercase italic">{t.brandCompact}</span>
-                </div>
-                <p className="dashboard-subtitle text-[9px] text-zinc-400 font-bold uppercase tracking-[0.3em] opacity-60">{t.brandSubtitle}</p>
-            </div>
-            <div className="flex items-center gap-4">
-                {/* Notification Bell */}
-                <div ref={notificationsRef} className="relative">
-                    <button onClick={toggleNotifications} aria-expanded={isNotificationsOpen} aria-label={t.notifications} className="relative p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-                        <Bell size={16} className="text-zinc-400" />
-                        {unreadNotificationCount > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-accent rounded-full text-[8px] text-white font-black flex items-center justify-center">{unreadNotificationCount}</span>
-                        )}
-                    </button>
-                    {isNotificationsOpen && notifications.length > 0 && (
-                        <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-zinc-800 rounded-xl shadow-2xl border border-black/5 dark:border-white/10 z-50 overflow-hidden">
-                            <div className="p-2 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
-                                <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider px-2">{t.notifications}</span>
-                                <button onClick={clearNotifications} className="text-[8px] font-black text-zinc-400 hover:text-red-500 px-2 py-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">{t.clearAll}</button>
-                            </div>
-                            <div className="max-h-48 overflow-y-auto">
-                                {notifications.map((n, i) => (
-                                    <button key={`${n.time}-${i}`} onClick={() => dismissNotification(i)} className="w-full text-left px-3 py-2 text-[10px] text-zinc-600 dark:text-zinc-300 font-medium hover:bg-black/5 dark:hover:bg-white/5 flex items-start gap-2">
-                                        <CheckCircle size={10} className="mt-0.5 text-green-500 shrink-0" />
-                                        <span className="flex-1">{n.msg}</span>
-                                        <span className="text-[8px] text-zinc-400 shrink-0">{n.time}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                {activeTab !== 'wordbook' && activeTab !== 'batch' && (
-                    <motion.button whileHover={hasUnsavedChanges ? { scale: 1.02 } : undefined} whileTap={hasUnsavedChanges ? { scale: 0.98 } : undefined} onClick={handleSave} disabled={!hasUnsavedChanges || isSavingSettings} className="flex items-center gap-2 bg-accent text-white px-6 py-2.5 rounded-full font-black text-[12px] shadow-xl shadow-accent transition-all disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:shadow-none disabled:cursor-not-allowed">
-                        {hasUnsavedChanges && !isSavingSettings && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
-                        <Save size={14} /> {isSavingSettings ? t.saving : hasUnsavedChanges ? t.saveChanges : t.saved}
-                    </motion.button>
-                )}
-            </div>
-        </header>
-
-        <main className="dashboard-main flex-1 min-h-0 overflow-y-auto custom-scrollbar px-10 py-8 relative">
-            <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, x: slideDirection * 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: slideDirection * -24 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className="h-full min-h-0 flex flex-col">
                     {activeTab === "general" && (
                         <Suspense fallback={<div className="h-64 animate-pulse rounded-[28px] bg-black/5 dark:bg-white/5" />}>
                             <GeneralSettingsTab
@@ -938,10 +785,7 @@ export default function Dashboard() {
                             <HistoryTab labels={t} />
                         </Suspense>
                     )}
-                </motion.div>
-            </AnimatePresence>
-        </main>
-      </div>
+      </DashboardShell>
       <UpdateDialog
         open={updater.dialogOpen}
         version={updater.pendingUpdate?.version || ""}

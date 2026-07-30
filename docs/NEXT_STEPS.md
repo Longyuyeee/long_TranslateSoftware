@@ -4,23 +4,25 @@
 
 - 当前稳定版为 `v0.4.8`，正在完成 `v0.4.9` 的架构与回归收口，暂不提升版本号。
 - 设置、历史、生词本、模型/TTS、外观、通用设置、批量翻译、术语表和剪贴板监控已经从 `Dashboard` 拆出独立组件、hook 或 service。
-- 当前自动化基线：前端 36 个测试文件、154 项测试，Rust 64 项测试（含 2 项真实子进程测试）；生产 JavaScript 最大块为 234.55 KiB。
+- 当前自动化基线：前端 37 个测试文件、157 项测试，Rust 64 项测试（含 2 项真实子进程测试）；生产 JavaScript 最大块为 234.55 KiB。
 - 窗口、剪贴板和 OCR 遮罩命令已收敛到 `system_integration.rs`；多显示器虚拟桌面边界只计算一次，高 DPI 遮罩使用物理尺寸，不再缩小覆盖范围。
 - 快捷键解析、启动注册、运行时更新、暂停状态与模拟复制已收敛到 `shortcuts.rs`；更新失败保留旧快捷键，复制流程恢复原文本剪贴板。
 - 快捷键录制、自启动切换、音频缓存维护和诊断导出已从 `Dashboard` 收敛到独立 hook/service；卸载恢复、重复操作和迟到响应已有测试。
 - 生命周期策略已从应用壳提取：CI 运行真实可执行文件探针验证手动/自启模式，单实例回调、窗口恢复、关闭到托盘和托盘菜单共用受测路径；通知历史的清除与末项关闭也有独立 hook 回归。
 - Windows 发布候选安装包的交互桌面检查已经固化为 `RELEASE_DESKTOP_SMOKE.md`，覆盖双实例、单托盘、前台恢复、自启动和通知路径。
 - Native Messaging v1 已完成严格 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、大小/并发限制、精确来源校验和威胁模型；当前没有 Native Host、注册器或扩展 UI。
+- PR #22 已审计并合并；主界面导航、统计、通知、保存/更新入口和页签切换已收敛到独立 `DashboardShell`，`Dashboard.tsx` 当前约 803 行。
 - GitHub Actions 负责持续集成和正式 Release 构建；本地提交前仍需执行前端、Rust、依赖和质量报告审计。
 
 ## 接手后按顺序处理
 
-1. 审阅、转为 Ready 并合并 Draft PR #22；它只交付协议契约，不交付可运行扩展。
-2. 完成 `v0.4.9` 剩余架构门槛：`Dashboard.tsx` ≤600 行，拆分 `api.ts`，把 `lib.rs` 的数据库/同步/导出逻辑迁入领域模块，并逐步统一 Tauri 错误。
-3. 三处版本提升到 `0.4.9`，创建版本化发布说明并构建候选安装包。
-4. 使用候选安装包执行 `RELEASE_DESKTOP_SMOKE.md`，记录 SHA-256、操作者和结果，并验证从 `v0.4.8` 应用内升级。
-5. 发布并核验 `v0.4.9` 的 EXE、MSI、Updater 签名、`latest.json` 和质量报告。
-6. 从最新 `master` 开始 `v0.5.0`：先实现最小 Native Host，再实现私有 IPC、配对、Manifest V3 service worker，最后进入扩展 UI。
+1. 继续下沉 `Dashboard` 的 WebDAV、数据导入导出和统计/事件编排，使 `Dashboard.tsx` 不超过 600 行。
+2. 拆分 `api.ts`，把传输层、翻译任务/故障切换和 TTS 路由分开并保留兼容出口。
+3. 把 `lib.rs` 剩余数据库/同步/导出逻辑迁入领域模块，并逐步统一 Tauri 错误。
+4. 三处版本提升到 `0.4.9`，创建版本化发布说明并构建候选安装包。
+5. 使用候选安装包执行 `RELEASE_DESKTOP_SMOKE.md`，记录 SHA-256、操作者和结果，并验证从 `v0.4.8` 应用内升级。
+6. 发布并核验 `v0.4.9` 的 EXE、MSI、Updater 签名、`latest.json` 和质量报告。
+7. 从最新 `master` 开始 `v0.5.0`：先实现最小 Native Host，再实现私有 IPC、配对、Manifest V3 service worker，最后进入扩展 UI。
 
 详细风险、证据和阶段退出门槛见 `DEVELOPMENT_STATUS_2026-07-30.md`。
 
