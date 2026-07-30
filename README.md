@@ -27,9 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.8 可量化质量与架构收口**：增加翻译、TTS、OCR 自动质量门槛，强化备份与 Anki 数据安全，并拆分核心前后端业务边界。
->
-> **v0.4.9 候选版正在验证**：桌面单实例、托盘与通知回归、界面模块化及结构化命令错误已经完成自动化审计；正式下载仍保持 `v0.4.8`，待签名候选包通过 Windows 交互烟雾后发布。
+> **v0.4.9 桌面可靠性与架构收口**：修复首次启动仅驻留托盘、重复启动和通知角标问题，改善纵向布局、多语言与主题化下拉框，并完成真实 v0.4.8 → v0.4.9 覆盖升级验证。
 
 ---
 
@@ -117,14 +115,16 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.8 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.8 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.9 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.9 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64.msi) |
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.8 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64.msi) |
+| v0.4.7 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64.msi) |
 | v0.4.6 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
 | v0.4.5 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.5/LongTranslate_0.4.5_x64.msi) |
 | v0.4.4 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.4/LongTranslate_0.4.4_x64.msi) |
@@ -145,6 +145,26 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.4.9 — Desktop Reliability & Architecture</strong></summary>
+
+**桌面可靠性**
+- 手动启动、重复启动和托盘恢复统一显示、取消最小化并聚焦同一主窗口
+- 开机自启继续保持静默托盘模式，单实例进程契约纳入真实子进程测试
+- 通知历史打开后清除未读角标，删除最后一条或全部清除时同步关闭面板
+
+**界面与适配**
+- 改善较矮窗口和 200% DPI 环境中的纵向滚动与可操作区域
+- 补齐中英文用户可见文本，统一主题化下拉框及明暗主题样式
+- 设置、翻译、历史、生词本等页面按需加载，最大生产 JavaScript 块保持在 300 KiB 门槛内
+
+**架构与升级**
+- 拆分翻译、TTS、OCR、应用统计、生词本和诊断边界，统一结构化命令错误
+- 完成正式 v0.4.8 → v0.4.9 原位升级验证，设置、统计数据和开机自启注册项保持兼容
+- 保持原有 Updater 公钥与数据库结构，不要求迁移用户数据
+
+</details>
+
+<details>
 <summary><strong>v0.4.8 — Measurable Quality & Architecture</strong></summary>
 
 **可量化质量**
@@ -491,7 +511,7 @@
 
 ## 🛠️ 技术栈
 
-当前稳定版为 v0.4.8，v0.4.9 已进入签名候选包与 Windows 交互烟雾阶段；通过后再进入 v0.5.0 Chrome / Edge 浏览器扩展。详细判断、风险和退出门槛见：
+当前稳定版为 v0.4.9；下一阶段进入 v0.5.0 Chrome / Edge 浏览器扩展。详细判断、风险和退出门槛见：
 
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
 - [当前开发状态审计与执行计划（2026-07-30）](docs/DEVELOPMENT_STATUS_2026-07-30.md)
