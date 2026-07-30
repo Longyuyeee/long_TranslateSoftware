@@ -1,4 +1,4 @@
-use crate::db;
+use crate::{command_error::CommandError, db};
 use chrono::{Local, NaiveDate, NaiveDateTime};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -12,12 +12,13 @@ pub struct AppStats {
     due_today: i32,
 }
 
-fn open_database(app: &AppHandle) -> Result<Connection, String> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
-    db::init_db(app_dir).map_err(|error| error.to_string())
+fn open_database(app: &AppHandle) -> Result<Connection, CommandError> {
+    let app_dir = app.path().app_data_dir().map_err(|error| {
+        CommandError::system(format!(
+            "Cannot resolve application data directory: {error}"
+        ))
+    })?;
+    db::init_db(app_dir).map_err(|error| CommandError::database(error.to_string()))
 }
 
 fn increment_count(conn: &Connection) -> Result<(), String> {
@@ -71,15 +72,15 @@ fn collect_app_stats(conn: &Connection, now: NaiveDateTime) -> Result<AppStats, 
 }
 
 #[tauri::command]
-pub fn increment_translate_count(app: AppHandle) -> Result<(), String> {
+pub fn increment_translate_count(app: AppHandle) -> Result<(), CommandError> {
     let conn = open_database(&app)?;
-    increment_count(&conn)
+    increment_count(&conn).map_err(CommandError::database)
 }
 
 #[tauri::command]
-pub fn get_app_stats(app: AppHandle) -> Result<AppStats, String> {
+pub fn get_app_stats(app: AppHandle) -> Result<AppStats, CommandError> {
     let conn = open_database(&app)?;
-    collect_app_stats(&conn, Local::now().naive_local())
+    collect_app_stats(&conn, Local::now().naive_local()).map_err(CommandError::database)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 mod anki;
 mod app_stats;
 mod backup;
+mod command_error;
 mod config;
 mod db;
 mod diagnostics;

@@ -141,7 +141,7 @@ describe("useDashboardActions", () => {
 
   it("keeps cancellation silent and reports other export failures", async () => {
     invokeMock
-      .mockRejectedValueOnce("User cancelled")
+      .mockRejectedValueOnce({ code: "cancelled", message: "User cancelled" })
       .mockRejectedValueOnce(new Error("disk full"));
     const options = createOptions();
     const { result } = renderHook(() => useDashboardActions(options));

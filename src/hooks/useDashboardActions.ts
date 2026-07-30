@@ -7,6 +7,10 @@ import type {
   AutoLaunchToggleResult,
   DiagnosticsExportResult,
 } from "./useSystemMaintenance";
+import {
+  commandErrorMessage,
+  isCommandError,
+} from "../services/commandErrors";
 
 type UseDashboardActionsOptions = {
   labels: TranslationCatalog;
@@ -28,7 +32,8 @@ type DashboardAction =
   | "export-wordbook-json"
   | "export-anki";
 
-const isCancelled = (error: unknown) => error === "User cancelled";
+const isCancelled = (error: unknown) =>
+  error === "User cancelled" || isCommandError(error, "cancelled");
 const requestPassword = (
   promptForPassword: UseDashboardActionsOptions["promptForPassword"],
   message: string,
@@ -98,7 +103,7 @@ export function useDashboardActions(options: UseDashboardActionsOptions) {
       } catch (error) {
         if (!mountedRef.current || isCancelled(error)) return;
         const latest = latestRef.current;
-        const message = `${latest.labels.exportFailed}: ${String(error)}`;
+        const message = `${latest.labels.exportFailed}: ${commandErrorMessage(error)}`;
         latest.showToast("error", message);
         latest.addNotification(message);
       }
@@ -124,7 +129,7 @@ export function useDashboardActions(options: UseDashboardActionsOptions) {
       } catch (error) {
         if (!mountedRef.current || isCancelled(error)) return;
         const latest = latestRef.current;
-        const message = `${latest.labels.importFailed}: ${String(error)}`;
+        const message = `${latest.labels.importFailed}: ${commandErrorMessage(error)}`;
         latest.showToast("error", message);
         latest.addNotification(message);
       }
@@ -154,7 +159,7 @@ export function useDashboardActions(options: UseDashboardActionsOptions) {
           if (!mountedRef.current || isCancelled(error)) return;
           const latest = latestRef.current;
           latest.addNotification(
-            `${latest.labels.exportFailed}: ${String(error)}`,
+            `${latest.labels.exportFailed}: ${commandErrorMessage(error)}`,
           );
         }
       });
@@ -177,7 +182,7 @@ export function useDashboardActions(options: UseDashboardActionsOptions) {
         const latest = latestRef.current;
         latest.showToast(
           "error",
-          `${latest.labels.exportFailed}: ${String(error)}`,
+          `${latest.labels.exportFailed}: ${commandErrorMessage(error)}`,
         );
       }
     });
@@ -211,7 +216,7 @@ export function useDashboardActions(options: UseDashboardActionsOptions) {
       latest.showToast("success", latest.labels.diagnosticsExportSuccess);
       latest.addNotification(latest.labels.diagnosticsExportSuccess);
     } else if (result.status === "failed") {
-      const message = `${latest.labels.diagnosticsExportFailed}: ${String(result.error)}`;
+      const message = `${latest.labels.diagnosticsExportFailed}: ${commandErrorMessage(result.error)}`;
       latest.showToast("error", message);
       latest.addNotification(message);
     }
