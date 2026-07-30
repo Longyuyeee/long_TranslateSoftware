@@ -18,10 +18,9 @@ mod tts;
 mod webdav;
 mod wordbook;
 
-use base64::{engine::general_purpose, Engine as _};
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri::{AppHandle, Manager, WindowEvent};
 
 fn resolve_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -74,53 +73,6 @@ fn export_diagnostics(app: AppHandle) -> Result<String, String> {
     fs::write(&path, contents)
         .map_err(|error| format!("Cannot write diagnostic report: {error}"))?;
     Ok(path.to_string_lossy().into_owned())
-}
-
-#[tauri::command]
-async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
-    let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
-    let bytes = general_purpose::STANDARD
-        .decode(image_base64)
-        .map_err(|error| error.to_string())?;
-    ocr::run_ocr(bytes, &ocr_lang)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-async fn capture_and_ocr(app: AppHandle, x: i32, y: i32, w: u32, h: u32) -> Result<String, String> {
-    let app_dir = resolve_app_data_dir(&app)?;
-    let conn = db::init_db(app_dir).map_err(|error| error.to_string())?;
-    let ocr_lang = db::get_config(&conn, "ocr_lang").unwrap_or_default();
-    let bytes = ocr::capture_rect(x, y, w, h).map_err(|error| error.to_string())?;
-    ocr::run_ocr(bytes, &ocr_lang)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err("OCR text is empty".to_string());
-    }
-
-    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
-        let _ = overlay.hide();
-    }
-    if let Some(floating) = app.get_webview_window("floating") {
-        let _ = floating.show();
-        let _ = floating.set_focus();
-    }
-    app.emit("ocr-triggered", text)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn get_available_ocr_languages() -> Result<Vec<ocr::OcrLanguageInfo>, String> {
-    ocr::available_ocr_languages().map_err(|error| error.to_string())
 }
 
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -216,10 +168,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            run_ocr,
-            capture_and_ocr,
-            confirm_ocr_text,
-            get_available_ocr_languages,
+            ocr::run_ocr,
+            ocr::capture_and_ocr,
+            ocr::confirm_ocr_text,
+            ocr::get_available_ocr_languages,
             system_integration::get_screen_bounds,
             system_integration::get_clipboard_text,
             config::set_config_value,

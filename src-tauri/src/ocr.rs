@@ -1,8 +1,12 @@
+use crate::db;
+use base64::{engine::general_purpose, Engine as _};
+use rusqlite::Connection;
 use screenshots::Screen;
 use screenshots::image::{imageops::FilterType, load_from_memory, DynamicImage, ImageFormat};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::io::Cursor;
+use tauri::{AppHandle, Emitter, Manager};
 use windows::Graphics::Imaging::BitmapDecoder;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
@@ -14,6 +18,41 @@ pub struct OcrLanguageInfo {
     pub tag: String,
     pub display_name: String,
     pub native_name: String,
+}
+
+fn open_database(app: &AppHandle) -> Result<Connection, String> {
+    let app_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("Cannot resolve application data directory: {error}"))?;
+    db::init_db(app_dir).map_err(|error| error.to_string())
+}
+
+fn configured_language(conn: &Connection) -> Result<String, String> {
+    db::get_config(conn, "ocr_lang")
+        .map_err(|error| format!("Cannot read configured OCR language: {error}"))
+}
+
+fn decode_image_payload(image_base64: &str) -> Result<Vec<u8>, String> {
+    let payload = image_base64
+        .split_once(',')
+        .filter(|(prefix, _)| prefix.starts_with("data:") && prefix.ends_with(";base64"))
+        .map_or(image_base64, |(_, payload)| payload);
+    if payload.trim().is_empty() {
+        return Err("OCR image payload is empty".to_string());
+    }
+    general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|error| format!("Cannot decode OCR image: {error}"))
+}
+
+fn confirmed_text(text: &str) -> Result<&str, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        Err("OCR text is empty".to_string())
+    } else {
+        Ok(text)
+    }
 }
 
 fn normalize_ocr_languages(mut languages: Vec<OcrLanguageInfo>) -> Vec<OcrLanguageInfo> {
@@ -154,7 +193,7 @@ fn create_ocr_engine(lang: &str) -> Result<OcrEngine, Box<dyn std::error::Error>
         .map_err(|error| format!("Failed to create default OcrEngine: {error}").into())
 }
 
-pub async fn run_ocr(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn recognize_text(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
     let engine = create_ocr_engine(lang)?;
     let original = recognize_image(&engine, &image_bytes)?;
     let mut best = original;
@@ -182,10 +221,26 @@ pub async fn run_ocr(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn
     Ok(best)
 }
 
+fn capture_center(x: i32, y: i32, w: u32, h: u32) -> Result<(i32, i32), String> {
+    if w == 0 || h == 0 {
+        return Err("OCR capture dimensions must be positive".to_string());
+    }
+    let half_width =
+        i32::try_from(w / 2).map_err(|_| "OCR capture width is too large".to_string())?;
+    let half_height =
+        i32::try_from(h / 2).map_err(|_| "OCR capture height is too large".to_string())?;
+    let center_x = x
+        .checked_add(half_width)
+        .ok_or_else(|| "OCR capture horizontal bounds overflow".to_string())?;
+    let center_y = y
+        .checked_add(half_height)
+        .ok_or_else(|| "OCR capture vertical bounds overflow".to_string())?;
+    Ok((center_x, center_y))
+}
+
 pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let screens = Screen::all()?;
-    let center_x = x + (w as i32 / 2);
-    let center_y = y + (h as i32 / 2);
+    let (center_x, center_y) = capture_center(x, y, w, h)?;
 
     let screen = screens.iter().find(|s| {
         let display = s.display_info;
@@ -204,11 +259,57 @@ pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn s
     Ok(buffer)
 }
 
+#[tauri::command]
+pub async fn run_ocr(app: AppHandle, image_base64: String) -> Result<String, String> {
+    let conn = open_database(&app)?;
+    let ocr_lang = configured_language(&conn)?;
+    let bytes = decode_image_payload(&image_base64)?;
+    recognize_text(bytes, &ocr_lang)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn capture_and_ocr(
+    app: AppHandle,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+) -> Result<String, String> {
+    let conn = open_database(&app)?;
+    let ocr_lang = configured_language(&conn)?;
+    let bytes = capture_rect(x, y, w, h).map_err(|error| error.to_string())?;
+    recognize_text(bytes, &ocr_lang)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn confirm_ocr_text(app: AppHandle, text: String) -> Result<(), String> {
+    let text = confirmed_text(&text)?;
+    if let Some(overlay) = app.get_webview_window("ocr-overlay") {
+        let _ = overlay.hide();
+    }
+    if let Some(floating) = app.get_webview_window("floating") {
+        let _ = floating.show();
+        let _ = floating.set_focus();
+    }
+    app.emit("ocr-triggered", text)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_available_ocr_languages() -> Result<Vec<OcrLanguageInfo>, String> {
+    available_ocr_languages().map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        available_ocr_languages, character_error_rate, create_ocr_engine,
-        normalize_ocr_languages, prepare_ocr_images, run_ocr, text_quality_score, OcrLanguageInfo,
+        available_ocr_languages, capture_center, character_error_rate, confirmed_text,
+        create_ocr_engine, decode_image_payload, normalize_ocr_languages, prepare_ocr_images,
+        recognize_text, text_quality_score, OcrLanguageInfo,
     };
     use font8x8::{UnicodeFonts, BASIC_FONTS};
     use screenshots::image::{DynamicImage, GenericImageView, ImageFormat, RgbaImage};
@@ -296,6 +397,23 @@ mod tests {
     #[test]
     fn text_quality_prefers_meaningful_text_over_replacement_noise() {
         assert!(text_quality_score("Hello world 123") > text_quality_score("\u{fffd}\u{fffd}\u{fffd}"));
+    }
+
+    #[test]
+    fn command_inputs_decode_data_urls_trim_text_and_reject_unsafe_captures() {
+        assert_eq!(decode_image_payload("SGVsbG8=").unwrap(), b"Hello");
+        assert_eq!(
+            decode_image_payload("data:image/png;base64,SGVsbG8=").unwrap(),
+            b"Hello"
+        );
+        assert!(decode_image_payload("").unwrap_err().contains("empty"));
+        assert_eq!(confirmed_text("  recognized text \n").unwrap(), "recognized text");
+        assert_eq!(confirmed_text(" \n ").unwrap_err(), "OCR text is empty");
+        assert_eq!(capture_center(-100, -50, 20, 10).unwrap(), (-90, -45));
+        assert!(capture_center(0, 0, 0, 10).unwrap_err().contains("positive"));
+        assert!(capture_center(i32::MAX, 0, 2, 2)
+            .unwrap_err()
+            .contains("overflow"));
     }
 
     #[test]
@@ -393,7 +511,7 @@ mod tests {
         let mut report_cases = Vec::new();
         for quality_case in cases {
             let png = render_text_fixture(quality_case.text, quality_case.scale, quality_case.dark);
-            let recognized = run_ocr(png, "en-US").await.unwrap();
+            let recognized = recognize_text(png, "en-US").await.unwrap();
             let cer = character_error_rate(quality_case.text, &recognized);
             eprintln!(
                 "{}: expected={:?}, recognized={:?}, cer={:.3}",
