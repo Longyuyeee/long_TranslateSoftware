@@ -160,4 +160,32 @@ describe("GeneralSettingsTab", () => {
       translations.en.webdavError_unauthorized,
     );
   });
+
+  it("routes maintenance actions through the extracted section", () => {
+    renderTab();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: translations.en.showAdvancedSettings,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: translations.en.clearCache }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: translations.en.exportData }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: translations.en.importData }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: translations.en.exportDiagnostics,
+      }),
+    );
+
+    expect(onClearCache).toHaveBeenCalledOnce();
+    expect(onExport).toHaveBeenCalledOnce();
+    expect(onImport).toHaveBeenCalledOnce();
+    expect(onExportDiagnostics).toHaveBeenCalledOnce();
+  });
 });
