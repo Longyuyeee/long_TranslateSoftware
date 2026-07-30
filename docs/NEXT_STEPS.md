@@ -2,7 +2,7 @@
 
 ## 当前情况
 
-- 当前稳定版为 `v0.4.8`，正在完成 `v0.4.9` 的架构与回归收口，暂不提升版本号。
+- 当前稳定版为 `v0.4.8`；前端、Cargo 与 Tauri 候选版本已统一提升到 `0.4.9`，正式下载仍等待签名候选包交互烟雾。
 - 设置、历史、生词本、模型/TTS、外观、通用设置、批量翻译、术语表和剪贴板监控已经从 `Dashboard` 拆出独立组件、hook 或 service。
 - 当前自动化基线：前端 42 个测试文件、184 项测试，Rust 72 项测试（含 2 项真实子进程测试）；生产 JavaScript 最大块为 234.55 KiB。
 - 窗口、剪贴板和 OCR 遮罩命令已收敛到 `system_integration.rs`；多显示器虚拟桌面边界只计算一次，高 DPI 遮罩使用物理尺寸，不再缩小覆盖范围。
@@ -24,15 +24,16 @@
 - PR #32～#33 已审计并合并；四个 OCR 命令已迁入 `ocr.rs`，Data URL、空文本、零尺寸与坐标溢出边界已纳入测试，`lib.rs` 降至约 229 行。
 - 当前分支已将脱敏诊断导出迁入 `diagnostics.rs`、更新器配置状态迁入 `updater.rs`；命令协议保持不变，`lib.rs` 降至约 176 行且无直接 Tauri 命令。
 - 当前分支已建立稳定的结构化命令错误契约，首批覆盖应用统计、OCR 与诊断；前端兼容新对象和旧字符串错误，更新器状态继续保持无失败分支的布尔协议。
+- `docs/releases/v0.4.9.md` 已创建，本地密钥公钥与应用内置公钥一致；正式 Release 工作流仍只由 `v0.4.9` 标签触发。
+- 本地签名 NSIS、MSI 与两份 Updater `.sig` 已生成，哈希记录在 `docs/releases/v0.4.9-candidate.md`；安装与升级交互烟雾尚未执行。
 - GitHub Actions 负责持续集成和正式 Release 构建；本地提交前仍需执行前端、Rust、依赖和质量报告审计。
 
 ## 接手后按顺序处理
 
-1. 三处版本提升到 `0.4.9`，创建版本化发布说明并构建候选安装包。
-2. 使用候选安装包执行 `RELEASE_DESKTOP_SMOKE.md`，记录 SHA-256、操作者和结果，并验证从 `v0.4.8` 应用内升级。
-3. 发布并核验 `v0.4.9` 的 EXE、MSI、Updater 签名、`latest.json` 和质量报告。
-4. 从最新 `master` 开始 `v0.5.0`：先实现最小 Native Host，再实现私有 IPC、配对、Manifest V3 service worker，最后进入扩展 UI。
-5. 旧 Tauri 命令按后续实际修改范围渐进迁移到结构化错误，不与候选发布混为一次大改。
+1. 使用候选安装包执行 `RELEASE_DESKTOP_SMOKE.md`，记录操作者和结果，并验证从 `v0.4.8` 应用内升级。
+2. 全部通过后创建并推送 `v0.4.9` 标签，由 GitHub Actions 发布并核验 EXE、MSI、Updater 签名、`latest.json` 和质量报告。
+3. 从最新 `master` 开始 `v0.5.0`：先实现最小 Native Host，再实现私有 IPC、配对、Manifest V3 service worker，最后进入扩展 UI。
+4. 旧 Tauri 命令按后续实际修改范围渐进迁移到结构化错误，不与候选发布混为一次大改。
 
 详细风险、证据和阶段退出门槛见 `DEVELOPMENT_STATUS_2026-07-30.md`。
 
