@@ -1,6 +1,6 @@
 # Long翻译 v0.5.x 开发审计与执行计划
 
-审计日期：2026-08-10
+审计日期：2026-08-10；滚动复审：2026-08-11
 
 审计基线：`v0.4.9` / `master` 提交 `7eec966`
 
@@ -19,20 +19,21 @@
 | --- | --- | --- |
 | 桌面发布 | `v0.4.9` Release、Updater 签名、EXE、MSI、`latest.json` 和质量报告完整 | 可以继续使用标签触发的正式发布流程 |
 | 翻译任务 | 已有取消、主备模型、术语表、缓存、格式检查和结构化错误 | 浏览器请求和文档分段均应复用同一翻译核心 |
-| 浏览器协议与 Host | Native Messaging v1 Schema、Rust/TypeScript 模型、版本协商、限额和 32 位扩展 ID 精确校验已有测试；单 EXE Host 已实现 framing、1 MiB 预解析限制和 `hello` / `ping`，Windows 注册器基础已覆盖 HKCU 生命周期 | 下一步固定真实开发扩展 ID 并接入 NSIS/WiX，不需要重新设计协议 |
+| 浏览器协议与 Host | Native Messaging v1 Schema、Rust/TypeScript 模型、版本协商、限额和 32 位扩展 ID 精确校验已有测试；单 EXE Host 已实现 framing、1 MiB 预解析限制和 `hello` / `ping`；Windows 注册器覆盖 HKCU 生命周期；固定开发 ID 的最小 MV3 扩展与 NSIS/WiX 集成已通过自动化和实际打包 | 下一步完成 Chrome/Edge 真实烟雾，不需要重新设计协议或注册器 |
 | 桌面数据 | 模型密钥、术语表、生词本、历史和 WebDAV 由桌面端持有 | 扩展和文档模块不需要复制敏感配置 |
 | 文件能力 | Rust 已有文件对话框、临时目录、ZIP 读写和结构化导出模式 | 可作为 DOCX 容器处理和安全导出的工程参考 |
 
 ## 3. 基线验证与发布前风险
 
-2026-08-10 在最新 `master` 上完成以下本地验证：
+2026-08-11 在当前浏览器安装集成分支上完成以下本地验证：
 
 | 检查 | 结果 |
 | --- | --- |
-| 前端测试 | 42 个文件 / 184 项全部通过 |
+| 前端与扩展测试 | 44 个文件 / 189 项全部通过 |
 | Rust 测试 | 82 项单元测试 + 2 项生命周期进程测试 + 5 项 Native Host 进程测试 + 2 项 Windows 注册生命周期测试全部通过 |
 | 前端生产构建 | 通过 |
-| 包体门槛 | 最大生产 JavaScript 块 234.55 KiB / 300 KiB，通过 |
+| 包体门槛 | 桌面最大生产 JavaScript 块 234.55 KiB / 300 KiB；扩展生产包 9.17 KiB / 64 KiB，均通过 |
+| Windows 安装器审计构建 | NSIS 与 MSI 均实际生成；WiX 注册/注销及双向回滚动作完成编译链接 |
 | Rust 严格静态检查 | `cargo clippy --locked --all-targets -- -D warnings` 通过 |
 | 质量报告 | PASS |
 | npm 依赖审计 | PR #38 修复后为 0 个已知漏洞，通过 |
@@ -45,7 +46,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ### 4.1 浏览器扩展
 
-仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器基础已经实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载，但还没有真实扩展 ID、安装器 Hook、本机私有 IPC、桌面配对界面、Manifest V3 工程、service worker、content script 或划词浮层，不能被描述为“扩展已经可用”。
+仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、本机私有 IPC、桌面配对界面、content script 和划词浮层，不能被描述为“扩展已经可用”。
 
 另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让 Host 模式直接读取 API Key、数据库或复制一套翻译实现。
 
@@ -85,7 +86,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 1. Host 仅实现 `hello` / `ping`，完成 framing、超限、非法 JSON、非法 Origin 和子进程测试；
 2. 加入 Chrome/Edge 注册器基础，验证 manifest 原子替换、重复安装、Origin 升级、所有权保护和卸载；
-3. 固定受控开发扩展的真实 ID，把注册器接入 NSIS/WiX，并完成 Chrome/Edge `hello` / `ping` 烟雾；
+3. 已固定受控开发扩展 ID 并接入 NSIS/WiX；下一步完成 Chrome/Edge `hello` / `ping` 真实烟雾；
 4. 建立私有 IPC 和桌面请求代理，先跑通 `hello` / `pair`；
 5. 接入 `translate` / `cancel` / `add_word`，复用桌面翻译核心；
 6. 实现扩展 service worker、content script 和隔离样式的划词浮层；
@@ -162,14 +163,14 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 - 一个 PR 只处理一个可审计边界，并同时加入对应测试和失败路径；
 - 新增协议、任务状态和文件格式必须先固定契约/夹具，再接 UI；
-- 继续运行前端测试、生产构建、包体审计、依赖审计、Rust 测试、严格 Clippy 和质量报告；
+- 继续运行前端测试、生产构建、桌面与扩展包体审计、依赖审计、Rust 测试、严格 Clippy 和质量报告；
 - 浏览器与文档功能分别维护真实 Windows 烟雾清单，不能只以单元测试代替最终交互验收；
 - 不提交历史安装包、临时文档、用户文档内容、密钥或包含原文/译文的诊断数据；
 - 每个阶段在 CI 通过后才合并，发布仍由版本标签触发 GitHub Actions。
 
 ## 9. 立即开始的工作
 
-依赖安全门槛已经由 PR #38 恢复。`v0.5.0` 最小 Native Host 与 Windows 注册器基础已经完成：
+依赖安全门槛已经由 PR #38 恢复。`v0.5.0` 最小 Native Host、Windows 注册器与开发扩展安装链路已经完成：
 
 - 让现有桌面 EXE 在浏览器 Origin 调用时直接进入 Host 模式，避免重复打包 sidecar；
 - 实现 Windows 二进制 framing 与 1 MiB 预解析限制；
@@ -180,5 +181,9 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 - 原子生成 Native Host manifest，并幂等写入 Chrome/Edge 当前用户注册表；
 - 支持 Origin 升级、重复安装、所有权保护和可逆卸载，真实 HKCU 生命周期测试结束后自动清理；
 - release 构建只信任与当前 EXE 身份匹配的安装 manifest，开发环境变量仅保留在 debug 构建。
+- 固定开发扩展 ID 为 `imaogjlfhfohdnngppnfhapdfkaldmkn`，只申请 `nativeMessaging` 权限，不注入网页；
+- service worker 在单一持久端口上严格关联 `hello` / `ping` 请求、nonce、会话版本和断线/超时；
+- NSIS 在安装后注册、非升级卸载后按所有权清理，WiX 为注册和注销分别设置回滚动作；
+- 实际生成 NSIS/MSI 审计包，最小扩展生产包约 9.17 KiB / 64 KiB 门槛。
 
-本阶段没有加入真实扩展 ID、安装器 Hook、桌面 IPC、配对 UI 或扩展浮层。下一步只创建稳定 ID 的最小 Manifest V3 开发扩展，把注册器接入 NSIS/WiX 并完成 Chrome/Edge `hello` / `ping` 烟雾，不同时接入桌面翻译。
+本阶段没有加入商店正式 ID、桌面 IPC、配对 UI、content script 或翻译浮层。下一步只完成 Chrome/Edge `hello` / `ping`、重复安装、升级和卸载的真实烟雾，不同时接入桌面翻译；烟雾清单见 [`BROWSER_EXTENSION_SMOKE.md`](BROWSER_EXTENSION_SMOKE.md)。

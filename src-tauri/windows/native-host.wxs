@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction
+      Id="RollbackLongTranslateNativeHostRegistration"
+      FileKey="Path"
+      ExeCommand="--unregister-native-host"
+      Execute="rollback"
+      Impersonate="yes"
+      Return="ignore" />
+    <CustomAction
+      Id="RegisterLongTranslateNativeHost"
+      FileKey="Path"
+      ExeCommand="--register-native-host --origin chrome-extension://imaogjlfhfohdnngppnfhapdfkaldmkn/"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+    <CustomAction
+      Id="RollbackLongTranslateNativeHostUnregistration"
+      FileKey="Path"
+      ExeCommand="--register-native-host --origin chrome-extension://imaogjlfhfohdnngppnfhapdfkaldmkn/"
+      Execute="rollback"
+      Impersonate="yes"
+      Return="ignore" />
+    <CustomAction
+      Id="UnregisterLongTranslateNativeHost"
+      FileKey="Path"
+      ExeCommand="--unregister-native-host"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RollbackLongTranslateNativeHostRegistration" Before="RegisterLongTranslateNativeHost">
+        NOT REMOVE
+      </Custom>
+      <Custom Action="RegisterLongTranslateNativeHost" After="InstallFiles">
+        NOT REMOVE
+      </Custom>
+      <Custom Action="RollbackLongTranslateNativeHostUnregistration" Before="UnregisterLongTranslateNativeHost">
+        (REMOVE = "ALL") AND NOT UPGRADINGPRODUCTCODE
+      </Custom>
+      <Custom Action="UnregisterLongTranslateNativeHost" Before="RemoveFiles">
+        (REMOVE = "ALL") AND NOT UPGRADINGPRODUCTCODE
+      </Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>
