@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议基线，尚未启用 Native Host 或浏览器扩展
+状态：协议与最小 Native Host 基线；尚未启用安装注册、桌面私有 IPC 或浏览器扩展
 
 版本：`1`
 
@@ -169,10 +169,11 @@ approved
 
 ## 9. 后续实现顺序
 
-1. 实现只负责二进制帧、Origin 校验和 schema 解析的 Native Host。
-2. 定义 Host 与已运行桌面进程之间的本机私有 IPC，并处理桌面未运行。
-3. 在桌面端实现配对确认、授权撤销和最小能力分发。
-4. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
-5. 最后实现网页划词 UI 和收藏入口。
+1. 已实现只负责二进制帧、1 MiB 预解析限制、Origin 校验和 `hello` / `ping` 的最小 Native Host，并以真实子进程测试固定 stdin/stdout 契约。
+2. 下一步实现 Chrome/Edge Host manifest、当前用户注册、重复安装/升级和可逆卸载；当前开发期允许列表通过 `LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS` 注入，安装阶段必须替换为安装器管理的固定来源配置。
+3. 定义 Host 与已运行桌面进程之间的本机私有 IPC，并处理桌面未运行。
+4. 在桌面端实现配对确认、授权撤销和最小能力分发。
+5. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
+6. 最后实现网页划词 UI 和收藏入口。
 
 任何阶段都不得把桌面密钥复制到扩展存储。

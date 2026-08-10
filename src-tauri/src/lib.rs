@@ -8,6 +8,7 @@ mod diagnostics;
 mod glossary;
 mod history;
 mod lifecycle;
+pub mod native_host;
 pub mod native_protocol;
 mod ocr;
 mod review;
