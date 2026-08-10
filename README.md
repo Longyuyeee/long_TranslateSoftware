@@ -522,7 +522,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展目前完成协议层和最小 Native Host 基线：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和精确扩展来源校验；独立 Host 已实现二进制 framing、1 MiB 预解析限制以及 `hello` / `ping`。Chrome/Edge 安装注册、桌面私有桥接、配对和 Manifest V3 扩展尚未实现。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
+浏览器扩展目前完成协议层、最小 Native Host 和 Windows 注册器基础：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和 32 位 Chromium 扩展 ID 精确校验；桌面 EXE 可直接进入 Host 模式，处理二进制 framing、1 MiB 预解析限制以及 `hello` / `ping`，无需再打包一份重复 sidecar；注册器可原子生成 manifest，并幂等写入/撤销 Chrome 与 Edge 的 HKCU 项。真实扩展 ID、NSIS/WiX 自动调用、桌面私有桥接、配对和 Manifest V3 扩展尚未实现。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
 
 | 层 | 技术 |
 |---|---|
@@ -536,7 +536,7 @@
 | **TTS** | Youdao API + OpenAI TTS |
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
-| **浏览器桥接** | Native Messaging v1 协议 + 最小 Host 基线（尚未安装注册） |
+| **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 注册器基础（尚未接安装器） |
 | **文档翻译** | v0.5.1 规划中（DOCX 与文本型 PDF MVP） |
 
 ### 环境要求

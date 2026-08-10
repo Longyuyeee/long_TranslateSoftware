@@ -6,14 +6,14 @@
 
 - 当前稳定版为 `v0.4.9`，正式 Release 的 EXE、MSI、Updater `.sig`、`latest.json` 和质量报告已经发布并核验。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
-- Native Messaging v1 已完成严格 Schema、Rust/TypeScript 模型、版本协商、配对状态、错误码、大小/并发限制和精确 Origin 校验；最小 Host 已实现 framing、1 MiB 预解析限制、`hello` / `ping` 和真实子进程测试，但还没有注册器、私有 IPC 或浏览器扩展。
+- Native Messaging v1 已完成严格 Schema、Rust/TypeScript 模型、版本协商、配对状态、错误码、大小/并发限制和 32 位 Chromium 扩展 ID 精确校验；桌面 EXE 可直接进入最小 Host 模式，并已有 manifest 原子写入、Chrome/Edge HKCU 幂等注册/升级/可逆卸载和真实 Windows 注册表测试。安装器尚未接入真实扩展 ID，也还没有私有 IPC 或浏览器扩展。
 - PDF / Word 翻译还没有实现。现有代码没有 PDF 文本层解析、DOCX Open XML 解析/重建、文档任务模型或断点继续能力。
 - 后续只推进两条产品主线：`v0.5.0` 浏览器扩展 MVP、`v0.5.1` PDF / Word 文档翻译 MVP。
 - 2026-08-10 基线测试、构建、包体、Clippy 和质量报告通过；PR #38 已升级受影响的 `postcss` / `nanoid` 锁定版本，npm 官方审计恢复为 0 个已知漏洞。
 
 ## 接手后按顺序处理
 
-1. 为最小 Host 实现 Chrome/Edge manifest、当前用户注册、重复安装/升级和可逆卸载；把开发期环境变量允许列表替换为安装器管理的固定 Origin 配置。
+1. 创建带稳定真实 ID 的最小 Manifest V3 开发扩展，把现有注册器接入 NSIS/WiX 安装/卸载流程，并完成 Chrome/Edge `hello` / `ping` 真实烟雾；正式版 Host 只读取安装 manifest，调试环境变量不得进入 release 降级路径。
 2. 注册边界审计通过后，依次实现桌面私有 IPC、配对与撤销、`translate` / `cancel` / `add_word`。
 3. 桥接安全边界稳定后，实现 Manifest V3 service worker、content script 和划词翻译浮层，完成 Chrome/Edge 真实烟雾后发布 `v0.5.0`。
 4. `v0.5.1` 先固定文档任务契约和配置快照，再实现 DOCX 解析/重建、翻译队列、取消/重试/恢复和 DOCX 导出。
@@ -25,6 +25,7 @@
 
 - 每个 PR 只实现一个边界清晰的增量，并补齐对应自动化和失败路径。
 - 协议、文档分段和任务状态先固定契约/夹具，再接 UI。
+- 持续审计依赖和安装体积、启动/消息链路耗时、资源上限与失败恢复；没有必要时不增加新进程、新依赖或重复二进制。
 - 运行 `npm test`、`npm run build`、`npm run audit:bundle`、`npm audit`、`cargo test`、`cargo clippy --all-targets -- -D warnings` 和质量报告。
 - 浏览器和文档功能分别保留真实 Windows 交互烟雾，不用单元测试替代最终验收。
 - 不提交 `releases/` 下的历史安装包、临时文档、用户原文/译文、诊断敏感内容或任何密钥。
