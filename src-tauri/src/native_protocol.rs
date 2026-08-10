@@ -333,10 +333,12 @@ pub fn parse_request(bytes: &[u8]) -> Result<RequestEnvelope, ProtocolError> {
 }
 
 pub fn validate_origin(origin: &str, allowed_origins: &[String]) -> Result<(), ProtocolError> {
-    let structurally_valid = origin.starts_with("chrome-extension://")
-        && origin.ends_with('/')
-        && !origin.contains('*')
-        && origin.len() <= 128;
+    let extension_id = origin
+        .strip_prefix("chrome-extension://")
+        .and_then(|value| value.strip_suffix('/'));
+    let structurally_valid = extension_id.is_some_and(|value| {
+        value.len() == 32 && value.bytes().all(|byte| matches!(byte, b'a'..=b'p'))
+    });
     if !structurally_valid || !allowed_origins.iter().any(|allowed| allowed == origin) {
         return Err(ProtocolError::new(
             ErrorCode::UnauthorizedOrigin,
@@ -477,8 +479,12 @@ mod tests {
 
     #[test]
     fn origins_require_an_exact_manifest_allowlist_match() {
-        let allowed = vec!["chrome-extension://abcdefghijklmnop/".to_string()];
-        validate_origin("chrome-extension://abcdefghijklmnop/", &allowed).unwrap();
+        let allowed = vec!["chrome-extension://abcdefghijklmnopabcdefghijklmnop/".to_string()];
+        validate_origin(
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+            &allowed,
+        )
+        .unwrap();
         assert_eq!(
             validate_origin("chrome-extension://other/", &allowed)
                 .unwrap_err()
@@ -486,6 +492,11 @@ mod tests {
             ErrorCode::UnauthorizedOrigin
         );
         assert!(validate_origin("chrome-extension://*/", &allowed).is_err());
+        assert!(validate_origin(
+            "chrome-extension://abcdefghijklmnopqrstuvwxyzabcdef/",
+            &allowed
+        )
+        .is_err());
     }
 
     #[test]

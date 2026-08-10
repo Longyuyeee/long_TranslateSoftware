@@ -3,6 +3,7 @@ use crate::native_protocol::{
     PongResponse, ProtocolError, ProtocolLimits, Request, RequestEnvelope, Response,
     ResponseEnvelope, ResponsePayload, PROTOCOL_VERSION,
 };
+use crate::native_registration;
 use serde_json::Value;
 use std::env;
 use std::io::{self, Read, Write};
@@ -151,28 +152,52 @@ pub fn parse_allowed_origins(value: &str) -> io::Result<Vec<String>> {
     Ok(origins)
 }
 
-pub fn run_from_env() -> io::Result<()> {
+pub fn is_native_host_invocation(args: &[String]) -> bool {
+    args.get(1)
+        .is_some_and(|value| value.starts_with("chrome-extension://"))
+}
+
+pub fn run_from_args(args: &[String]) -> io::Result<()> {
     set_stdio_binary()?;
-    let mut args = env::args();
-    let _executable = args.next();
-    let caller_origin = args.next().ok_or_else(|| {
+    let caller_origin = args.get(1).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "Native Host requires the calling extension origin",
         )
     })?;
-    let allowed_value = env::var(ALLOWED_ORIGINS_ENV).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            format!("Native Host requires {ALLOWED_ORIGINS_ENV}"),
-        )
-    })?;
-    let allowed_origins = parse_allowed_origins(&allowed_value)?;
-    validate_origin(&caller_origin, &allowed_origins)
+    let executable = env::current_exe()?;
+    let allowed_origins = match native_registration::load_allowed_origins(&executable) {
+        Ok(origins) => origins,
+        Err(manifest_error) => development_allowed_origins().map_err(|env_error| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "Native Host has no valid installed manifest ({manifest_error}); {env_error}"
+                ),
+            )
+        })?,
+    };
+    validate_origin(caller_origin, &allowed_origins)
         .map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error.message))?;
 
     let session = NativeHostSession::new(env!("CARGO_PKG_VERSION"));
     run_stream(&mut io::stdin().lock(), &mut io::stdout().lock(), &session)
+}
+
+fn development_allowed_origins() -> io::Result<Vec<String>> {
+    if !cfg!(debug_assertions) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "release builds require an installed Native Host manifest",
+        ));
+    }
+    let allowed_value = env::var(ALLOWED_ORIGINS_ENV).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("debug Native Host requires {ALLOWED_ORIGINS_ENV}"),
+        )
+    })?;
+    parse_allowed_origins(&allowed_value)
 }
 
 fn request_id_for_error(bytes: &[u8]) -> String {
@@ -377,13 +402,29 @@ mod tests {
     #[test]
     fn allowed_origins_are_exact_and_fail_closed() {
         let origins = parse_allowed_origins(
-            " chrome-extension://abcdefghijklmnop/ ;chrome-extension://qrstuvwxyzabcdef/ ",
+            " chrome-extension://abcdefghijklmnopabcdefghijklmnop/ ;chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/ ",
         )
         .unwrap();
         assert_eq!(origins.len(), 2);
-        validate_origin("chrome-extension://abcdefghijklmnop/", &origins).unwrap();
+        validate_origin(
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+            &origins,
+        )
+        .unwrap();
         assert!(validate_origin("chrome-extension://other/", &origins).is_err());
         assert!(parse_allowed_origins(" ; ").is_err());
         assert!(parse_allowed_origins("chrome-extension://*/").is_err());
+    }
+
+    #[test]
+    fn only_an_extension_origin_selects_native_host_mode() {
+        assert!(is_native_host_invocation(&[
+            "long-translate.exe".to_string(),
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnop/".to_string(),
+        ]));
+        assert!(!is_native_host_invocation(&[
+            "long-translate.exe".to_string(),
+            "--autostart".to_string(),
+        ]));
     }
 }

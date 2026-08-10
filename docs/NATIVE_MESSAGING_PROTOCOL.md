@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议与最小 Native Host 基线；尚未启用安装注册、桌面私有 IPC 或浏览器扩展
+状态：协议、单 EXE 最小 Native Host 与 Windows 注册器基础；尚未把真实扩展 ID 接入安装器，也未启用桌面私有 IPC 或浏览器扩展
 
 版本：`1`
 
@@ -37,9 +37,11 @@ Native Host manifest：
 
 - Host 名称固定使用符合浏览器规则的小写域名式名称；
 - `type` 必须是 `stdio`；
-- `allowed_origins` 必须逐个写入 Chrome Web Store、Edge Add-ons 和受控开发版本的真实扩展 ID；
+- `allowed_origins` 必须逐个写入 Chrome Web Store、Edge Add-ons 和受控开发版本的真实扩展 ID；ID 必须是 32 位小写 `a`–`p`；
 - 不接受 `*` 或网页 Origin；
 - Windows 安装器分别注册 Chrome 和 Edge 的当前用户注册表项。
+
+为控制安装体积和启动链路，浏览器调用现有桌面 EXE 时由参数分流直接进入 Native Host 模式，不再发布一份重复 sidecar。注册器先完整校验 manifest，再以临时文件和备份替换写入；Chrome 与 Edge 的 HKCU 注册任一步失败都会回滚，卸载只删除仍指向本 manifest 的自有项。
 
 参考：
 
@@ -169,11 +171,12 @@ approved
 
 ## 9. 后续实现顺序
 
-1. 已实现只负责二进制帧、1 MiB 预解析限制、Origin 校验和 `hello` / `ping` 的最小 Native Host，并以真实子进程测试固定 stdin/stdout 契约。
-2. 下一步实现 Chrome/Edge Host manifest、当前用户注册、重复安装/升级和可逆卸载；当前开发期允许列表通过 `LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS` 注入，安装阶段必须替换为安装器管理的固定来源配置。
-3. 定义 Host 与已运行桌面进程之间的本机私有 IPC，并处理桌面未运行。
-4. 在桌面端实现配对确认、授权撤销和最小能力分发。
-5. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
-6. 最后实现网页划词 UI 和收藏入口。
+1. 已实现只负责二进制帧、1 MiB 预解析限制、Origin 校验和 `hello` / `ping` 的单 EXE 最小 Native Host，并以真实子进程测试固定 stdin/stdout 契约。
+2. 已实现 Host manifest、Chrome/Edge 当前用户注册、重复安装/升级、所有权保护和可逆卸载；调试构建在没有 manifest 时仍可显式注入 `LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS`，release 构建拒绝该降级路径。
+3. 下一步固定受控开发扩展的真实 ID，把注册命令接入 NSIS/WiX 安装/卸载，并完成 Chrome/Edge `hello` / `ping` 烟雾。
+4. 定义 Host 与已运行桌面进程之间的本机私有 IPC，并处理桌面未运行。
+5. 在桌面端实现配对确认、授权撤销和最小能力分发。
+6. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
+7. 最后实现网页划词 UI 和收藏入口。
 
 任何阶段都不得把桌面密钥复制到扩展存储。

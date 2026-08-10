@@ -10,6 +10,7 @@ mod history;
 mod lifecycle;
 pub mod native_host;
 pub mod native_protocol;
+pub mod native_registration;
 mod ocr;
 mod review;
 mod secure_config;

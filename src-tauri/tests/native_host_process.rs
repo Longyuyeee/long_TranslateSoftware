@@ -6,10 +6,10 @@ use long_translate_lib::native_protocol::{
 use std::io::{Cursor, Write};
 use std::process::{Command, Output, Stdio};
 
-const ALLOWED_ORIGIN: &str = "chrome-extension://abcdefghijklmnop/";
+const ALLOWED_ORIGIN: &str = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
 
 fn native_host_path() -> &'static str {
-    env!("CARGO_BIN_EXE_long-translate-native-host")
+    env!("CARGO_BIN_EXE_long-translate")
 }
 
 fn run_host(origin: &str, input: &[u8]) -> Output {

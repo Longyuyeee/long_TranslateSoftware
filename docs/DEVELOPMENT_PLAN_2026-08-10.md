@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | 桌面发布 | `v0.4.9` Release、Updater 签名、EXE、MSI、`latest.json` 和质量报告完整 | 可以继续使用标签触发的正式发布流程 |
 | 翻译任务 | 已有取消、主备模型、术语表、缓存、格式检查和结构化错误 | 浏览器请求和文档分段均应复用同一翻译核心 |
-| 浏览器协议与 Host | Native Messaging v1 Schema、Rust/TypeScript 模型、版本协商、限额和精确 Origin 校验已有测试；最小 Host 已实现 framing、1 MiB 预解析限制和 `hello` / `ping` | 下一步进入 Chrome/Edge 安装注册，不需要重新设计协议 |
+| 浏览器协议与 Host | Native Messaging v1 Schema、Rust/TypeScript 模型、版本协商、限额和 32 位扩展 ID 精确校验已有测试；单 EXE Host 已实现 framing、1 MiB 预解析限制和 `hello` / `ping`，Windows 注册器基础已覆盖 HKCU 生命周期 | 下一步固定真实开发扩展 ID 并接入 NSIS/WiX，不需要重新设计协议 |
 | 桌面数据 | 模型密钥、术语表、生词本、历史和 WebDAV 由桌面端持有 | 扩展和文档模块不需要复制敏感配置 |
 | 文件能力 | Rust 已有文件对话框、临时目录、ZIP 读写和结构化导出模式 | 可作为 DOCX 容器处理和安全导出的工程参考 |
 
@@ -30,7 +30,7 @@
 | 检查 | 结果 |
 | --- | --- |
 | 前端测试 | 42 个文件 / 184 项全部通过 |
-| Rust 测试 | 77 项单元测试 + 2 项生命周期进程测试 + 5 项 Native Host 进程测试全部通过 |
+| Rust 测试 | 82 项单元测试 + 2 项生命周期进程测试 + 5 项 Native Host 进程测试 + 2 项 Windows 注册生命周期测试全部通过 |
 | 前端生产构建 | 通过 |
 | 包体门槛 | 最大生产 JavaScript 块 234.55 KiB / 300 KiB，通过 |
 | Rust 严格静态检查 | `cargo clippy --locked --all-targets -- -D warnings` 通过 |
@@ -45,9 +45,9 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ### 4.1 浏览器扩展
 
-仓库已有可独立运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；但还没有 Windows Host 注册器、本机私有 IPC、桌面配对界面、Manifest V3 工程、service worker、content script 或划词浮层，不能被描述为“扩展已经可用”。
+仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器基础已经实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载，但还没有真实扩展 ID、安装器 Hook、本机私有 IPC、桌面配对界面、Manifest V3 工程、service worker、content script 或划词浮层，不能被描述为“扩展已经可用”。
 
-另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让独立 Host 直接读取 API Key、数据库或复制一套翻译实现。
+另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让 Host 模式直接读取 API Key、数据库或复制一套翻译实现。
 
 ### 4.2 PDF / Word 文档翻译
 
@@ -84,11 +84,12 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 ### 5.3 实施顺序
 
 1. Host 仅实现 `hello` / `ping`，完成 framing、超限、非法 JSON、非法 Origin 和子进程测试；
-2. 加入 Chrome/Edge 注册器，验证安装、重复安装、升级和卸载；
-3. 建立私有 IPC 和桌面请求代理，先跑通 `hello` / `pair`；
-4. 接入 `translate` / `cancel` / `add_word`，复用桌面翻译核心；
-5. 实现扩展 service worker、content script 和隔离样式的划词浮层；
-6. 完成真实浏览器烟雾、隐私审计、打包说明和发布候选。
+2. 加入 Chrome/Edge 注册器基础，验证 manifest 原子替换、重复安装、Origin 升级、所有权保护和卸载；
+3. 固定受控开发扩展的真实 ID，把注册器接入 NSIS/WiX，并完成 Chrome/Edge `hello` / `ping` 烟雾；
+4. 建立私有 IPC 和桌面请求代理，先跑通 `hello` / `pair`；
+5. 接入 `translate` / `cancel` / `add_word`，复用桌面翻译核心；
+6. 实现扩展 service worker、content script 和隔离样式的划词浮层；
+7. 完成真实浏览器烟雾、隐私审计、打包说明和发布候选。
 
 ### 5.4 发布门槛
 
@@ -168,13 +169,16 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ## 9. 立即开始的工作
 
-依赖安全门槛已经由 PR #38 恢复。`v0.5.0` 第一个功能边界——最小 Native Host——已经完成：
+依赖安全门槛已经由 PR #38 恢复。`v0.5.0` 最小 Native Host 与 Windows 注册器基础已经完成：
 
-- 建立独立可执行入口；
+- 让现有桌面 EXE 在浏览器 Origin 调用时直接进入 Host 模式，避免重复打包 sidecar；
 - 实现 Windows 二进制 framing 与 1 MiB 预解析限制；
 - 使用现有 Rust 协议模型处理 `hello` / `ping`；
 - 精确校验浏览器传入 Origin；
 - 日志只写 stderr；
-- 增加真实子进程测试，并保持桌面程序现有行为不变。
+- 增加真实子进程测试，并保持桌面程序现有行为不变；
+- 原子生成 Native Host manifest，并幂等写入 Chrome/Edge 当前用户注册表；
+- 支持 Origin 升级、重复安装、所有权保护和可逆卸载，真实 HKCU 生命周期测试结束后自动清理；
+- release 构建只信任与当前 EXE 身份匹配的安装 manifest，开发环境变量仅保留在 debug 构建。
 
-本阶段没有加入注册表、桌面 IPC、配对 UI 或扩展浮层。下一步只实现 Chrome/Edge Host manifest、当前用户注册、重复安装/升级和可逆卸载，不同时接入桌面翻译。
+本阶段没有加入真实扩展 ID、安装器 Hook、桌面 IPC、配对 UI 或扩展浮层。下一步只创建稳定 ID 的最小 Manifest V3 开发扩展，把注册器接入 NSIS/WiX 并完成 Chrome/Edge `hello` / `ping` 烟雾，不同时接入桌面翻译。
