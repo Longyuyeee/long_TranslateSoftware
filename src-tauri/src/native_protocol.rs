@@ -195,7 +195,7 @@ pub struct ProtocolError {
 }
 
 impl ProtocolError {
-    fn new(code: ErrorCode, message: impl Into<String>, retryable: bool) -> Self {
+    pub fn new(code: ErrorCode, message: impl Into<String>, retryable: bool) -> Self {
         Self {
             code,
             message: message.into(),

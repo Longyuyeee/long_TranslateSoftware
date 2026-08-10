@@ -4,6 +4,7 @@ version = "0.4.9"
 description = "Long翻译 · 智能助手"
 authors = ["longyuye"]
 edition = "2021"
+default-run = "long-translate"
 
 [lib]
 name = "long_translate_lib"
