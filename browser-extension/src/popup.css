@@ -1,0 +1,119 @@
+:root {
+  color: #e9eef9;
+  background: #101827;
+  font-family:
+    Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 320px;
+  margin: 0;
+  background:
+    radial-gradient(circle at 90% 0%, rgb(65 111 235 / 24%), transparent 42%),
+    #101827;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 12px;
+  padding: 20px;
+}
+
+.mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 14px 14px 14px 5px;
+  background: #6d8cff;
+  color: #0b1020;
+  font-size: 25px;
+  font-weight: 800;
+}
+
+.eyebrow {
+  margin: 2px 0 4px;
+  color: #91a8ff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.status,
+dl,
+button,
+.hint {
+  grid-column: 1 / -1;
+}
+
+.status {
+  margin: 6px 0 0;
+  padding: 12px;
+  border: 1px solid #293753;
+  border-radius: 12px;
+  background: rgb(18 28 47 / 78%);
+  color: #b8c5dc;
+}
+
+.status[data-state="success"] {
+  border-color: #2f7460;
+  color: #8ee4c1;
+}
+
+.status[data-state="error"] {
+  border-color: #834755;
+  color: #ffacbd;
+}
+
+dl {
+  margin: 0;
+  padding: 2px 12px;
+}
+
+dl div {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+dt {
+  color: #8392ad;
+}
+
+dd {
+  margin: 0;
+}
+
+button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: #6d8cff;
+  color: #0b1020;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.hint {
+  margin: 0;
+  color: #73819a;
+  font-size: 11px;
+  line-height: 1.5;
+}

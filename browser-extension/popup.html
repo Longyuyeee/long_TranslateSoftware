@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Long Translate Bridge</title>
+    <link rel="stylesheet" href="/src/popup.css" />
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">L</div>
+      <div>
+        <p class="eyebrow">LONG TRANSLATE</p>
+        <h1>桌面桥接检查</h1>
+      </div>
+      <p id="status" class="status" role="status">尚未检查</p>
+      <dl id="details" hidden>
+        <div><dt>桌面版本</dt><dd id="desktop-version">—</dd></div>
+        <div><dt>配对状态</dt><dd id="pairing-state">—</dd></div>
+        <div><dt>往返耗时</dt><dd id="latency">—</dd></div>
+      </dl>
+      <button id="check" type="button">检查连接</button>
+      <p class="hint">当前仅验证 hello / ping，不会读取网页或发起翻译。</p>
+    </main>
+    <script type="module" src="/src/popup.ts"></script>
+  </body>
+</html>

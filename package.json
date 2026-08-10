@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run build:desktop && npm run build:extension",
+    "build:desktop": "tsc && vite build",
+    "build:extension": "tsc -p tsconfig.extension.json && vite build --config vite.extension.config.ts && node scripts/check-browser-extension.mjs",
     "audit:bundle": "node scripts/check-bundle-size.mjs",
+    "audit:extension": "node scripts/check-browser-extension.mjs",
     "test": "vitest run",
     "quality:report": "vite-node scripts/generate-quality-report.ts",
     "preview": "vite preview",
