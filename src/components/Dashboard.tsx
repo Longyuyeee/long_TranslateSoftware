@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useMemo } from "react";
+import { lazy, Suspense, useCallback, useState, useEffect, useMemo } from "react";
 import {
   translations,
   translationErrorText,
@@ -28,6 +28,8 @@ import { useNotifications } from "../hooks/useNotifications";
 import { useAppStats, useDashboardSync } from "../hooks/useDashboardSync";
 import { useDashboardActions } from "../hooks/useDashboardActions";
 import DashboardShell from "./DashboardShell";
+import BrowserPairingDialog from "./BrowserPairingDialog";
+import { useBrowserPairing } from "../hooks/useBrowserPairing";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -216,6 +218,13 @@ export default function Dashboard() {
   });
 
   const t = useMemo(() => translations[lang] || translations.zh, [lang]);
+  const handleBrowserPairingError = useCallback(
+    () => toast("error", t.browserPairingFailed),
+    [t],
+  );
+  const browserPairing = useBrowserPairing({
+    onError: handleBrowserPairingError,
+  });
   const {
     isSyncing,
     isTestingWebdav,
@@ -406,6 +415,13 @@ export default function Dashboard() {
   return (
     <div className="dashboard-shell flex h-dvh min-h-0 apple-gradient-bg text-zinc-900 dark:text-zinc-100 overflow-hidden font-sans select-none transition-colors duration-1000" style={{ fontSize: `${fontSize}px` }}>
       <ToastContainer dismissLabel={t.dismissNotification} />
+      <BrowserPairingDialog
+        labels={t}
+        request={browserPairing.pendingRequest}
+        isUpdating={browserPairing.isUpdating}
+        onApprove={() => void browserPairing.approve()}
+        onReject={() => void browserPairing.reject()}
+      />
       <DashboardShell
         labels={t}
         activeTab={activeTab}
@@ -454,6 +470,8 @@ export default function Dashboard() {
                                 isSyncing={isSyncing}
                                 cacheSize={cacheSize}
                                 isExportingDiagnostics={isExportingDiagnostics}
+                                browserPairings={browserPairing.pairings}
+                                isUpdatingBrowserPairing={browserPairing.isUpdating}
                                 onChange={handleGeneralSettingsChange}
                                 onToggleAutoLaunch={() => void dashboardActions.toggleAutoLaunch()}
                                 onRecordingChange={setRecordingKey}
@@ -464,6 +482,7 @@ export default function Dashboard() {
                                 onExport={() => void dashboardActions.exportData()}
                                 onImport={() => void dashboardActions.importData()}
                                 onExportDiagnostics={() => void dashboardActions.exportDiagnosticReport()}
+                                onRevokeBrowserPairing={(pairingId) => void browserPairing.revoke(pairingId)}
                             />
                         </Suspense>
                     )}

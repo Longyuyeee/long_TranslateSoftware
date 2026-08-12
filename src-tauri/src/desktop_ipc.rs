@@ -30,6 +30,7 @@ struct DesktopIpcRequest {
 #[serde(tag = "action", content = "payload", rename_all = "snake_case")]
 enum DesktopIpcAction {
     Probe,
+    PairingState(BrowserPairingIdentity),
     RequestPairing(BrowserPairingRequest),
 }
 
@@ -71,7 +72,16 @@ pub struct BrowserPairingRequest {
     pub capabilities: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserPairingIdentity {
+    origin: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
 pub trait DesktopIpcHandler: Send + Sync + 'static {
+    fn pairing_state(&self, origin: &str, capabilities: &[String]) -> io::Result<PairingState>;
     fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState>;
 }
 
@@ -285,6 +295,20 @@ mod windows {
                         desktop_version: env!("CARGO_PKG_VERSION").to_string(),
                     },
                 },
+                DesktopIpcAction::PairingState(identity) => {
+                    match validate_pairing_identity(&identity).and_then(|_| {
+                        handler.pairing_state(&identity.origin, &identity.capabilities)
+                    }) {
+                        Ok(pairing_state) => DesktopIpcResponse::Ok {
+                            protocol_version: DESKTOP_IPC_VERSION,
+                            payload: DesktopIpcPayload::Pairing { pairing_state },
+                        },
+                        Err(_) => DesktopIpcResponse::Error {
+                            code: DesktopIpcErrorCode::InvalidMessage,
+                            retryable: false,
+                        },
+                    }
+                }
                 DesktopIpcAction::RequestPairing(request) => {
                     if validate_pairing_request(&request).is_err() {
                         DesktopIpcResponse::Error {
@@ -345,11 +369,66 @@ mod windows {
         endpoint_path: &Path,
         request: BrowserPairingRequest,
     ) -> io::Result<PairingState> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let endpoint_path = endpoint_path.to_path_buf();
+            return std::thread::spawn(move || {
+                desktop_client_runtime()?.block_on(request_pairing(&endpoint_path, request))
+            })
+            .join()
+            .map_err(|_| io::Error::other("Desktop IPC worker stopped unexpectedly"))?;
+        }
+        desktop_client_runtime()?.block_on(request_pairing(endpoint_path, request))
+    }
+
+    pub fn pairing_state_blocking(
+        endpoint_path: &Path,
+        origin: String,
+        capabilities: Vec<String>,
+    ) -> io::Result<PairingState> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let endpoint_path = endpoint_path.to_path_buf();
+            return std::thread::spawn(move || {
+                desktop_client_runtime()?.block_on(pairing_state(
+                    &endpoint_path,
+                    origin,
+                    capabilities,
+                ))
+            })
+            .join()
+            .map_err(|_| io::Error::other("Desktop IPC worker stopped unexpectedly"))?;
+        }
+        desktop_client_runtime()?.block_on(pairing_state(endpoint_path, origin, capabilities))
+    }
+
+    fn desktop_client_runtime() -> io::Result<tokio::runtime::Runtime> {
         tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()
-            .map_err(|_| io::Error::other("Desktop IPC runtime is unavailable"))?
-            .block_on(request_pairing(endpoint_path, request))
+            .map_err(|_| io::Error::other("Desktop IPC runtime is unavailable"))
+    }
+
+    async fn pairing_state(
+        endpoint_path: &Path,
+        origin: String,
+        capabilities: Vec<String>,
+    ) -> io::Result<PairingState> {
+        let identity = BrowserPairingIdentity {
+            origin,
+            capabilities,
+        };
+        validate_pairing_identity(&identity)?;
+        let endpoint = read_endpoint(endpoint_path)?;
+        let mut stream = ClientOptions::new().open(&endpoint.pipe_name)?;
+        write_json_frame(
+            &mut stream,
+            &DesktopIpcRequest {
+                protocol_version: DESKTOP_IPC_VERSION,
+                token: endpoint.token,
+                action: DesktopIpcAction::PairingState(identity),
+            },
+        )
+        .await?;
+        pairing_response(&mut stream).await
     }
 
     pub async fn request_pairing(
@@ -368,7 +447,11 @@ mod windows {
             },
         )
         .await?;
-        match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
+        pairing_response(&mut stream).await
+    }
+
+    async fn pairing_response(stream: &mut (impl AsyncRead + Unpin)) -> io::Result<PairingState> {
+        match read_json_frame::<_, DesktopIpcResponse>(stream).await? {
             DesktopIpcResponse::Ok {
                 protocol_version: DESKTOP_IPC_VERSION,
                 payload: DesktopIpcPayload::Pairing { pairing_state },
@@ -457,12 +540,29 @@ mod windows {
         use super::*;
         use std::sync::Mutex;
 
-        #[derive(Default)]
         struct RecordingHandler {
             requests: Mutex<Vec<BrowserPairingRequest>>,
+            pairing_state: Mutex<PairingState>,
+        }
+
+        impl Default for RecordingHandler {
+            fn default() -> Self {
+                Self {
+                    requests: Mutex::new(Vec::new()),
+                    pairing_state: Mutex::new(PairingState::Required),
+                }
+            }
         }
 
         impl DesktopIpcHandler for RecordingHandler {
+            fn pairing_state(
+                &self,
+                _origin: &str,
+                _capabilities: &[String],
+            ) -> io::Result<PairingState> {
+                Ok(*self.pairing_state.lock().unwrap())
+            }
+
             fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState> {
                 self.requests.lock().unwrap().push(request);
                 Ok(PairingState::Pending)
@@ -496,6 +596,39 @@ mod windows {
 
             drop(state);
             assert!(!endpoint_path(&app_dir).exists());
+            let _ = fs::remove_dir_all(app_dir);
+        }
+
+        #[tokio::test]
+        async fn pairing_state_clients_are_safe_inside_an_existing_runtime() {
+            let app_dir = temporary_app_dir();
+            let handler = Arc::new(RecordingHandler::default());
+            *handler.pairing_state.lock().unwrap() = PairingState::Approved;
+            let state = start_server(app_dir.clone(), handler).unwrap();
+            let endpoint = endpoint_path(&app_dir);
+            let origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
+
+            assert_eq!(
+                pairing_state(
+                    &endpoint,
+                    origin.to_string(),
+                    vec!["translation".to_string()]
+                )
+                .await
+                .unwrap(),
+                PairingState::Approved
+            );
+            assert_eq!(
+                pairing_state_blocking(
+                    &endpoint,
+                    origin.to_string(),
+                    vec!["translation".to_string()],
+                )
+                .unwrap(),
+                PairingState::Approved
+            );
+
+            drop(state);
             let _ = fs::remove_dir_all(app_dir);
         }
 
@@ -556,7 +689,9 @@ mod windows {
 }
 
 #[cfg(windows)]
-pub use windows::{probe, request_pairing, request_pairing_blocking, start_server};
+pub use windows::{
+    pairing_state_blocking, probe, request_pairing, request_pairing_blocking, start_server,
+};
 
 #[cfg(not(windows))]
 pub fn default_endpoint_path() -> io::Result<PathBuf> {
@@ -575,6 +710,26 @@ pub fn request_pairing_blocking(
         io::ErrorKind::Unsupported,
         "Desktop browser IPC is currently supported only on Windows",
     ))
+}
+
+#[cfg(not(windows))]
+pub fn pairing_state_blocking(
+    _endpoint_path: &Path,
+    _origin: String,
+    _capabilities: Vec<String>,
+) -> io::Result<PairingState> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+fn validate_pairing_identity(identity: &BrowserPairingIdentity) -> io::Result<()> {
+    validate_pairing_request(&BrowserPairingRequest {
+        origin: identity.origin.clone(),
+        display_name: "Browser extension".to_string(),
+        capabilities: identity.capabilities.clone(),
+    })
 }
 
 fn validate_pairing_request(request: &BrowserPairingRequest) -> io::Result<()> {

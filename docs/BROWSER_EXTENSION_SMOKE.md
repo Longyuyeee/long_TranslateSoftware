@@ -4,7 +4,7 @@
 
 开发扩展 ID：`imaogjlfhfohdnngppnfhapdfkaldmkn`
 
-该清单只验收安装器、扩展与最小 Host 的 `hello` / `ping` 链路，不代表翻译、配对或网页划词已经可用。
+该清单验收安装器、扩展、Host 的 `hello` / `ping` 和桌面配对闭环；不代表翻译或网页划词已经可用。
 
 ## 1. 构建前自动门禁
 
@@ -25,8 +25,10 @@
 3. 核对 manifest 的 `path` 指向同目录的 `long-translate.exe`，`allowed_origins` 只包含受控扩展 Origin。
 4. 分别在 `chrome://extensions` 与 `edge://extensions` 开启开发者模式，加载 `browser-extension/dist`。
 5. 两个浏览器显示的扩展 ID 都必须为 `imaogjlfhfohdnngppnfhapdfkaldmkn`。
-6. 打开扩展弹窗并点击“检查连接”；应显示桌面版本、`required` 配对状态和非负往返耗时。
-7. Host 进程结束后不得留下桌面窗口、托盘副本或未退出子进程。
+6. 打开扩展弹窗并点击“检查连接”；首次应显示桌面版本、`required` 配对状态和非负往返耗时。
+7. 发起配对后，桌面主窗口应被唤醒并显示真实扩展 Origin、名称和能力列表；拒绝后不产生长期授权，重新申请后批准，下一次 `hello` 应返回 `approved`。
+8. 在桌面高级设置撤销该扩展；下一次 `hello` 应重新返回 `required`，能力列表增加时也必须重新确认。
+9. Host 进程结束后不得留下桌面窗口副本、托盘副本或未退出子进程。
 
 ## 3. 失败路径
 

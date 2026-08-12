@@ -1,11 +1,12 @@
 mod anki;
 mod app_stats;
 mod backup;
+pub mod browser_pairing;
 mod command_error;
 mod config;
 mod db;
-mod diagnostics;
 pub mod desktop_ipc;
+mod diagnostics;
 mod glossary;
 mod history;
 mod lifecycle;
@@ -24,57 +25,7 @@ mod webdav;
 mod wordbook;
 
 use std::fs;
-#[cfg(windows)]
-use std::{
-    collections::HashMap,
-    io,
-    sync::Mutex,
-    time::{Duration, Instant},
-};
-#[cfg(windows)]
-use tauri::Emitter;
 use tauri::{Manager, WindowEvent};
-
-#[cfg(windows)]
-struct DesktopPairingHandler {
-    app: tauri::AppHandle,
-    last_requests: Mutex<HashMap<String, Instant>>,
-}
-
-#[cfg(windows)]
-impl DesktopPairingHandler {
-    fn new(app: tauri::AppHandle) -> Self {
-        Self {
-            app,
-            last_requests: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-#[cfg(windows)]
-impl desktop_ipc::DesktopIpcHandler for DesktopPairingHandler {
-    fn request_pairing(
-        &self,
-        request: desktop_ipc::BrowserPairingRequest,
-    ) -> io::Result<native_protocol::PairingState> {
-        let mut requests = self
-            .last_requests
-            .lock()
-            .map_err(|_| io::Error::other("Desktop pairing state is unavailable"))?;
-        let should_notify = requests
-            .get(&request.origin)
-            .is_none_or(|last_request| last_request.elapsed() >= Duration::from_secs(3));
-        if should_notify {
-            requests.insert(request.origin.clone(), Instant::now());
-            requests.retain(|_, requested_at| requested_at.elapsed() < Duration::from_secs(60));
-            tray::show_main_window(&self.app);
-            self.app
-                .emit("browser-pairing-requested", request)
-                .map_err(|_| io::Error::other("Desktop pairing notification failed"))?;
-        }
-        Ok(native_protocol::PairingState::Pending)
-    }
-}
 
 fn migrate_old_data(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let new_data_dir = app.path().app_data_dir()?;
@@ -148,15 +99,21 @@ pub fn run() {
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir()?;
             #[cfg(windows)]
-            match desktop_ipc::start_server(
-                app_dir.clone(),
-                std::sync::Arc::new(DesktopPairingHandler::new(app_handle.clone())),
-            ) {
-                Ok(state) => {
-                    app.manage(state);
+            match browser_pairing::BrowserPairingManager::load(app_handle.clone(), &app_dir) {
+                Ok(manager) => {
+                    let manager = std::sync::Arc::new(manager);
+                    match desktop_ipc::start_server(app_dir.clone(), manager.clone()) {
+                        Ok(ipc_state) => {
+                            app.manage(ipc_state);
+                        }
+                        Err(error) => {
+                            log::error!("Desktop browser IPC is unavailable: {error}");
+                        }
+                    }
+                    app.manage(manager);
                 }
                 Err(error) => {
-                    log::error!("Desktop browser IPC is unavailable: {error}");
+                    log::error!("Browser pairing storage is unavailable: {error}");
                 }
             }
             let conn = db::init_db(app_dir)?;
@@ -229,7 +186,11 @@ pub fn run() {
             glossary::add_glossary_entry,
             glossary::get_glossary_entries,
             glossary::delete_glossary_entry,
-            glossary::update_glossary_entry
+            glossary::update_glossary_entry,
+            browser_pairing::approve_browser_pairing,
+            browser_pairing::reject_browser_pairing,
+            browser_pairing::get_browser_pairings,
+            browser_pairing::revoke_browser_pairing
         ])
         .run(tauri::generate_context!())
     {

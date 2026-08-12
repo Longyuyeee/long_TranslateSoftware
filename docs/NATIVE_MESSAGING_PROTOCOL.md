@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议、单 EXE 最小 Native Host、Windows 注册器、固定开发 ID 的最小 MV3 扩展与安装器集成；尚未完成真实浏览器烟雾、商店 ID、桌面私有 IPC 或翻译扩展
+状态：协议、单 EXE 最小 Native Host、Windows 注册器、固定开发 ID 的最小 MV3 扩展、安装器集成、桌面私有 IPC 与配对授权闭环已经完成；尚未完成真实浏览器烟雾、商店 ID 或翻译扩展
 
 版本：`1`
 
@@ -58,7 +58,7 @@ content script（不可信输入适配）
 扩展 service worker（权限与来源检查）
   ↓ runtime.connectNative
 Native Host（来源白名单、帧限制、schema、配对）
-  ↓ 本机私有 IPC（后续阶段定义）
+  ↓ 本机私有 IPC（随机命名管道、随机令牌、严格限长）
 Long翻译桌面进程（密钥、模型、数据库）
 ```
 
@@ -175,7 +175,7 @@ approved
 2. 已实现 Host manifest、Chrome/Edge 当前用户注册、重复安装/升级、所有权保护和可逆卸载；调试构建在没有 manifest 时仍可显式注入 `LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS`，release 构建拒绝该降级路径。
 3. 已固定受控开发扩展 ID 并把注册命令接入 NSIS/WiX 安装/卸载；下一步完成 Chrome/Edge `hello` / `ping`、升级与卸载的真实烟雾。
 4. 已建立桌面侧 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已在强制 `hello` 首帧后转发配对申请，桌面未运行、端点过期和 IPC 异常均失败关闭。
-5. 下一步在桌面端实现配对批准、拒绝、授权撤销和最小能力持久化；当前申请只返回 `pending`，不会自动批准。
+5. 桌面端已实现配对批准、拒绝、授权撤销和最小能力持久化；批准绑定完整 Origin 与申请能力，后续 `hello` 通过桌面私有 IPC 查询状态，能力增加时必须重新确认。
 6. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
 7. 最后实现网页划词 UI 和收藏入口。
 

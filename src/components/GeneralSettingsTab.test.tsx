@@ -81,6 +81,8 @@ describe("GeneralSettingsTab", () => {
         isSyncing={false}
         cacheSize="0 B"
         isExportingDiagnostics={false}
+        browserPairings={[]}
+        isUpdatingBrowserPairing={false}
         onChange={onChange}
         onToggleAutoLaunch={onToggleAutoLaunch}
         onRecordingChange={onRecordingChange}
@@ -91,6 +93,7 @@ describe("GeneralSettingsTab", () => {
         onExport={onExport}
         onImport={onImport}
         onExportDiagnostics={onExportDiagnostics}
+        onRevokeBrowserPairing={vi.fn()}
         {...overrides}
       />,
     );
