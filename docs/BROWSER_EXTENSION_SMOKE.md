@@ -20,11 +20,14 @@
 
 ```powershell
 npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop
+npm run smoke:browser:runtime
 ```
 
 预检会核对 Chrome / Edge 安装、Manifest V3 最小权限、固定开发 ID、64 KiB 包体门槛、双浏览器 HKCU 注册、Host manifest 精确路径与 Origin，以及不泄露令牌的桌面 IPC 元数据。它不会打开网页、批准授权或执行翻译，因此结果为 `pass` 也不能替代后续真实交互步骤。
 
 自动化还会启动真实编译出的桌面 EXE Native Host 子进程，以浏览器相同的 stdin/stdout 帧穿过受认证桌面命名管道，验证翻译、取消和生词本写入的 Origin 与 request ID 关联。该测试覆盖进程边界，但仍不替代 Chrome / Edge 的扩展加载与可视交互。
+
+运行时烟雾会使用隔离的临时浏览器配置，在支持命令行加载扩展的已安装 Chromium 浏览器中打开固定 ID 的真实 MV3 弹窗，检查 service worker、英文/简体中文 DOM 和主要控件，并在结束后只清理自己创建的临时配置。正式 Chrome 137+ 已禁用 `--load-extension`；脚本会把 `ERR_BLOCKED_BY_CLIENT` 记录为明确的 Chrome 人工门槛，不能据此宣称 Chrome 验收通过，仍需在 `chrome://extensions` 的开发者模式中手工“加载已解压的扩展程序”。
 
 扩展审计必须确认：Manifest V3、权限严格为 `nativeMessaging`、`activeTab` 和 `scripting`、没有 `host_permissions` / `content_scripts`、开发 ID 与 NSIS/WiX Origin 一致、生产包不超过 64 KiB。
 

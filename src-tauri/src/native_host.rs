@@ -467,16 +467,20 @@ pub fn run_from_args(args: &[String]) -> io::Result<()> {
         )
     })?;
     let executable = env::current_exe()?;
-    let allowed_origins = match native_registration::load_allowed_origins(&executable) {
-        Ok(origins) => origins,
-        Err(manifest_error) => development_allowed_origins().map_err(|env_error| {
-            io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!(
-                    "Native Host has no valid installed manifest ({manifest_error}); {env_error}"
-                ),
-            )
-        })?,
+    let allowed_origins = if cfg!(debug_assertions) && env::var_os(ALLOWED_ORIGINS_ENV).is_some() {
+        development_allowed_origins()?
+    } else {
+        match native_registration::load_allowed_origins(&executable) {
+            Ok(origins) => origins,
+            Err(manifest_error) => development_allowed_origins().map_err(|env_error| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "Native Host has no valid installed manifest ({manifest_error}); {env_error}"
+                    ),
+                )
+            })?,
+        }
     };
     validate_origin(caller_origin, &allowed_origins)
         .map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error.message))?;
