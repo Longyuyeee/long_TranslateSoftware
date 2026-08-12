@@ -19,8 +19,10 @@
         <div><dt>配对状态</dt><dd id="pairing-state">—</dd></div>
         <div><dt>往返耗时</dt><dd id="latency">—</dd></div>
       </dl>
-      <button id="check" type="button">检查连接</button>
-      <p class="hint">当前仅验证 hello / ping，不会读取网页或发起翻译。</p>
+      <button id="enable-selection" type="button">在当前页面启用划词翻译</button>
+      <p id="selection-status" class="selection-status" role="status">刷新页面后自动失效</p>
+      <button id="check" class="secondary" type="button">检查桌面连接</button>
+      <p class="hint">仅在你明确启用的当前页面读取所选文字；点击“译”后才发送到桌面端。</p>
     </main>
     <script type="module" src="/src/popup.ts"></script>
   </body>

@@ -1,6 +1,6 @@
 # 浏览器桥接桌面私有 IPC
 
-状态：已完成最小安全骨架、桌面在线探针、Host 到桌面的受认证配对申请，以及桌面批准/拒绝/撤销和最小持久化；尚未实现翻译、生词本或取消任务。
+状态：已完成安全骨架、桌面在线探针、受认证配对申请、批准/拒绝/撤销、`translate` / `cancel` 和最小持久化；生词本 `add_word` 尚未实现。
 
 ## 设计边界
 
@@ -23,7 +23,7 @@ Long翻译桌面启动
   -> 退出时按所有权清理端点文件
 ```
 
-Native Host 已在同一 Native Messaging 端口完成 `hello` 后把 `pair` 转发到该管道；重复 `hello` 或任何早于 `hello` 的动作都会被拒绝。未授权申请返回 `pending` 并唤醒桌面确认弹窗；批准绑定弹窗展示的完整 Origin 和能力列表，下一次 `hello` 才返回 `approved`。用户可在高级设置撤销长期记录。下一增量在现有安全边界上加入 `translate`、`cancel` 与 `add_word`。
+Native Host 已在同一 Native Messaging 端口完成 `hello` 后把 `pair`、`translate` 和 `cancel` 转发到该管道；重复 `hello` 或任何早于 `hello` 的动作都会被拒绝。未授权申请返回 `pending` 并唤醒桌面确认弹窗；批准绑定弹窗展示的完整 Origin 和能力列表，下一次 `hello` 才返回 `approved`。用户可在高级设置撤销长期记录。下一增量只增加独立的 `add_word` 写入授权。
 
 ## 验收门槛
 

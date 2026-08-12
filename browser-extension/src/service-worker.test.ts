@@ -120,7 +120,7 @@ describe("browser service worker boundary", () => {
 
   it("cancels an active internal translation by task ID", async () => {
     const onMessage = new CapturingEvent<[
-      unknown, { id?: string }, (response: unknown) => void,
+      unknown, { id?: string; tab?: { id?: number }; frameId?: number }, (response: unknown) => void,
     ]>();
     const port = new FakePort();
     const runtime: ExtensionRuntime = {
@@ -131,13 +131,14 @@ describe("browser service worker boundary", () => {
     };
     const translationResponse = vi.fn();
     const cancelResponse = vi.fn();
+    const foreignCancelResponse = vi.fn();
     installNativeBridgeListener(runtime);
 
     expect(onMessage.listener?.(
       { type: "native-translate", taskId: "selection-1", input: {
         text: "hello", targetLanguage: "zh-Hans",
       } },
-      { id: runtime.id },
+      { id: runtime.id, tab: { id: 42 }, frameId: 0 },
       translationResponse,
     )).toBe(true);
     const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
@@ -152,7 +153,16 @@ describe("browser service worker boundary", () => {
     const translate = port.posted[1] as { request_id: string };
     onMessage.listener?.(
       { type: "native-cancel", taskId: "selection-1" },
-      { id: runtime.id },
+      { id: runtime.id, tab: { id: 99 }, frameId: 0 },
+      foreignCancelResponse,
+    );
+    expect(foreignCancelResponse).toHaveBeenCalledWith({
+      ok: false, error: "Browser translation task was not found",
+    });
+    expect(port.posted).toHaveLength(2);
+    onMessage.listener?.(
+      { type: "native-cancel", taskId: "selection-1" },
+      { id: runtime.id, tab: { id: 42 }, frameId: 0 },
       cancelResponse,
     );
     expect(cancelResponse).toHaveBeenCalledWith({ ok: true, result: { cancelled: true } });

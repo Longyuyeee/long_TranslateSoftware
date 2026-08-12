@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         popup: resolve(extensionRoot, "popup.html"),
         "service-worker": resolve(extensionRoot, "src/service-worker.ts"),
+        "content-script": resolve(extensionRoot, "src/content-script.ts"),
       },
       output: {
         entryFileNames: "assets/[name].js",

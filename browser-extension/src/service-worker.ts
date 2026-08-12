@@ -8,6 +8,13 @@ import {
 
 interface RuntimeMessageSender {
   id?: string;
+  tab?: { id?: number };
+  frameId?: number;
+}
+
+interface ActiveTranslation {
+  controller: AbortController;
+  senderKey: string;
 }
 
 export interface ExtensionRuntime extends NativeRuntime {
@@ -21,7 +28,7 @@ export interface ExtensionRuntime extends NativeRuntime {
 declare const chrome: { runtime: ExtensionRuntime } | undefined;
 
 export function installNativeBridgeListener(runtime: ExtensionRuntime): void {
-  const translations = new Map<string, AbortController>();
+  const translations = new Map<string, ActiveTranslation>();
   runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (
       sender.id !== runtime.id ||
@@ -36,27 +43,28 @@ export function installNativeBridgeListener(runtime: ExtensionRuntime): void {
 
     if (message.type === "native-cancel") {
       const taskId = validTaskId(message.taskId);
-      const controller = taskId ? translations.get(taskId) : undefined;
-      if (!controller) {
+      const translation = taskId ? translations.get(taskId) : undefined;
+      if (!translation || translation.senderKey !== contentSenderKey(sender)) {
         sendResponse({ ok: false, error: "Browser translation task was not found" });
       } else {
-        controller.abort();
+        translation.controller.abort();
         sendResponse({ ok: true, result: { cancelled: true } });
       }
       return;
     }
 
     const taskId = message.type === "native-translate" ? validTaskId(message.taskId) : undefined;
-    const controller = taskId ? new AbortController() : undefined;
+    const senderKey = message.type === "native-translate" ? contentSenderKey(sender) : undefined;
+    const controller = taskId && senderKey ? new AbortController() : undefined;
     if (taskId && translations.has(taskId)) {
       sendResponse({ ok: false, error: "Browser translation task is already active" });
       return;
     }
-    if (controller && taskId) translations.set(taskId, controller);
+    if (controller && taskId && senderKey) translations.set(taskId, { controller, senderKey });
 
     const operation = message.type === "native-pair"
       ? requestNativePairing(runtime, "Long Translate browser extension")
-      : message.type === "native-translate" && taskId && isTranslationInput(message.input)
+      : message.type === "native-translate" && taskId && senderKey && isTranslationInput(message.input)
         ? runNativeTranslation(runtime, message.input, controller?.signal)
         : message.type === "native-smoke"
           ? runNativeSmoke(runtime)
@@ -73,6 +81,12 @@ export function installNativeBridgeListener(runtime: ExtensionRuntime): void {
     );
     return true;
   });
+}
+
+function contentSenderKey(sender: RuntimeMessageSender): string | undefined {
+  const tabId = sender.tab?.id;
+  const frameId = sender.frameId ?? 0;
+  return typeof tabId === "number" && frameId === 0 ? `${tabId}:0` : undefined;
 }
 
 if (typeof chrome !== "undefined") {

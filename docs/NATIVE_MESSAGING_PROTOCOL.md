@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议、单 EXE 最小 Native Host、Windows 注册器、固定开发 ID 的最小 MV3 扩展、安装器集成、桌面私有 IPC 与配对授权闭环已经完成；尚未完成真实浏览器烟雾、商店 ID 或翻译扩展
+状态：协议、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` 与用户触发的划词浮层已经完成；尚未完成真实浏览器烟雾、商店 ID 或 `add_word`
 
 版本：`1`
 
@@ -180,9 +180,9 @@ approved
 
 ## 2026-08-12 实现对齐
 
-`translate` / `cancel` 已接入实际 Host 与桌面翻译核心。Host 对翻译请求使用工作线程，使同一 Native Messaging 端口仍可读取相关联的取消请求；响应顺序不作假设，始终以 request ID 关联。扩展内部 API 使用调用方生成的有限长度任务 ID 管理 `AbortController`，但尚未暴露给网页，因为 content script 与划词 UI 属于下一增量。
+`translate` / `cancel` 已接入实际 Host 与桌面翻译核心。Host 对翻译请求使用工作线程，使同一 Native Messaging 端口仍可读取相关联的取消请求；响应顺序不作假设，始终以 request ID 关联。划词 UI 已通过用户触发的 `activeTab` 注入暴露该能力；content script 不能连接 Host，只能向 service worker 发送白名单消息。
 
 `add_word` 继续返回不可用，不在本次翻译只读权限中顺带开放数据写入。
-7. 最后实现网页划词 UI 和收藏入口。
+7. 网页划词 UI 已完成；下一步独立实现收藏入口与 `add_word` 写入授权。
 
 任何阶段都不得把桌面密钥复制到扩展存储。
