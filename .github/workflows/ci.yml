@@ -54,6 +54,9 @@ jobs:
       - name: Audit frontend bundle size
         run: npm run audit:bundle
 
+      - name: Smoke test browser extension runtime
+        run: npm run smoke:browser:runtime
+
       - name: Test Windows lifecycle process contract
         run: cargo test --manifest-path src-tauri/Cargo.toml --test lifecycle_process
 

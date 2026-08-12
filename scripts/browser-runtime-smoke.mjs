@@ -4,7 +4,11 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
-const extensionDirectory = resolve(process.argv[2] || "browser-extension/dist");
+const requireDesktop = process.argv.includes("--require-desktop");
+const extensionArgument = process.argv
+  .slice(2)
+  .find((argument) => !argument.startsWith("--"));
+const extensionDirectory = resolve(extensionArgument || "browser-extension/dist");
 const extensionId = "imaogjlfhfohdnngppnfhapdfkaldmkn";
 const extensionOrigin = `chrome-extension://${extensionId}`;
 const popupUrl = `${extensionOrigin}/popup.html`;
@@ -49,6 +53,9 @@ for (const candidate of browserCandidates) {
           executable,
           locale.language,
           locale.expectedTitle,
+          locale.language === "en-US"
+            ? "Desktop bridge is available"
+            : "桌面桥接可用",
         ),
       );
     } catch (error) {
@@ -90,7 +97,13 @@ console.log(
   ),
 );
 
-async function inspectPopup(browserName, executable, language, expectedTitle) {
+async function inspectPopup(
+  browserName,
+  executable,
+  language,
+  expectedTitle,
+  expectedBridgeStatus,
+) {
   const profile = mkdtempSync(join(tmpdir(), "long-translate-browser-smoke-"));
   const port = await reservePort();
   const browser = spawn(
@@ -131,7 +144,11 @@ async function inspectPopup(browserName, executable, language, expectedTitle) {
       `http://127.0.0.1:${port}/json/new?${encodeURIComponent(popupUrl)}`,
       { method: "PUT" },
     );
-    const page = await readPageState(popupTarget.webSocketDebuggerUrl);
+    const page = await evaluatePage(
+      popupTarget.webSocketDebuggerUrl,
+      "({html: document.documentElement.outerHTML, url: location.href, title: document.title, body: document.body?.innerText || ''})",
+      250,
+    );
     const { html } = page;
     if (!html.includes(`data-i18n="popupTitle">${expectedTitle}</h1>`)) {
       const heading = html.match(/<h1[^>]*>([^<]*)<\/h1>/u)?.[1] || "<missing>";
@@ -154,12 +171,53 @@ async function inspectPopup(browserName, executable, language, expectedTitle) {
     if (!targets) {
       throw new Error(`${browserName} ${language} did not expose the extension service worker`);
     }
+    let bridge;
+    if (requireDesktop && browserName === "Edge") {
+      await evaluatePage(
+        popupTarget.webSocketDebuggerUrl,
+        "document.getElementById('check').click(); true",
+      );
+      bridge = await poll(async () => {
+        const state = await evaluatePage(
+          popupTarget.webSocketDebuggerUrl,
+          "({status: document.getElementById('status')?.textContent || '', state: document.getElementById('status')?.dataset.state || '', detailsHidden: document.getElementById('details')?.hidden ?? true, desktopVersion: document.getElementById('desktop-version')?.textContent || '', pairingState: document.getElementById('pairing-state')?.textContent || '', latency: document.getElementById('latency')?.textContent || ''})",
+        );
+        return state.state === "success" || state.state === "error"
+          ? state
+          : undefined;
+      });
+      if (bridge?.state === "error") {
+        throw new Error(
+          `${browserName} ${language} desktop bridge failed: ${bridge.status.slice(0, 160)}`,
+        );
+      }
+      if (
+        !bridge ||
+        bridge.status !== expectedBridgeStatus ||
+        bridge.detailsHidden ||
+        !/^\d+\.\d+\.\d+$/u.test(bridge.desktopVersion) ||
+        !/^\d+ ms$/u.test(bridge.latency) ||
+        !bridge.pairingState
+      ) {
+        throw new Error(
+          `${browserName} ${language} returned incomplete desktop bridge details`,
+        );
+      }
+    }
     return {
       browser: browserName,
       executable: basename(executable),
       language,
       popupTitle: expectedTitle,
       extensionLoaded: true,
+      ...(bridge
+        ? {
+            bridgeConnected: true,
+            desktopVersion: bridge.desktopVersion,
+            pairingState: bridge.pairingState,
+            latency: bridge.latency,
+          }
+        : {}),
     };
   } finally {
     browser.kill();
@@ -178,7 +236,7 @@ async function inspectPopup(browserName, executable, language, expectedTitle) {
   }
 }
 
-async function readPageState(webSocketUrl) {
+async function evaluatePage(webSocketUrl, expression, delayMs = 0) {
   return new Promise((resolveHtml, rejectHtml) => {
     const socket = new WebSocket(webSocketUrl);
     const timer = setTimeout(() => {
@@ -195,21 +253,15 @@ async function readPageState(webSocketUrl) {
     socket.addEventListener("message", (event) => {
       const response = JSON.parse(event.data);
       if (response.id === 1) {
-        setTimeout(
-          () =>
-            send("Runtime.evaluate", {
-              expression:
-                "({html: document.documentElement.outerHTML, url: location.href, title: document.title, body: document.body?.innerText || ''})",
-              returnByValue: true,
-            }),
-          250,
-        );
+        setTimeout(() => send("Runtime.evaluate", { expression, returnByValue: true }), delayMs);
       } else if (response.id === 2) {
         clearTimeout(timer);
         socket.close();
-        const page = response.result?.result?.value;
-        if (page && typeof page.html === "string") resolveHtml(page);
-        else rejectHtml(new Error("Popup DOM evaluation returned no page state"));
+        if (response.result?.exceptionDetails) {
+          rejectHtml(new Error("Popup evaluation failed"));
+          return;
+        }
+        resolveHtml(response.result?.result?.value);
       }
     });
     socket.addEventListener("error", () => {
