@@ -523,7 +523,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展目前完成协议层、单 EXE Native Host、Windows 注册器、最小开发扩展链路和桌面私有 IPC 骨架：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和 32 位 Chromium 扩展 ID 精确校验；桌面 EXE 可直接进入 Host 模式，处理二进制 framing、1 MiB 预解析限制以及 `hello` / `ping`，无需再打包一份重复 sidecar；注册器可原子生成 manifest，并幂等写入/撤销 Chrome 与 Edge 的 HKCU 项；带固定开发 ID 的 Manifest V3 扩展通过 service worker 在同一端口验证 `hello` / `ping`，NSIS/WiX 已接入安装、升级、卸载和回滚；桌面进程已提供带随机端点、随机令牌和 64 KiB 帧限制的 Windows 命名管道在线探针。Chrome/Edge 真实交互烟雾、Native Host 到桌面的正式转发、配对和翻译能力尚未完成。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
+浏览器扩展目前完成协议层、单 EXE Native Host、Windows 注册器、最小开发扩展链路和桌面私有 IPC 配对申请链路：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和 32 位 Chromium 扩展 ID 精确校验；桌面 EXE 可直接进入 Host 模式，处理二进制 framing、1 MiB 预解析限制以及 `hello` / `ping`，并强制 `hello` 必须且只能作为首帧；注册器可原子生成 manifest，并幂等写入/撤销 Chrome 与 Edge 的 HKCU 项；带固定开发 ID 的 Manifest V3 扩展可在同一端口发起 `hello` / `ping` 或 `hello` / `pair`，NSIS/WiX 已接入安装、升级、卸载和回滚；桌面进程提供带随机端点、随机令牌和 64 KiB 帧限制的 Windows 命名管道，并把配对申请保持为 `pending`。Chrome/Edge 真实交互烟雾、桌面批准/拒绝/撤销 UI 和翻译能力尚未完成。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
 
 | 层 | 技术 |
 |---|---|

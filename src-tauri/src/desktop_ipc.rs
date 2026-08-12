@@ -1,7 +1,9 @@
+use crate::native_protocol::{validate_origin, PairingState};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub const DESKTOP_IPC_VERSION: u16 = 1;
@@ -24,10 +26,11 @@ struct DesktopIpcRequest {
     action: DesktopIpcAction,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", content = "payload", rename_all = "snake_case")]
 enum DesktopIpcAction {
     Probe,
+    RequestPairing(BrowserPairingRequest),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,12 +38,19 @@ enum DesktopIpcAction {
 enum DesktopIpcResponse {
     Ok {
         protocol_version: u16,
-        desktop_version: String,
+        payload: DesktopIpcPayload,
     },
     Error {
         code: DesktopIpcErrorCode,
         retryable: bool,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+enum DesktopIpcPayload {
+    Probe { desktop_version: String },
+    Pairing { pairing_state: PairingState },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,15 +59,35 @@ enum DesktopIpcErrorCode {
     InvalidMessage,
     Unauthorized,
     UnsupportedVersion,
+    InternalError,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserPairingRequest {
+    pub origin: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+pub trait DesktopIpcHandler: Send + Sync + 'static {
+    fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState>;
 }
 
 pub struct DesktopIpcState {
     endpoint_path: PathBuf,
     token: String,
+    #[cfg(windows)]
+    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Drop for DesktopIpcState {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
         let owns_endpoint = read_endpoint(&self.endpoint_path).is_ok_and(|endpoint| {
             constant_time_eq(endpoint.token.as_bytes(), self.token.as_bytes())
         });
@@ -69,6 +99,19 @@ impl Drop for DesktopIpcState {
 
 pub fn endpoint_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join(DESKTOP_IPC_ENDPOINT_FILE)
+}
+
+#[cfg(windows)]
+pub fn default_endpoint_path() -> io::Result<PathBuf> {
+    let roaming = std::env::var_os("APPDATA").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Current user application data directory is unavailable",
+        )
+    })?;
+    Ok(endpoint_path(
+        &PathBuf::from(roaming).join("com.long.translate"),
+    ))
 }
 
 pub fn read_endpoint(path: &Path) -> io::Result<DesktopIpcEndpoint> {
@@ -123,7 +166,10 @@ mod windows {
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
     use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeServer, ServerOptions};
 
-    pub fn start_server(app_data_dir: PathBuf) -> io::Result<DesktopIpcState> {
+    pub fn start_server(
+        app_data_dir: PathBuf,
+        handler: Arc<dyn DesktopIpcHandler>,
+    ) -> io::Result<DesktopIpcState> {
         fs::create_dir_all(&app_data_dir)?;
         let instance_id = Uuid::new_v4();
         let endpoint = DesktopIpcEndpoint {
@@ -133,26 +179,49 @@ mod windows {
         };
         validate_endpoint(&endpoint)?;
 
-        let server = ServerOptions::new()
-            .first_pipe_instance(true)
-            .reject_remote_clients(true)
-            .create(&endpoint.pipe_name)?;
+        let server = create_initial_server(&endpoint.pipe_name)?;
         let endpoint_path = endpoint_path(&app_data_dir);
         write_endpoint(&endpoint_path, &endpoint)?;
 
+        let (shutdown, shutdown_receiver) = tokio::sync::oneshot::channel();
         let state = DesktopIpcState {
             endpoint_path,
             token: endpoint.token.clone(),
+            shutdown: Some(shutdown),
         };
-        tauri::async_runtime::spawn(run_server(server, endpoint));
+        tauri::async_runtime::spawn(run_server(server, endpoint, handler, shutdown_receiver));
         Ok(state)
     }
 
-    async fn run_server(mut server: NamedPipeServer, endpoint: DesktopIpcEndpoint) {
+    fn create_initial_server(pipe_name: &str) -> io::Result<NamedPipeServer> {
+        let create = || {
+            ServerOptions::new()
+                .first_pipe_instance(true)
+                .reject_remote_clients(true)
+                .create(pipe_name)
+        };
+        if tokio::runtime::Handle::try_current().is_ok() {
+            create()
+        } else {
+            tauri::async_runtime::block_on(async { create() })
+        }
+    }
+
+    async fn run_server(
+        mut server: NamedPipeServer,
+        endpoint: DesktopIpcEndpoint,
+        handler: Arc<dyn DesktopIpcHandler>,
+        mut shutdown: tokio::sync::oneshot::Receiver<()>,
+    ) {
         loop {
-            if let Err(error) = server.connect().await {
-                log::error!("Desktop IPC listener failed: {error}");
-                return;
+            tokio::select! {
+                _ = &mut shutdown => return,
+                result = server.connect() => {
+                    if let Err(error) = result {
+                        log::error!("Desktop IPC listener failed: {error}");
+                        return;
+                    }
+                }
             }
             let next = match ServerOptions::new()
                 .reject_remote_clients(true)
@@ -166,8 +235,11 @@ mod windows {
             };
             let connected = server;
             let client_endpoint = endpoint.clone();
+            let client_handler = Arc::clone(&handler);
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = handle_client(connected, &client_endpoint).await {
+                if let Err(error) =
+                    handle_client(connected, &client_endpoint, &client_handler).await
+                {
                     log::warn!("Desktop IPC client was rejected: {error}");
                 }
             });
@@ -178,6 +250,7 @@ mod windows {
     async fn handle_client(
         mut stream: NamedPipeServer,
         endpoint: &DesktopIpcEndpoint,
+        handler: &Arc<dyn DesktopIpcHandler>,
     ) -> io::Result<()> {
         let request = match read_json_frame::<_, DesktopIpcRequest>(&mut stream).await {
             Ok(request) => request,
@@ -208,8 +281,29 @@ mod windows {
             match request.action {
                 DesktopIpcAction::Probe => DesktopIpcResponse::Ok {
                     protocol_version: DESKTOP_IPC_VERSION,
-                    desktop_version: env!("CARGO_PKG_VERSION").to_string(),
+                    payload: DesktopIpcPayload::Probe {
+                        desktop_version: env!("CARGO_PKG_VERSION").to_string(),
+                    },
                 },
+                DesktopIpcAction::RequestPairing(request) => {
+                    if validate_pairing_request(&request).is_err() {
+                        DesktopIpcResponse::Error {
+                            code: DesktopIpcErrorCode::InvalidMessage,
+                            retryable: false,
+                        }
+                    } else {
+                        match handler.request_pairing(request) {
+                            Ok(pairing_state) => DesktopIpcResponse::Ok {
+                                protocol_version: DESKTOP_IPC_VERSION,
+                                payload: DesktopIpcPayload::Pairing { pairing_state },
+                            },
+                            Err(_) => DesktopIpcResponse::Error {
+                                code: DesktopIpcErrorCode::InternalError,
+                                retryable: true,
+                            },
+                        }
+                    }
+                }
             }
         };
         write_json_frame(&mut stream, &response).await
@@ -234,7 +328,7 @@ mod windows {
         match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
             DesktopIpcResponse::Ok {
                 protocol_version: DESKTOP_IPC_VERSION,
-                desktop_version,
+                payload: DesktopIpcPayload::Probe { desktop_version },
             } => Ok(desktop_version),
             DesktopIpcResponse::Ok { .. } => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -243,6 +337,53 @@ mod windows {
             DesktopIpcResponse::Error { code, .. } => Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!("Desktop IPC request failed: {code:?}"),
+            )),
+        }
+    }
+
+    pub fn request_pairing_blocking(
+        endpoint_path: &Path,
+        request: BrowserPairingRequest,
+    ) -> io::Result<PairingState> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+            .map_err(|_| io::Error::other("Desktop IPC runtime is unavailable"))?
+            .block_on(request_pairing(endpoint_path, request))
+    }
+
+    pub async fn request_pairing(
+        endpoint_path: &Path,
+        request: BrowserPairingRequest,
+    ) -> io::Result<PairingState> {
+        validate_pairing_request(&request)?;
+        let endpoint = read_endpoint(endpoint_path)?;
+        let mut stream = ClientOptions::new().open(&endpoint.pipe_name)?;
+        write_json_frame(
+            &mut stream,
+            &DesktopIpcRequest {
+                protocol_version: DESKTOP_IPC_VERSION,
+                token: endpoint.token,
+                action: DesktopIpcAction::RequestPairing(request),
+            },
+        )
+        .await?;
+        match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
+            DesktopIpcResponse::Ok {
+                protocol_version: DESKTOP_IPC_VERSION,
+                payload: DesktopIpcPayload::Pairing { pairing_state },
+            } => Ok(pairing_state),
+            DesktopIpcResponse::Ok { .. } => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Desktop IPC pairing response is invalid",
+            )),
+            DesktopIpcResponse::Error { retryable, .. } => Err(io::Error::new(
+                if retryable {
+                    io::ErrorKind::WouldBlock
+                } else {
+                    io::ErrorKind::PermissionDenied
+                },
+                "Desktop IPC pairing request was rejected",
             )),
         }
     }
@@ -314,15 +455,40 @@ mod windows {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use std::sync::Mutex;
+
+        #[derive(Default)]
+        struct RecordingHandler {
+            requests: Mutex<Vec<BrowserPairingRequest>>,
+        }
+
+        impl DesktopIpcHandler for RecordingHandler {
+            fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState> {
+                self.requests.lock().unwrap().push(request);
+                Ok(PairingState::Pending)
+            }
+        }
 
         fn temporary_app_dir() -> PathBuf {
             std::env::temp_dir().join(format!("long-translate-ipc-{}", Uuid::new_v4()))
         }
 
+        #[test]
+        fn server_initialization_is_safe_outside_an_entered_async_runtime() {
+            let app_dir = temporary_app_dir();
+            let state =
+                start_server(app_dir.clone(), Arc::new(RecordingHandler::default())).unwrap();
+            assert!(endpoint_path(&app_dir).exists());
+            drop(state);
+            assert!(!endpoint_path(&app_dir).exists());
+            let _ = fs::remove_dir_all(app_dir);
+        }
+
         #[tokio::test]
         async fn authenticated_probe_reaches_the_running_desktop_server() {
             let app_dir = temporary_app_dir();
-            let state = start_server(app_dir.clone()).unwrap();
+            let state =
+                start_server(app_dir.clone(), Arc::new(RecordingHandler::default())).unwrap();
             let version = probe(&endpoint_path(&app_dir)).await.unwrap();
             assert_eq!(version, env!("CARGO_PKG_VERSION"));
             let second_version = probe(&endpoint_path(&app_dir)).await.unwrap();
@@ -336,7 +502,8 @@ mod windows {
         #[tokio::test]
         async fn invalid_tokens_are_rejected_without_returning_desktop_data() {
             let app_dir = temporary_app_dir();
-            let state = start_server(app_dir.clone()).unwrap();
+            let state =
+                start_server(app_dir.clone(), Arc::new(RecordingHandler::default())).unwrap();
             let mut endpoint = read_endpoint(&endpoint_path(&app_dir)).unwrap();
             endpoint.token = Uuid::new_v4().to_string();
             let error = probe_endpoint(&endpoint).await.unwrap_err();
@@ -349,7 +516,8 @@ mod windows {
         #[tokio::test]
         async fn stale_state_cannot_remove_a_newer_endpoint() {
             let app_dir = temporary_app_dir();
-            let stale_state = start_server(app_dir.clone()).unwrap();
+            let stale_state =
+                start_server(app_dir.clone(), Arc::new(RecordingHandler::default())).unwrap();
             let endpoint_file = endpoint_path(&app_dir);
             let mut replacement = read_endpoint(&endpoint_file).unwrap();
             replacement.token = Uuid::new_v4().to_string();
@@ -361,11 +529,75 @@ mod windows {
             let _ = fs::remove_file(endpoint_file);
             let _ = fs::remove_dir_all(app_dir);
         }
+
+        #[tokio::test]
+        async fn pairing_requests_reach_the_desktop_handler_without_origin_rewriting() {
+            let app_dir = temporary_app_dir();
+            let handler = Arc::new(RecordingHandler::default());
+            let state = start_server(app_dir.clone(), handler.clone()).unwrap();
+            let request = BrowserPairingRequest {
+                origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop/".to_string(),
+                display_name: "Long Translate extension".to_string(),
+                capabilities: vec!["translation".to_string()],
+            };
+
+            assert_eq!(
+                request_pairing(&endpoint_path(&app_dir), request.clone())
+                    .await
+                    .unwrap(),
+                PairingState::Pending
+            );
+            assert_eq!(*handler.requests.lock().unwrap(), vec![request]);
+
+            drop(state);
+            let _ = fs::remove_dir_all(app_dir);
+        }
     }
 }
 
 #[cfg(windows)]
-pub use windows::{probe, start_server};
+pub use windows::{probe, request_pairing, request_pairing_blocking, start_server};
+
+#[cfg(not(windows))]
+pub fn default_endpoint_path() -> io::Result<PathBuf> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn request_pairing_blocking(
+    _endpoint_path: &Path,
+    _request: BrowserPairingRequest,
+) -> io::Result<PairingState> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+fn validate_pairing_request(request: &BrowserPairingRequest) -> io::Result<()> {
+    validate_origin(&request.origin, std::slice::from_ref(&request.origin))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid extension origin"))?;
+    if request.display_name.trim().is_empty()
+        || request.display_name.len() > 80
+        || request.capabilities.len() > 32
+        || request.capabilities.iter().any(|capability| {
+            capability.is_empty()
+                || capability.len() > 64
+                || !capability.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':')
+                })
+        })
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Invalid desktop pairing request",
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,10 +1,13 @@
+use long_translate_lib::desktop_ipc::{self, BrowserPairingRequest, DesktopIpcHandler};
 use long_translate_lib::native_host::{read_frame, write_frame, ALLOWED_ORIGINS_ENV};
 use long_translate_lib::native_protocol::{
-    ErrorCode, HelloRequest, PairingState, Request, RequestEnvelope, Response, ResponseEnvelope,
-    ResponsePayload, MAX_MESSAGE_BYTES,
+    ErrorCode, HelloRequest, PairRequest, PairingResponse, PairingState, Request, RequestEnvelope,
+    Response, ResponseEnvelope, ResponsePayload, MAX_MESSAGE_BYTES,
 };
 use std::io::{Cursor, Write};
 use std::process::{Command, Output, Stdio};
+use std::sync::{Arc, Mutex};
+use uuid::Uuid;
 
 const ALLOWED_ORIGIN: &str = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
 
@@ -55,6 +58,18 @@ fn decode_responses(output: &[u8]) -> Vec<ResponseEnvelope> {
         responses.push(serde_json::from_slice(&payload).expect("response should be JSON"));
     }
     responses
+}
+
+#[derive(Default)]
+struct RecordingPairingHandler {
+    requests: Mutex<Vec<BrowserPairingRequest>>,
+}
+
+impl DesktopIpcHandler for RecordingPairingHandler {
+    fn request_pairing(&self, request: BrowserPairingRequest) -> std::io::Result<PairingState> {
+        self.requests.lock().unwrap().push(request);
+        Ok(PairingState::Pending)
+    }
 }
 
 #[test]
@@ -154,4 +169,68 @@ fn host_process_returns_a_framed_error_for_invalid_json() {
             }
         }
     ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn host_process_forwards_pairing_to_the_running_desktop_pipe() {
+    let roaming_root = std::env::temp_dir().join(format!("long-host-process-{}", Uuid::new_v4()));
+    let app_dir = roaming_root.join("com.long.translate");
+    let handler = Arc::new(RecordingPairingHandler::default());
+    let state = desktop_ipc::start_server(app_dir, handler.clone()).unwrap();
+
+    let hello = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "hello-pair".to_string(),
+        request: Request::Hello(HelloRequest {
+            min_protocol: 1,
+            max_protocol: 1,
+            extension_version: "0.1.0".to_string(),
+            client_nonce: "nonce-pair".to_string(),
+            capabilities: vec!["translation".to_string()],
+        }),
+    };
+    let pair = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "pair-1".to_string(),
+        request: Request::Pair(PairRequest {
+            display_name: "Long Translate browser extension".to_string(),
+        }),
+    };
+    let mut input = framed(&hello);
+    input.extend(framed(&pair));
+    let roaming_for_child = roaming_root.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        let mut child = Command::new(native_host_path())
+            .arg(ALLOWED_ORIGIN)
+            .env(ALLOWED_ORIGINS_ENV, ALLOWED_ORIGIN)
+            .env("APPDATA", roaming_for_child)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("native host should start");
+        child.stdin.take().unwrap().write_all(&input).unwrap();
+        child.wait_with_output().unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = decode_responses(&output.stdout);
+    assert!(matches!(
+        responses[1].response,
+        Response::Ok {
+            payload: ResponsePayload::Pairing(PairingResponse {
+                pairing_state: PairingState::Pending
+            })
+        }
+    ));
+    assert_eq!(handler.requests.lock().unwrap().len(), 1);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(roaming_root);
 }
