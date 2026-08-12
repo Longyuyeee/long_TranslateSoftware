@@ -53,6 +53,7 @@ h1 {
 .status,
 dl,
 button,
+.selection-status,
 .hint {
   grid-column: 1 / -1;
 }
@@ -109,6 +110,27 @@ button {
 button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+button.secondary {
+  border: 1px solid #34435f;
+  background: #1a2740;
+  color: #cbd6e9;
+}
+
+.selection-status {
+  margin: -4px 2px 0;
+  color: #7f8da6;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.selection-status[data-state="success"] {
+  color: #8ee4c1;
+}
+
+.selection-status[data-state="error"] {
+  color: #ffacbd;
 }
 
 .hint {

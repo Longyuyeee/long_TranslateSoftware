@@ -18,11 +18,12 @@ if (sourceManifest.manifest_version !== 3) {
   throw new Error("Browser extension must use Manifest V3");
 }
 if (
-  JSON.stringify(sourceManifest.permissions) !== JSON.stringify(["nativeMessaging"]) ||
+  JSON.stringify(sourceManifest.permissions) !==
+    JSON.stringify(["nativeMessaging", "activeTab", "scripting"]) ||
   "host_permissions" in sourceManifest ||
   "content_scripts" in sourceManifest
 ) {
-  throw new Error("Foundation extension may request only nativeMessaging permission");
+  throw new Error("Browser extension permissions exceed the reviewed active-tab boundary");
 }
 if (
   sourceManifest.background?.service_worker !== "assets/service-worker.js" ||
@@ -67,6 +68,14 @@ for (const action of [
 }
 
 const files = walk(resolve(extensionRoot, "dist"));
+const contentScriptPath = resolve(extensionRoot, "dist/assets/content-script.js");
+if (!files.includes(contentScriptPath)) {
+  throw new Error("Built extension is missing the reviewed content script entry");
+}
+const contentScript = readFileSync(contentScriptPath, "utf8");
+if (/\b(?:import|export)\s/u.test(contentScript)) {
+  throw new Error("Injected content script must be a self-contained classic script");
+}
 const totalBytes = files.reduce((sum, file) => sum + statSync(file).size, 0);
 if (totalBytes > maximumPackageBytes) {
   throw new Error(

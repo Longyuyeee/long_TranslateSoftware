@@ -523,7 +523,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展目前完成协议层、单 EXE Native Host、Windows 注册器、最小开发扩展链路、桌面私有 IPC 和配对授权闭环：仓库已定义严格的 v1 JSON Schema、Rust/TypeScript 模型、版本协商、配对状态、稳定错误码、消息上限和 32 位 Chromium 扩展 ID 精确校验；桌面 EXE 可直接进入 Host 模式，处理二进制 framing、1 MiB 预解析限制以及 `hello` / `ping`，并强制 `hello` 必须且只能作为首帧；注册器可原子生成 manifest，并幂等写入/撤销 Chrome 与 Edge 的 HKCU 项；带固定开发 ID 的 Manifest V3 扩展可在同一端口发起 `hello` / `ping` 或 `hello` / `pair`，NSIS/WiX 已接入安装、升级、卸载和回滚；桌面进程提供带随机端点、随机令牌和 64 KiB 帧限制的 Windows 命名管道，并支持展示真实 Origin 与能力、批准、拒绝、持久化和撤销。授权记录不保存 API Key、网页原文或译文。Chrome/Edge 真实交互烟雾与 `translate` / `cancel` / `add_word` 尚未完成。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
+浏览器扩展目前已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心。授权记录不保存 API Key、网页原文或译文。Chrome/Edge 真实交互烟雾、商店正式 ID 与 `add_word` 尚未完成。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
 
 | 层 | 技术 |
 |---|---|
@@ -544,7 +544,7 @@
 
 - Native Host、桌面私有 IPC 与现有桌面翻译任务已打通 `translate` / `cancel`，继续由桌面端独占 API Key、模型配置、术语表和缓存。
 - 扩展 service worker 提供带任务 ID 的内部翻译与取消入口；桌面桥接未就绪、未配对、超时、限流和服务商失败均返回结构化错误。
-- 本增量不申请网页访问权限，也不包含 content script、划词浮层或 `add_word`；下一步先完成这三项产品界面，再执行 Chrome / Edge 真实翻译与取消烟雾。
+- 划词浮层采用用户触发的 `activeTab` 注入，不申请持久网站访问权；下一步独立实现 `add_word` 写入授权，再执行 Chrome / Edge 真实翻译、取消与收藏烟雾。
 
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
