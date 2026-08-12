@@ -28,7 +28,7 @@ npm run smoke:browser:runtime -- --require-desktop
 
 自动化还会启动真实编译出的桌面 EXE Native Host 子进程，以浏览器相同的 stdin/stdout 帧穿过受认证桌面命名管道，验证翻译、取消和生词本写入的 Origin 与 request ID 关联。该测试覆盖进程边界，但仍不替代 Chrome / Edge 的扩展加载与可视交互。
 
-运行时烟雾会使用隔离的临时浏览器配置，在支持命令行加载扩展的已安装 Chromium 浏览器中打开固定 ID 的真实 MV3 弹窗，检查 service worker、英文/简体中文 DOM 和主要控件，并在结束后只清理自己创建的临时配置。显式增加 `--require-desktop` 时，还会点击真实弹窗的连接检查按钮，要求浏览器经 Native Host 和受认证桌面 IPC 返回桌面版本、配对状态及往返耗时。正式 Chrome 137+ 已禁用 `--load-extension`；脚本会把 `ERR_BLOCKED_BY_CLIENT` 记录为明确的 Chrome 人工门槛，不能据此宣称 Chrome 验收通过，仍需在 `chrome://extensions` 的开发者模式中手工“加载已解压的扩展程序”。
+运行时烟雾会使用隔离的临时浏览器配置，在支持命令行加载扩展的已安装 Chromium 浏览器中打开固定 ID 的真实 MV3 弹窗，检查 service worker、受支持语言的真实本地化 DOM 和主要控件，并在结果中同时记录请求语言与浏览器实际采用的语言（GitHub Windows runner 的 Edge 可能忽略 `--lang` 并回退到系统语言）；结束后只清理自己创建的临时配置。显式增加 `--require-desktop` 时，还会点击真实弹窗的连接检查按钮，要求浏览器经 Native Host 和受认证桌面 IPC 返回桌面版本、配对状态及往返耗时。正式 Chrome 137+ 已禁用 `--load-extension`；脚本会把 `ERR_BLOCKED_BY_CLIENT` 记录为明确的 Chrome 人工门槛，不能据此宣称 Chrome 验收通过，仍需在 `chrome://extensions` 的开发者模式中手工“加载已解压的扩展程序”。
 
 扩展审计必须确认：Manifest V3、权限严格为 `nativeMessaging`、`activeTab` 和 `scripting`、没有 `host_permissions` / `content_scripts`、开发 ID 与 NSIS/WiX Origin 一致、生产包不超过 64 KiB。
 

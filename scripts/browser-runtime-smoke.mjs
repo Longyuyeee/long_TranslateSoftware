@@ -36,27 +36,23 @@ const browserCandidates = [
     ],
   },
 ];
-const locales = [
-  { language: "en-US", expectedTitle: "Desktop bridge check" },
-  { language: "zh-CN", expectedTitle: "桌面桥接检查" },
-];
+const localizedPopup = {
+  "en-US": {
+    title: "Desktop bridge check",
+    bridgeStatus: "Desktop bridge is available",
+  },
+  "zh-CN": { title: "桌面桥接检查", bridgeStatus: "桌面桥接可用" },
+};
+const locales = Object.keys(localizedPopup);
 const results = [];
 
 for (const candidate of browserCandidates) {
   const executable = candidate.paths.find((path) => path && existsSync(path));
   if (!executable) throw new Error(`${candidate.name} was not found`);
-  for (const locale of locales) {
+  for (const language of locales) {
     try {
       results.push(
-        await inspectPopup(
-          candidate.name,
-          executable,
-          locale.language,
-          locale.expectedTitle,
-          locale.language === "en-US"
-            ? "Desktop bridge is available"
-            : "桌面桥接可用",
-        ),
+        await inspectPopup(candidate.name, executable, language),
       );
     } catch (error) {
       if (
@@ -97,13 +93,7 @@ console.log(
   ),
 );
 
-async function inspectPopup(
-  browserName,
-  executable,
-  language,
-  expectedTitle,
-  expectedBridgeStatus,
-) {
+async function inspectPopup(browserName, executable, requestedLanguage) {
   const profile = mkdtempSync(join(tmpdir(), "long-translate-browser-smoke-"));
   const port = await reservePort();
   const browser = spawn(
@@ -120,7 +110,7 @@ async function inspectPopup(
       `--user-data-dir=${profile}`,
       `--disable-extensions-except=${extensionDirectory}`,
       `--load-extension=${extensionDirectory}`,
-      `--lang=${language}`,
+      `--lang=${requestedLanguage}`,
       "about:blank",
     ],
     { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
@@ -136,7 +126,7 @@ async function inspectPopup(
     });
     if (!debuggerReady) {
       throw new Error(
-        `${browserName} ${language} did not open its debugging endpoint: ${sanitize(stderr)}`,
+        `${browserName} ${requestedLanguage} did not open its debugging endpoint: ${sanitize(stderr)}`,
       );
     }
 
@@ -150,14 +140,17 @@ async function inspectPopup(
       250,
     );
     const { html } = page;
-    if (!html.includes(`data-i18n="popupTitle">${expectedTitle}</h1>`)) {
-      const heading = html.match(/<h1[^>]*>([^<]*)<\/h1>/u)?.[1] || "<missing>";
+    const heading = html.match(/<h1[^>]*>([^<]*)<\/h1>/u)?.[1] || "<missing>";
+    const actualLanguage = Object.entries(localizedPopup).find(
+      ([, messages]) => messages.title === heading,
+    )?.[0];
+    if (!actualLanguage) {
       throw new Error(
-        `${browserName} ${language} did not render the localized extension popup (heading=${heading}, title=${page.title}, url=${page.url}, body=${page.body.slice(0, 120)})`,
+        `${browserName} ${requestedLanguage} did not render a supported localized extension popup (heading=${heading}, title=${page.title}, url=${page.url}, body=${page.body.slice(0, 120)})`,
       );
     }
     if (!html.includes('id="check"') || !html.includes('id="enable-selection"')) {
-      throw new Error(`${browserName} ${language} popup controls are incomplete`);
+      throw new Error(`${browserName} ${requestedLanguage} popup controls are incomplete`);
     }
     const targets = await poll(async () => {
       const list = await jsonRequest(`http://127.0.0.1:${port}/json/list`);
@@ -169,7 +162,7 @@ async function inspectPopup(
         : undefined;
     });
     if (!targets) {
-      throw new Error(`${browserName} ${language} did not expose the extension service worker`);
+      throw new Error(`${browserName} ${requestedLanguage} did not expose the extension service worker`);
     }
     let bridge;
     if (requireDesktop && browserName === "Edge") {
@@ -188,27 +181,28 @@ async function inspectPopup(
       });
       if (bridge?.state === "error") {
         throw new Error(
-          `${browserName} ${language} desktop bridge failed: ${bridge.status.slice(0, 160)}`,
+          `${browserName} ${requestedLanguage} desktop bridge failed: ${bridge.status.slice(0, 160)}`,
         );
       }
       if (
         !bridge ||
-        bridge.status !== expectedBridgeStatus ||
+        bridge.status !== localizedPopup[actualLanguage].bridgeStatus ||
         bridge.detailsHidden ||
         !/^\d+\.\d+\.\d+$/u.test(bridge.desktopVersion) ||
         !/^\d+ ms$/u.test(bridge.latency) ||
         !bridge.pairingState
       ) {
         throw new Error(
-          `${browserName} ${language} returned incomplete desktop bridge details`,
+          `${browserName} ${requestedLanguage} returned incomplete desktop bridge details`,
         );
       }
     }
     return {
       browser: browserName,
       executable: basename(executable),
-      language,
-      popupTitle: expectedTitle,
+      requestedLanguage,
+      actualLanguage,
+      popupTitle: heading,
       extensionLoaded: true,
       ...(bridge
         ? {
