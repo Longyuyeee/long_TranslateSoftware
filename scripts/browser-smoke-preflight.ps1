@@ -75,7 +75,9 @@ Assert-Preflight ($extensionId -eq $expectedExtensionId) "extension ID is $exten
 $requiredExtensionFiles = @(
     "assets/service-worker.js",
     "assets/content-script.js",
-    "popup.html"
+    "popup.html",
+    "_locales/en/messages.json",
+    "_locales/zh_CN/messages.json"
 )
 foreach ($relativePath in $requiredExtensionFiles) {
     Assert-Preflight (Test-Path -LiteralPath (Join-Path $resolvedExtension $relativePath)) "built extension is missing $relativePath"

@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 function popupFixture(): void {
   document.body.innerHTML = `
-    <p id="status"></p><dl id="details"></dl>
+    <h1 data-i18n="popupTitle">桌面桥接检查</h1>
+    <p id="status" data-i18n="statusUnchecked">尚未检查</p><dl id="details"></dl>
     <span id="desktop-version"></span><span id="pairing-state"></span><span id="latency"></span>
     <button id="check"></button><button id="enable-selection"></button><button id="pair"></button>
     <p id="selection-status"></p>`;
@@ -104,6 +105,50 @@ describe("browser popup active-tab boundary", () => {
     );
     expect(document.getElementById("status")?.textContent).toContain(
       "桌面端确认",
+    );
+  });
+
+  it("localizes static and dynamic status text with the browser locale", async () => {
+    const translations: Record<string, string> = {
+      popupTitle: "Desktop bridge check",
+      statusUnchecked: "Not checked yet",
+      desktopConnecting: "Connecting to the desktop app…",
+      desktopBridgeReady: "Desktop bridge is available",
+      pairingApprovedState: "Approved",
+    };
+    const sendMessage = vi.fn(
+      (_message, callback: (response: unknown) => void) => {
+        callback({
+          ok: true,
+          result: {
+            desktopVersion: "0.4.9",
+            pairingState: "approved",
+            latencyMs: 12,
+          },
+        });
+      },
+    );
+    vi.stubGlobal("chrome", {
+      runtime: { sendMessage },
+      i18n: {
+        getMessage: (key: string) => translations[key] || "",
+        getUILanguage: () => "en-US",
+      },
+      tabs: { query: vi.fn() },
+      scripting: { executeScript: vi.fn() },
+    });
+    await import("./popup");
+
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(document.querySelector("h1")?.textContent).toBe(
+      "Desktop bridge check",
+    );
+    document.getElementById("check")?.click();
+    expect(document.getElementById("status")?.textContent).toBe(
+      "Desktop bridge is available",
+    );
+    expect(document.getElementById("pairing-state")?.textContent).toBe(
+      "Approved",
     );
   });
 });

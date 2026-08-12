@@ -11,34 +11,34 @@
       <div class="mark" aria-hidden="true">L</div>
       <div>
         <p class="eyebrow">LONG TRANSLATE</p>
-        <h1>桌面桥接检查</h1>
+        <h1 data-i18n="popupTitle">桌面桥接检查</h1>
       </div>
-      <p id="status" class="status" role="status">尚未检查</p>
+      <p id="status" class="status" role="status" data-i18n="statusUnchecked">尚未检查</p>
       <dl id="details" hidden>
         <div>
-          <dt>桌面版本</dt>
+          <dt data-i18n="desktopVersion">桌面版本</dt>
           <dd id="desktop-version">—</dd>
         </div>
         <div>
-          <dt>配对状态</dt>
+          <dt data-i18n="pairingState">配对状态</dt>
           <dd id="pairing-state">—</dd>
         </div>
         <div>
-          <dt>往返耗时</dt>
+          <dt data-i18n="latency">往返耗时</dt>
           <dd id="latency">—</dd>
         </div>
       </dl>
-      <button id="enable-selection" type="button">
+      <button id="enable-selection" type="button" data-i18n="enableSelection">
         在当前页面启用划词翻译
       </button>
-      <p id="selection-status" class="selection-status" role="status">
+      <p id="selection-status" class="selection-status" role="status" data-i18n="selectionRefreshHint">
         刷新页面后自动失效
       </p>
-      <button id="pair" class="secondary" type="button">
+      <button id="pair" class="secondary" type="button" data-i18n="requestPairing">
         申请或更新桌面授权
       </button>
-      <button id="check" class="secondary" type="button">检查桌面连接</button>
-      <p class="hint">
+      <button id="check" class="secondary" type="button" data-i18n="checkConnection">检查桌面连接</button>
+      <p class="hint" data-i18n="privacyHint">
         仅在你明确启用的当前页面读取所选文字；点击“译”后才发送到桌面端。
       </p>
     </main>

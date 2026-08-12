@@ -31,6 +31,10 @@ interface PopupTab {
 
 interface PopupChrome {
   runtime: PopupRuntime;
+  i18n?: {
+    getMessage(messageName: string): string;
+    getUILanguage?(): string;
+  };
   tabs: {
     query(
       query: { active: boolean; currentWindow: boolean },
@@ -47,6 +51,16 @@ interface PopupChrome {
 
 declare const chrome: PopupChrome;
 
+const message = (key: string, fallback: string): string =>
+  chrome.i18n?.getMessage(key) || fallback;
+
+const uiLanguage = chrome.i18n?.getUILanguage?.();
+if (uiLanguage) document.documentElement.lang = uiLanguage;
+document.querySelectorAll<HTMLElement>("[data-i18n]").forEach((element) => {
+  const key = element.dataset.i18n;
+  if (key) element.textContent = message(key, element.textContent || "");
+});
+
 const checkButton = requiredElement<HTMLButtonElement>("check");
 const statusElement = requiredElement<HTMLParagraphElement>("status");
 const details = requiredElement<HTMLDListElement>("details");
@@ -62,28 +76,37 @@ const pairButton = requiredElement<HTMLButtonElement>("pair");
 pairButton.addEventListener("click", () => {
   pairButton.disabled = true;
   statusElement.dataset.state = "pending";
-  statusElement.textContent = "正在向桌面端申请翻译与生词本授权…";
+  statusElement.textContent = message(
+    "pairingRequestPending",
+    "正在向桌面端申请翻译与生词本授权…",
+  );
   chrome.runtime.sendMessage({ type: "native-pair" }, (response) => {
     pairButton.disabled = false;
     const runtimeError = chrome.runtime.lastError?.message?.trim();
     if (runtimeError || !isPairingResponse(response) || !response.ok) {
       showFailure(
-        runtimeError || (isFailure(response) ? response.error : "授权申请失败"),
+        runtimeError ||
+          (isFailure(response)
+            ? response.error
+            : message("pairingRequestFailed", "授权申请失败")),
       );
       return;
     }
     statusElement.dataset.state = "success";
     statusElement.textContent =
       response.result.pairingState === "approved"
-        ? "桌面授权已生效"
-        : "请在桌面端确认授权，然后重新检查连接";
+        ? message("pairingApproved", "桌面授权已生效")
+        : message(
+            "pairingNeedsConfirmation",
+            "请在桌面端确认授权，然后重新检查连接",
+          );
   });
 });
 
 enableSelectionButton.addEventListener("click", () => {
   enableSelectionButton.disabled = true;
   selectionStatus.dataset.state = "pending";
-  selectionStatus.textContent = "正在启用…";
+  selectionStatus.textContent = message("selectionEnabling", "正在启用…");
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const queryError = chrome.runtime.lastError?.message?.trim();
     const tabId = tabs[0]?.id;
@@ -93,7 +116,9 @@ enableSelectionButton.addEventListener("click", () => {
       tabId === undefined ||
       !/^https?:\/\//u.test(tabUrl || "")
     ) {
-      showSelectionFailure(queryError || "无法访问当前页面");
+      showSelectionFailure(
+        queryError || message("selectionUnavailable", "无法访问当前页面"),
+      );
       return;
     }
     chrome.scripting.executeScript(
@@ -104,12 +129,23 @@ enableSelectionButton.addEventListener("click", () => {
       () => {
         const injectionError = chrome.runtime.lastError?.message?.trim();
         if (injectionError) {
-          showSelectionFailure("此页面不允许注入扩展，请在普通网页中重试");
+          showSelectionFailure(
+            message(
+              "selectionInjectionRejected",
+              "此页面不允许注入扩展，请在普通网页中重试",
+            ),
+          );
           return;
         }
         selectionStatus.dataset.state = "success";
-        selectionStatus.textContent = "当前页面已启用，选中文字后点击“译”";
-        enableSelectionButton.textContent = "当前页面已启用";
+        selectionStatus.textContent = message(
+          "selectionEnabled",
+          "当前页面已启用，选中文字后点击“译”",
+        );
+        enableSelectionButton.textContent = message(
+          "selectionEnabledButton",
+          "当前页面已启用",
+        );
       },
     );
   });
@@ -118,7 +154,10 @@ enableSelectionButton.addEventListener("click", () => {
 checkButton.addEventListener("click", () => {
   checkButton.disabled = true;
   statusElement.dataset.state = "pending";
-  statusElement.textContent = "正在连接桌面端…";
+  statusElement.textContent = message(
+    "desktopConnecting",
+    "正在连接桌面端…",
+  );
   details.hidden = true;
 
   chrome.runtime.sendMessage({ type: "native-smoke" }, (response) => {
@@ -129,7 +168,9 @@ checkButton.addEventListener("click", () => {
       return;
     }
     if (!isSmokeResponse(response)) {
-      showFailure("扩展返回了无法识别的检查结果");
+      showFailure(
+        message("unknownCheckResult", "扩展返回了无法识别的检查结果"),
+      );
       return;
     }
     if (!response.ok) {
@@ -138,9 +179,14 @@ checkButton.addEventListener("click", () => {
     }
 
     statusElement.dataset.state = "success";
-    statusElement.textContent = "桌面桥接可用";
+    statusElement.textContent = message(
+      "desktopBridgeReady",
+      "桌面桥接可用",
+    );
     desktopVersion.textContent = response.result.desktopVersion;
-    pairingState.textContent = response.result.pairingState;
+    pairingState.textContent = localizedPairingState(
+      response.result.pairingState,
+    );
     latency.textContent = `${response.result.latencyMs} ms`;
     details.hidden = false;
   });
@@ -156,6 +202,15 @@ function showSelectionFailure(message: string): void {
   enableSelectionButton.disabled = false;
   selectionStatus.dataset.state = "error";
   selectionStatus.textContent = message;
+}
+
+function localizedPairingState(state: string): string {
+  if (state === "required")
+    return message("pairingRequired", "需要批准");
+  if (state === "pending") return message("pairingPending", "等待批准");
+  if (state === "approved")
+    return message("pairingApprovedState", "已批准");
+  return state;
 }
 
 function requiredElement<T extends HTMLElement>(id: string): T {

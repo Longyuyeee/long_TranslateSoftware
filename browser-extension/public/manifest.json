@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Long Translate Bridge (Development)",
+  "name": "__MSG_extensionName__",
   "version": "0.1.0",
-  "description": "Translates selected page text through the local Long Translate desktop app.",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsRZeR2a0VaUNF1ONQxuS1j4KTDaHn5fY89LYN3nvbzjHpV202vePym9dzxeUPEWQIPsEPd3RhCOl9Ntq0GqGcT+uGEmDVK8GOSV27/9GPFQwq6ytflbxuYwI9amcEMp0hZXrdwh8TSyS0WpZNUndLG542UDUzsUSzFn57OnTl3QOSiysnD0UsXn8R1nQFqPE9AaNqGDndKaEMHsid9Ibskz4+GSmlmsStIDlBTHuhqZsxZPJTUFpUU9hw1i2g8BMquS9DJ7vvstfQOAXeZTJkeKQC9l/nzusOSB01zyIWzs2OVivDAZWQChXh9DDRlC9EbFmju78TWIyEjMDu33G7QIDAQAB",
   "permissions": ["nativeMessaging", "activeTab", "scripting"],
   "background": {
@@ -10,7 +11,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Long Translate Bridge",
+    "default_title": "__MSG_extensionActionTitle__",
     "default_popup": "popup.html"
   }
 }

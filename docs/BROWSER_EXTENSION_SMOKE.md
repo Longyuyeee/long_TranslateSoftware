@@ -28,6 +28,8 @@ npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop
 
 扩展审计必须确认：Manifest V3、权限严格为 `nativeMessaging`、`activeTab` 和 `scripting`、没有 `host_permissions` / `content_scripts`、开发 ID 与 NSIS/WiX Origin 一致、生产包不超过 64 KiB。
 
+真实浏览器验收还要分别切换英文与简体中文界面、系统浅色与深色主题，确认 Manifest 名称、弹窗、划词浮层、无障碍标签和失败提示同步切换，且长英文按钮没有截断或破坏窄窗口布局。
+
 ## 2. 首次安装
 
 1. 在没有旧开发安装的测试用户中安装签名 NSIS 候选。
