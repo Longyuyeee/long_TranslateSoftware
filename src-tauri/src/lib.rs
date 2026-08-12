@@ -190,7 +190,9 @@ pub fn run() {
             browser_pairing::approve_browser_pairing,
             browser_pairing::reject_browser_pairing,
             browser_pairing::get_browser_pairings,
-            browser_pairing::revoke_browser_pairing
+            browser_pairing::revoke_browser_pairing,
+            browser_pairing::complete_browser_translation,
+            browser_pairing::set_browser_translation_bridge_ready
         ])
         .run(tauri::generate_context!())
     {

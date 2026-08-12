@@ -1,4 +1,7 @@
-use crate::native_protocol::{validate_origin, PairingState};
+use crate::native_protocol::{
+    validate_origin, CancelRequest, ErrorCode, PairingState, ProtocolError, Request,
+    RequestEnvelope, TranslateRequest, TranslationResponse, PROTOCOL_VERSION,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -32,6 +35,8 @@ enum DesktopIpcAction {
     Probe,
     PairingState(BrowserPairingIdentity),
     RequestPairing(BrowserPairingRequest),
+    Translate(BrowserTranslationRequest),
+    Cancel(BrowserCancelRequest),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +57,8 @@ enum DesktopIpcResponse {
 enum DesktopIpcPayload {
     Probe { desktop_version: String },
     Pairing { pairing_state: PairingState },
+    Translation { outcome: BrowserTranslationOutcome },
+    Cancelled { accepted: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +81,28 @@ pub struct BrowserPairingRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct BrowserTranslationRequest {
+    pub origin: String,
+    pub request_id: String,
+    pub translation: TranslateRequest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserCancelRequest {
+    pub origin: String,
+    pub target_request_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum BrowserTranslationOutcome {
+    Success { response: TranslationResponse },
+    Error { error: ProtocolError },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BrowserPairingIdentity {
     origin: String,
     #[serde(default)]
@@ -83,6 +112,18 @@ struct BrowserPairingIdentity {
 pub trait DesktopIpcHandler: Send + Sync + 'static {
     fn pairing_state(&self, origin: &str, capabilities: &[String]) -> io::Result<PairingState>;
     fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState>;
+    fn translate(&self, _request: BrowserTranslationRequest) -> BrowserTranslationOutcome {
+        BrowserTranslationOutcome::Error {
+            error: ProtocolError::new(
+                ErrorCode::DesktopUnavailable,
+                "Desktop translation bridge is unavailable",
+                true,
+            ),
+        }
+    }
+    fn cancel(&self, _request: BrowserCancelRequest) -> io::Result<bool> {
+        Ok(false)
+    }
 }
 
 pub struct DesktopIpcState {
@@ -328,6 +369,49 @@ mod windows {
                         }
                     }
                 }
+                DesktopIpcAction::Translate(request) => {
+                    if validate_translation_request(&request).is_err() {
+                        DesktopIpcResponse::Error {
+                            code: DesktopIpcErrorCode::InvalidMessage,
+                            retryable: false,
+                        }
+                    } else {
+                        let handler = Arc::clone(handler);
+                        let outcome =
+                            tokio::task::spawn_blocking(move || handler.translate(request))
+                                .await
+                                .unwrap_or_else(|_| BrowserTranslationOutcome::Error {
+                                    error: ProtocolError::new(
+                                        ErrorCode::InternalError,
+                                        "Desktop translation worker stopped unexpectedly",
+                                        true,
+                                    ),
+                                });
+                        DesktopIpcResponse::Ok {
+                            protocol_version: DESKTOP_IPC_VERSION,
+                            payload: DesktopIpcPayload::Translation { outcome },
+                        }
+                    }
+                }
+                DesktopIpcAction::Cancel(request) => {
+                    if validate_cancel_request(&request).is_err() {
+                        DesktopIpcResponse::Error {
+                            code: DesktopIpcErrorCode::InvalidMessage,
+                            retryable: false,
+                        }
+                    } else {
+                        match handler.cancel(request) {
+                            Ok(accepted) => DesktopIpcResponse::Ok {
+                                protocol_version: DESKTOP_IPC_VERSION,
+                                payload: DesktopIpcPayload::Cancelled { accepted },
+                            },
+                            Err(_) => DesktopIpcResponse::Error {
+                                code: DesktopIpcErrorCode::InternalError,
+                                retryable: true,
+                            },
+                        }
+                    }
+                }
             }
         };
         write_json_frame(&mut stream, &response).await
@@ -400,6 +484,41 @@ mod windows {
         desktop_client_runtime()?.block_on(pairing_state(endpoint_path, origin, capabilities))
     }
 
+    pub fn translate_blocking(
+        endpoint_path: &Path,
+        request: BrowserTranslationRequest,
+    ) -> io::Result<BrowserTranslationOutcome> {
+        run_client_blocking(endpoint_path, move |path| async move {
+            translate(&path, request).await
+        })
+    }
+
+    pub fn cancel_blocking(
+        endpoint_path: &Path,
+        request: BrowserCancelRequest,
+    ) -> io::Result<bool> {
+        run_client_blocking(endpoint_path, move |path| async move {
+            cancel(&path, request).await
+        })
+    }
+
+    fn run_client_blocking<T, F, Fut>(endpoint_path: &Path, operation: F) -> io::Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(PathBuf) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = io::Result<T>> + 'static,
+    {
+        let endpoint_path = endpoint_path.to_path_buf();
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return std::thread::spawn(move || {
+                desktop_client_runtime()?.block_on(operation(endpoint_path))
+            })
+            .join()
+            .map_err(|_| io::Error::other("Desktop IPC worker stopped unexpectedly"))?;
+        }
+        desktop_client_runtime()?.block_on(operation(endpoint_path))
+    }
+
     fn desktop_client_runtime() -> io::Result<tokio::runtime::Runtime> {
         tokio::runtime::Builder::new_current_thread()
             .enable_io()
@@ -429,6 +548,69 @@ mod windows {
         )
         .await?;
         pairing_response(&mut stream).await
+    }
+
+    async fn translate(
+        endpoint_path: &Path,
+        request: BrowserTranslationRequest,
+    ) -> io::Result<BrowserTranslationOutcome> {
+        validate_translation_request(&request)?;
+        let mut stream = open_client(endpoint_path, DesktopIpcAction::Translate(request)).await?;
+        match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
+            DesktopIpcResponse::Ok {
+                protocol_version: DESKTOP_IPC_VERSION,
+                payload: DesktopIpcPayload::Translation { outcome },
+            } => Ok(outcome),
+            response => Err(response_error(response, "translation")),
+        }
+    }
+
+    async fn cancel(endpoint_path: &Path, request: BrowserCancelRequest) -> io::Result<bool> {
+        validate_cancel_request(&request)?;
+        let mut stream = open_client(endpoint_path, DesktopIpcAction::Cancel(request)).await?;
+        match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
+            DesktopIpcResponse::Ok {
+                protocol_version: DESKTOP_IPC_VERSION,
+                payload: DesktopIpcPayload::Cancelled { accepted },
+            } => Ok(accepted),
+            response => Err(response_error(response, "cancellation")),
+        }
+    }
+
+    async fn open_client(
+        endpoint_path: &Path,
+        action: DesktopIpcAction,
+    ) -> io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
+        let endpoint = read_endpoint(endpoint_path)?;
+        let mut stream = ClientOptions::new().open(&endpoint.pipe_name)?;
+        write_json_frame(
+            &mut stream,
+            &DesktopIpcRequest {
+                protocol_version: DESKTOP_IPC_VERSION,
+                token: endpoint.token,
+                action,
+            },
+        )
+        .await?;
+        Ok(stream)
+    }
+
+    fn response_error(response: DesktopIpcResponse, operation: &str) -> io::Error {
+        let retryable = matches!(
+            response,
+            DesktopIpcResponse::Error {
+                retryable: true,
+                ..
+            }
+        );
+        io::Error::new(
+            if retryable {
+                io::ErrorKind::WouldBlock
+            } else {
+                io::ErrorKind::PermissionDenied
+            },
+            format!("Desktop IPC {operation} request was rejected"),
+        )
     }
 
     pub async fn request_pairing(
@@ -543,6 +725,8 @@ mod windows {
         struct RecordingHandler {
             requests: Mutex<Vec<BrowserPairingRequest>>,
             pairing_state: Mutex<PairingState>,
+            translations: Mutex<Vec<BrowserTranslationRequest>>,
+            cancellations: Mutex<Vec<BrowserCancelRequest>>,
         }
 
         impl Default for RecordingHandler {
@@ -550,6 +734,8 @@ mod windows {
                 Self {
                     requests: Mutex::new(Vec::new()),
                     pairing_state: Mutex::new(PairingState::Required),
+                    translations: Mutex::new(Vec::new()),
+                    cancellations: Mutex::new(Vec::new()),
                 }
             }
         }
@@ -566,6 +752,22 @@ mod windows {
             fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState> {
                 self.requests.lock().unwrap().push(request);
                 Ok(PairingState::Pending)
+            }
+
+            fn translate(&self, request: BrowserTranslationRequest) -> BrowserTranslationOutcome {
+                self.translations.lock().unwrap().push(request);
+                BrowserTranslationOutcome::Success {
+                    response: TranslationResponse {
+                        text: "translated".to_string(),
+                        detected_language: Some("en".to_string()),
+                        cached: false,
+                    },
+                }
+            }
+
+            fn cancel(&self, request: BrowserCancelRequest) -> io::Result<bool> {
+                self.cancellations.lock().unwrap().push(request);
+                Ok(true)
             }
         }
 
@@ -685,12 +887,68 @@ mod windows {
             drop(state);
             let _ = fs::remove_dir_all(app_dir);
         }
+
+        #[tokio::test]
+        async fn translation_and_cancel_keep_origin_and_request_correlation() {
+            let app_dir = temporary_app_dir();
+            let handler = Arc::new(RecordingHandler::default());
+            let state = start_server(app_dir.clone(), handler.clone()).unwrap();
+            let endpoint = endpoint_path(&app_dir);
+            let origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
+            let translation = TranslateRequest {
+                text: "hello".to_string(),
+                target_language: "zh-Hans".to_string(),
+                source_language: Some("en".to_string()),
+                format: crate::native_protocol::TextFormat::PlainText,
+                glossary: Vec::new(),
+            };
+
+            let outcome = translate(
+                &endpoint,
+                BrowserTranslationRequest {
+                    origin: origin.to_string(),
+                    request_id: "translate-1".to_string(),
+                    translation: translation.clone(),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(matches!(outcome, BrowserTranslationOutcome::Success { .. }));
+            assert!(cancel(
+                &endpoint,
+                BrowserCancelRequest {
+                    origin: origin.to_string(),
+                    target_request_id: "translate-1".to_string(),
+                },
+            )
+            .await
+            .unwrap());
+            assert_eq!(
+                *handler.translations.lock().unwrap(),
+                vec![BrowserTranslationRequest {
+                    origin: origin.to_string(),
+                    request_id: "translate-1".to_string(),
+                    translation,
+                }]
+            );
+            assert_eq!(
+                *handler.cancellations.lock().unwrap(),
+                vec![BrowserCancelRequest {
+                    origin: origin.to_string(),
+                    target_request_id: "translate-1".to_string(),
+                }]
+            );
+
+            drop(state);
+            let _ = fs::remove_dir_all(app_dir);
+        }
     }
 }
 
 #[cfg(windows)]
 pub use windows::{
-    pairing_state_blocking, probe, request_pairing, request_pairing_blocking, start_server,
+    cancel_blocking, pairing_state_blocking, probe, request_pairing, request_pairing_blocking,
+    start_server, translate_blocking,
 };
 
 #[cfg(not(windows))]
@@ -718,6 +976,25 @@ pub fn pairing_state_blocking(
     _origin: String,
     _capabilities: Vec<String>,
 ) -> io::Result<PairingState> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn translate_blocking(
+    _endpoint_path: &Path,
+    _request: BrowserTranslationRequest,
+) -> io::Result<BrowserTranslationOutcome> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn cancel_blocking(_endpoint_path: &Path, _request: BrowserCancelRequest) -> io::Result<bool> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "Desktop browser IPC is currently supported only on Windows",
@@ -752,6 +1029,32 @@ fn validate_pairing_request(request: &BrowserPairingRequest) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+fn validate_translation_request(request: &BrowserTranslationRequest) -> io::Result<()> {
+    validate_origin(&request.origin, std::slice::from_ref(&request.origin))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid extension origin"))?;
+    RequestEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: request.request_id.clone(),
+        request: Request::Translate(request.translation.clone()),
+    }
+    .validate()
+    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid translation request"))
+}
+
+fn validate_cancel_request(request: &BrowserCancelRequest) -> io::Result<()> {
+    validate_origin(&request.origin, std::slice::from_ref(&request.origin))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid extension origin"))?;
+    RequestEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: "cancel-validation".to_string(),
+        request: Request::Cancel(CancelRequest {
+            target_request_id: request.target_request_id.clone(),
+        }),
+    }
+    .validate()
+    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid cancellation request"))
 }
 
 #[cfg(test)]

@@ -187,3 +187,9 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 - 实际生成 NSIS/MSI 审计包，最小扩展生产包约 9.17 KiB / 64 KiB 门槛。
 
 当前已继续完成桌面随机命名管道、令牌认证、配对状态查询，以及展示真实 Origin/能力的批准、拒绝、撤销 UI 和最小持久化。尚未加入商店正式 ID、`translate` / `cancel` / `add_word`、content script 或翻译浮层。下一步在不扩展权限面的前提下接入三项桌面能力；Chrome/Edge `hello` / `ping`、配对、重复安装、升级和卸载的真实烟雾仍是独立发布门槛，清单见 [`BROWSER_EXTENSION_SMOKE.md`](BROWSER_EXTENSION_SMOKE.md)。
+
+### 2026-08-12 进度修订
+
+`translate` / `cancel` 已完成 Host、桌面 IPC、WebView 翻译任务和扩展 service worker 的端到端代码接入，并保持每 Origin 4 并发、精确 request ID 取消、65 秒超时和结构化失败。此处实现完成仅指代码与自动门槛，Chrome / Edge 真实烟雾仍未完成。
+
+后续顺序修订为：content script 与划词浮层 → `add_word` 独立写入授权 → Chrome / Edge 全链路烟雾 → v0.5.0 收口。PDF / Word 继续排在 v0.5.1。

@@ -21,6 +21,12 @@
 
 完整范围、风险和退出门槛见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)。Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 
+## 2026-08-12 接手状态更新
+
+- `translate` / `cancel` 已从 Manifest V3 service worker 经单 EXE Native Host、受认证桌面 IPC 接入现有前端翻译任务；请求保留精确 Origin 与 request ID，并支持同端口并发取消。
+- 桌面前端通过显式 ready 状态避免 WebView 监听器未挂载时产生 65 秒假等待；Host 断开、撤销授权和界面卸载会取消在途任务。
+- 下一步只实现 content script、划词浮层和 `add_word` 的独立数据写入授权；随后完成 Chrome / Edge 真实安装、配对、翻译、取消、升级和卸载烟雾。PDF / Word 仍保持在 v0.5.1，不与本版本并行。
+
 ## 每一步的交付要求
 
 - 每个 PR 只实现一个边界清晰的增量，并补齐对应自动化和失败路径。

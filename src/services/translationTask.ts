@@ -52,6 +52,12 @@ export interface TranslationTaskCallbacks {
   onText?: (text: string, requestId: string) => void;
 }
 
+export interface TranslationTaskOverrides {
+  targetLang?: string;
+  sourceLang?: string;
+  glossary?: GlossaryEntry[];
+}
+
 export interface GlossaryEntry {
   source_term: string;
   target_term: string;
@@ -229,6 +235,7 @@ export function createRequestId(): string {
 export function startTranslationTask(
   text: string,
   callbacks: TranslationTaskCallbacks = {},
+  overrides: TranslationTaskOverrides = {},
 ): TranslationTask {
   const requestId = createRequestId();
   const controller = new AbortController();
@@ -268,8 +275,8 @@ export function startTranslationTask(
       const primaryModel = (
         config.trans_model_name || config.model_name || "deepseek-chat"
       ).trim();
-      const targetLang = config.target_lang || "Chinese";
-      const sourceLang = config.source_lang || "auto";
+      const targetLang = overrides.targetLang || config.target_lang || "Chinese";
+      const sourceLang = overrides.sourceLang || config.source_lang || "auto";
       const customPrompt = config.custom_prompt || "";
 
       if (controller.signal.aborted) return completeCancellation();
@@ -280,11 +287,13 @@ export function startTranslationTask(
         );
       }
 
-      let glossary: GlossaryEntry[] = [];
-      try {
-        glossary = await invoke<GlossaryEntry[]>("get_glossary_entries");
-      } catch {
-        // Glossary injection is optional.
+      let glossary: GlossaryEntry[] = overrides.glossary || [];
+      if (!overrides.glossary) {
+        try {
+          glossary = await invoke<GlossaryEntry[]>("get_glossary_entries");
+        } catch {
+          // Glossary injection is optional.
+        }
       }
       const primaryCacheContext = buildTranslationCacheContext({
         baseUrl: primaryUrl,

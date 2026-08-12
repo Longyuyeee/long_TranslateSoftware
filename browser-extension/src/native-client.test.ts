@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   NATIVE_HOST_NAME,
   requestNativePairing,
+  runNativeTranslation,
   runNativeSmoke,
   type ChromeEvent,
   type NativePort,
@@ -185,5 +186,70 @@ describe("browser Native Messaging smoke client", () => {
       pairingState: "pending",
     });
     expect(port.disconnectCalls).toBe(1);
+  });
+
+  it("translates through the approved desktop session", async () => {
+    const port = new FakePort();
+    const pending = runNativeTranslation(createRuntime(port), {
+      text: "hello",
+      targetLanguage: "zh-Hans",
+      sourceLanguage: "en",
+    }, undefined, 1_000);
+    const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: hello.request_id,
+      status: "ok",
+      payload: { type: "hello", data: {
+        selected_protocol: 1, desktop_version: "0.4.9", session_id: "session-translate",
+        client_nonce: hello.payload.client_nonce, pairing_state: "approved",
+        capabilities: ["ping", "translation"], limits: {},
+      } },
+    });
+    const translate = port.posted[1] as { request_id: string };
+    expect(translate).toMatchObject({
+      action: "translate",
+      payload: { text: "hello", target_language: "zh-Hans", source_language: "en" },
+    });
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: translate.request_id,
+      status: "ok",
+      payload: { type: "translation", data: { text: "你好", cached: false } },
+    });
+    await expect(pending).resolves.toEqual({
+      text: "你好", cached: false, detectedLanguage: undefined,
+    });
+  });
+
+  it("sends a correlated cancel request when aborted", async () => {
+    const port = new FakePort();
+    const controller = new AbortController();
+    const pending = runNativeTranslation(
+      createRuntime(port),
+      { text: "hello", targetLanguage: "zh-Hans" },
+      controller.signal,
+      1_000,
+    );
+    const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
+    port.onMessage.emit({
+      protocol_version: 1, request_id: hello.request_id, status: "ok",
+      payload: { type: "hello", data: {
+        selected_protocol: 1, desktop_version: "0.4.9", session_id: "session-cancel",
+        client_nonce: hello.payload.client_nonce, pairing_state: "approved",
+        capabilities: ["ping", "translation"], limits: {},
+      } },
+    });
+    const translate = port.posted[1] as { request_id: string };
+    controller.abort();
+    const cancel = port.posted[2] as { request_id: string };
+    expect(cancel).toMatchObject({
+      action: "cancel", payload: { target_request_id: translate.request_id },
+    });
+    port.onMessage.emit({
+      protocol_version: 1, request_id: cancel.request_id, status: "ok",
+      payload: { type: "cancelled", data: { accepted: true } },
+    });
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 });

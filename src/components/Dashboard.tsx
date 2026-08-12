@@ -30,6 +30,7 @@ import { useDashboardActions } from "../hooks/useDashboardActions";
 import DashboardShell from "./DashboardShell";
 import BrowserPairingDialog from "./BrowserPairingDialog";
 import { useBrowserPairing } from "../hooks/useBrowserPairing";
+import { useBrowserTranslationBridge } from "../hooks/useBrowserTranslationBridge";
 
 const ReviewTab = lazy(() => import("./ReviewTab"));
 const HistoryTab = lazy(() => import("./HistoryTab"));
@@ -81,6 +82,7 @@ const OCR_LANGUAGES = [
 ] as const;
 
 export default function Dashboard() {
+  useBrowserTranslationBridge();
   const [activeTab, setActiveTab] = useState<DashboardTabId>("general");
   const {
     lang,
