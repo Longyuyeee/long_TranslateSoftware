@@ -252,6 +252,13 @@ async function inspectSelectionOverlay(port, pageUrl) {
   if (!pageTarget?.webSocketDebuggerUrl) {
     throw new Error("Edge did not expose the isolated selection smoke page");
   }
+  const pageReady = await poll(async () =>
+    evaluatePage(
+      pageTarget.webSocketDebuggerUrl,
+      "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+    ),
+  );
+  if (!pageReady) throw new Error("Edge selection smoke page did not become ready");
   await evaluatePage(
     pageTarget.webSocketDebuggerUrl,
     `(() => {
@@ -273,7 +280,9 @@ async function inspectSelectionOverlay(port, pageUrl) {
     const state = await evaluatePage(
       pageTarget.webSocketDebuggerUrl,
       `(() => {
-        const text = document.getElementById("selection-source").firstChild;
+        const source = document.getElementById("selection-source");
+        const text = source?.firstChild;
+        if (!text) return { root: false, launcher: "", panel: false, messages: -1 };
         const range = document.createRange();
         range.selectNodeContents(text);
         const selection = getSelection();
@@ -292,7 +301,9 @@ async function inspectSelectionOverlay(port, pageUrl) {
     return state.launcher ? state : undefined;
   });
   if (!launcher?.root || launcher.panel || launcher.messages !== 0) {
-    throw new Error("Edge selection overlay sent content before the user clicked its launcher");
+    throw new Error(
+      `Edge selection overlay failed its pre-click privacy state: ${JSON.stringify(launcher)}`,
+    );
   }
   const translated = await evaluatePage(
     pageTarget.webSocketDebuggerUrl,
