@@ -1,9 +1,23 @@
 :root {
-  color: #e9eef9;
-  background: #101827;
+  color: #172033;
+  background: #f5f7fb;
   font-family:
     Inter, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  color-scheme: dark;
+  color-scheme: light dark;
+  --page: #f5f7fb;
+  --page-glow: rgb(65 111 235 / 16%);
+  --mark: #5b7cfa;
+  --mark-text: #ffffff;
+  --accent: #3159d9;
+  --surface: rgb(255 255 255 / 82%);
+  --border: #dbe3f0;
+  --text-muted: #66738a;
+  --success-border: #62a890;
+  --success-text: #177158;
+  --error-border: #d595a3;
+  --error-text: #b4233c;
+  --button-secondary: #e8eef9;
+  --button-secondary-text: #34425a;
 }
 
 * {
@@ -14,8 +28,8 @@ body {
   width: 320px;
   margin: 0;
   background:
-    radial-gradient(circle at 90% 0%, rgb(65 111 235 / 24%), transparent 42%),
-    #101827;
+    radial-gradient(circle at 90% 0%, var(--page-glow), transparent 42%),
+    var(--page);
 }
 
 main {
@@ -31,15 +45,15 @@ main {
   height: 44px;
   place-items: center;
   border-radius: 14px 14px 14px 5px;
-  background: #6d8cff;
-  color: #0b1020;
+  background: var(--mark);
+  color: var(--mark-text);
   font-size: 25px;
   font-weight: 800;
 }
 
 .eyebrow {
   margin: 2px 0 4px;
-  color: #91a8ff;
+  color: var(--accent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -61,20 +75,20 @@ button,
 .status {
   margin: 6px 0 0;
   padding: 12px;
-  border: 1px solid #293753;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgb(18 28 47 / 78%);
-  color: #b8c5dc;
+  background: var(--surface);
+  color: var(--text-muted);
 }
 
 .status[data-state="success"] {
-  border-color: #2f7460;
-  color: #8ee4c1;
+  border-color: var(--success-border);
+  color: var(--success-text);
 }
 
 .status[data-state="error"] {
-  border-color: #834755;
-  color: #ffacbd;
+  border-color: var(--error-border);
+  color: var(--error-text);
 }
 
 dl {
@@ -89,7 +103,7 @@ dl div {
 }
 
 dt {
-  color: #8392ad;
+  color: var(--text-muted);
 }
 
 dd {
@@ -100,8 +114,8 @@ button {
   min-height: 40px;
   border: 0;
   border-radius: 12px;
-  background: #6d8cff;
-  color: #0b1020;
+  background: var(--mark);
+  color: var(--mark-text);
   font: inherit;
   font-weight: 700;
   cursor: pointer;
@@ -113,29 +127,48 @@ button:disabled {
 }
 
 button.secondary {
-  border: 1px solid #34435f;
-  background: #1a2740;
-  color: #cbd6e9;
+  border: 1px solid var(--border);
+  background: var(--button-secondary);
+  color: var(--button-secondary-text);
 }
 
 .selection-status {
   margin: -4px 2px 0;
-  color: #7f8da6;
+  color: var(--text-muted);
   font-size: 11px;
   line-height: 1.45;
 }
 
 .selection-status[data-state="success"] {
-  color: #8ee4c1;
+  color: var(--success-text);
 }
 
 .selection-status[data-state="error"] {
-  color: #ffacbd;
+  color: var(--error-text);
 }
 
 .hint {
   margin: 0;
-  color: #73819a;
+  color: var(--text-muted);
   font-size: 11px;
   line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #101827;
+    --page-glow: rgb(65 111 235 / 24%);
+    --mark: #6d8cff;
+    --mark-text: #0b1020;
+    --accent: #91a8ff;
+    --surface: rgb(18 28 47 / 78%);
+    --border: #293753;
+    --text-muted: #b8c5dc;
+    --success-border: #2f7460;
+    --success-text: #8ee4c1;
+    --error-border: #834755;
+    --error-text: #ffacbd;
+    --button-secondary: #1a2740;
+    --button-secondary-text: #cbd6e9;
+  }
 }

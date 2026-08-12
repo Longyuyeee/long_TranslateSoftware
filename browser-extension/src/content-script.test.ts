@@ -18,9 +18,13 @@ async function install(
     callback: (response: unknown) => void,
   ) => void,
   selectedText = "hello world",
+  translations: Record<string, string> = {},
 ) {
   document.getElementById("long-translate-selection-root")?.remove();
-  vi.stubGlobal("chrome", { runtime: { sendMessage } });
+  vi.stubGlobal("chrome", {
+    runtime: { sendMessage },
+    i18n: { getMessage: (key: string) => translations[key] || "" },
+  });
   vi.spyOn(window, "getSelection").mockReturnValue(selection(selectedText));
   vi.resetModules();
   await import("./content-script");
@@ -131,5 +135,39 @@ describe("selection translation overlay", () => {
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(shadow.querySelector(".notice")?.textContent).toContain("32 KiB");
+  });
+
+  it("localizes the selection launcher and dialog without page permissions", async () => {
+    const messages: unknown[] = [];
+    const shadow = await install(
+      (payload) => messages.push(payload),
+      "hello world",
+      {
+        translateButton: "T",
+        translateSelectionAria: "Translate selected text",
+        translateToChinese: "Translate to Chinese",
+        selectionDialogAria: "Long Translate selection translation",
+        translating: "Translating…",
+        cancel: "Cancel",
+      },
+    );
+    const launcher = shadow.querySelector<HTMLButtonElement>(".launcher");
+    expect(launcher?.textContent).toBe("T");
+    expect(launcher?.getAttribute("aria-label")).toBe(
+      "Translate selected text",
+    );
+    launcher?.click();
+
+    expect(shadow.querySelector("header span")?.textContent).toBe(
+      "Translate to Chinese",
+    );
+    expect(shadow.querySelector(".panel")?.getAttribute("aria-label")).toBe(
+      "Long Translate selection translation",
+    );
+    expect(shadow.querySelector(".progress")?.textContent).toBe(
+      "Translating…",
+    );
+    expect(shadow.querySelector(".cancel")?.textContent).toBe("Cancel");
+    expect(messages).toHaveLength(1);
   });
 });

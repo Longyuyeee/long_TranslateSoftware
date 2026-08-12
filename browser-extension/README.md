@@ -2,6 +2,8 @@
 
 This directory contains the Manifest V3 development extension. It keeps website access user-scoped through `activeTab`: the content script is injected only after the user selects **在当前页面启用划词翻译**, and a page refresh removes it. It reads only the current selection and sends it to the desktop app only after the user selects the **译** action.
 
+The manifest, popup, selection overlay, accessibility labels and user-facing failure states follow the browser UI language through Chromium i18n. English is the default locale and Simplified Chinese is bundled; neither locale changes the permission or data boundary.
+
 The committed manifest public key fixes the unpacked development extension ID at:
 
 `imaogjlfhfohdnngppnfhapdfkaldmkn`
