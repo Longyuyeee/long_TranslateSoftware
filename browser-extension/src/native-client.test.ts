@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   NATIVE_HOST_NAME,
+  requestNativePairing,
   runNativeSmoke,
   type ChromeEvent,
   type NativePort,
@@ -135,5 +136,54 @@ describe("browser Native Messaging smoke client", () => {
     await expect(runNativeSmoke(runtime)).rejects.toThrow(
       "Native Messaging permission is unavailable",
     );
+  });
+
+  it("keeps hello and pairing on one authenticated native port", async () => {
+    const port = new FakePort();
+    const pending = requestNativePairing(
+      createRuntime(port),
+      "Long Translate browser extension",
+      1_000,
+    );
+    const hello = port.posted[0] as {
+      request_id: string;
+      payload: { client_nonce: string; capabilities: string[] };
+    };
+    expect(hello.payload.capabilities).toEqual(["ping", "translation", "wordbook"]);
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: hello.request_id,
+      status: "ok",
+      payload: {
+        type: "hello",
+        data: {
+          selected_protocol: 1,
+          desktop_version: "0.4.9",
+          session_id: "session-pair",
+          client_nonce: hello.payload.client_nonce,
+          pairing_state: "required",
+          capabilities: ["ping"],
+          limits: {},
+        },
+      },
+    });
+    const pair = port.posted[1] as { request_id: string };
+    expect(pair).toMatchObject({
+      protocol_version: 1,
+      action: "pair",
+      payload: { display_name: "Long Translate browser extension" },
+    });
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: pair.request_id,
+      status: "ok",
+      payload: { type: "pairing", data: { pairing_state: "pending" } },
+    });
+
+    await expect(pending).resolves.toEqual({
+      desktopVersion: "0.4.9",
+      pairingState: "pending",
+    });
+    expect(port.disconnectCalls).toBe(1);
   });
 });

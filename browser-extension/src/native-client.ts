@@ -36,6 +36,11 @@ export interface NativeSmokeResult {
   latencyMs: number;
 }
 
+export interface NativePairingResult {
+  desktopVersion: string;
+  pairingState: NativeSmokeResult["pairingState"];
+}
+
 interface HelloData {
   selected_protocol: number;
   desktop_version: string;
@@ -133,7 +138,99 @@ export function runNativeSmoke(
     port.onDisconnect.addListener(onDisconnect);
 
     try {
-      port.postMessage(createHelloRequest(runtime.getManifest().version, helloRequestId, nonce));
+      port.postMessage(
+        createHelloRequest(runtime.getManifest().version, helloRequestId, nonce, ["ping"]),
+      );
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
+
+export function requestNativePairing(
+  runtime: NativeRuntime,
+  displayName: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<NativePairingResult> {
+  const helloRequestId = createRequestId("hello");
+  const pairRequestId = createRequestId("pair");
+  const nonce = createRequestId("nonce");
+
+  return new Promise((resolve, reject) => {
+    let port: NativePort;
+    try {
+      port = runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    let settled = false;
+    let hello: HelloData | undefined;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      port.onMessage.removeListener(onMessage);
+      port.onDisconnect.removeListener(onDisconnect);
+      try {
+        port.disconnect();
+      } catch {
+        // Chromium may already have closed the native port.
+      }
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const finish = (result: NativePairingResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const onMessage = (message: unknown) => {
+      try {
+        if (!hello) {
+          hello = parseHello(parseNativeResponse(message, helloRequestId), nonce);
+          port.postMessage(createPairRequest(pairRequestId, displayName));
+          return;
+        }
+        const response = parseNativeResponse(message, pairRequestId);
+        if (response.status !== "ok" || response.payload.type !== "pairing") {
+          throw responseError(response, "Native Host rejected pairing");
+        }
+        const data = response.payload.data;
+        if (!isRecord(data) || !isPairingState(data.pairing_state)) {
+          throw new Error("Native Host returned invalid pairing data");
+        }
+        finish({
+          desktopVersion: hello.desktop_version,
+          pairingState: data.pairing_state,
+        });
+      } catch (error) {
+        fail(error);
+      }
+    };
+    const onDisconnect = () => {
+      const message = runtime.lastError?.message?.trim();
+      fail(new Error(message || "Native Host disconnected before pairing completed"));
+    };
+    const timer = setTimeout(
+      () => fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
+      timeoutMs,
+    );
+
+    port.onMessage.addListener(onMessage);
+    port.onDisconnect.addListener(onDisconnect);
+    try {
+      port.postMessage(
+        createHelloRequest(runtime.getManifest().version, helloRequestId, nonce, [
+          "ping",
+          "translation",
+          "wordbook",
+        ]),
+      );
     } catch (error) {
       fail(error);
     }
@@ -144,6 +241,7 @@ function createHelloRequest(
   extensionVersion: string,
   requestId: string,
   nonce: string,
+  capabilities: string[],
 ): NativeRequest {
   return createNativeRequest({
     protocol_version: NATIVE_PROTOCOL_VERSION,
@@ -154,8 +252,17 @@ function createHelloRequest(
       max_protocol: NATIVE_PROTOCOL_VERSION,
       extension_version: extensionVersion,
       client_nonce: nonce,
-      capabilities: ["ping"],
+      capabilities,
     },
+  });
+}
+
+function createPairRequest(requestId: string, displayName: string): NativeRequest {
+  return createNativeRequest({
+    protocol_version: NATIVE_PROTOCOL_VERSION,
+    request_id: requestId,
+    action: "pair",
+    payload: { display_name: displayName },
   });
 }
 

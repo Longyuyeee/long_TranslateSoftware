@@ -1,4 +1,5 @@
 import {
+  requestNativePairing,
   runNativeSmoke,
   type ChromeEvent,
   type NativeRuntime,
@@ -18,22 +19,26 @@ export interface ExtensionRuntime extends NativeRuntime {
 
 declare const chrome: { runtime: ExtensionRuntime } | undefined;
 
-export function installNativeSmokeListener(runtime: ExtensionRuntime): void {
+export function installNativeBridgeListener(runtime: ExtensionRuntime): void {
   runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (
       sender.id !== runtime.id ||
       !isRecord(message) ||
-      message.type !== "native-smoke"
+      (message.type !== "native-smoke" && message.type !== "native-pair")
     ) {
       return;
     }
 
-    runNativeSmoke(runtime).then(
+    const operation =
+      message.type === "native-pair"
+        ? requestNativePairing(runtime, "Long Translate browser extension")
+        : runNativeSmoke(runtime);
+    operation.then(
       (result) => sendResponse({ ok: true, result }),
       (error: unknown) =>
         sendResponse({
           ok: false,
-          error: error instanceof Error ? error.message : "Native Host check failed",
+          error: error instanceof Error ? error.message : "Native Host operation failed",
         }),
     );
     return true;
@@ -41,7 +46,7 @@ export function installNativeSmokeListener(runtime: ExtensionRuntime): void {
 }
 
 if (typeof chrome !== "undefined") {
-  installNativeSmokeListener(chrome.runtime);
+  installNativeBridgeListener(chrome.runtime);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

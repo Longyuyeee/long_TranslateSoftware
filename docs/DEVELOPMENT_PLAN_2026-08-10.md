@@ -46,7 +46,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ### 4.1 浏览器扩展
 
-仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针，但尚未接入 Host 转发或配对状态。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、桌面配对界面、content script 和划词浮层，不能被描述为“扩展已经可用”。
+仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已强制 `hello` 首帧，并可把同端口 `pair` 申请转发到桌面，桌面只返回 `pending` 而不会自动授权。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、桌面批准/拒绝/撤销界面、content script 和划词浮层，不能被描述为“扩展已经可用”。
 
 另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让 Host 模式直接读取 API Key、数据库或复制一套翻译实现。
 
