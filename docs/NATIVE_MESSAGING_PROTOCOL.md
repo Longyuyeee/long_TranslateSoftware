@@ -174,7 +174,7 @@ approved
 1. 已实现只负责二进制帧、1 MiB 预解析限制、Origin 校验和 `hello` / `ping` 的单 EXE 最小 Native Host，并以真实子进程测试固定 stdin/stdout 契约。
 2. 已实现 Host manifest、Chrome/Edge 当前用户注册、重复安装/升级、所有权保护和可逆卸载；调试构建在没有 manifest 时仍可显式注入 `LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS`，release 构建拒绝该降级路径。
 3. 已固定受控开发扩展 ID 并把注册命令接入 NSIS/WiX 安装/卸载；下一步完成 Chrome/Edge `hello` / `ping`、升级与卸载的真实烟雾。
-4. 定义 Host 与已运行桌面进程之间的本机私有 IPC，并处理桌面未运行。
+4. 已建立桌面侧 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针骨架；下一步接入 Host 转发，并处理桌面未运行、端点过期与配对状态。
 5. 在桌面端实现配对确认、授权撤销和最小能力分发。
 6. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
 7. 最后实现网页划词 UI 和收藏入口。

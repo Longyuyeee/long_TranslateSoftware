@@ -5,6 +5,7 @@ mod command_error;
 mod config;
 mod db;
 mod diagnostics;
+pub mod desktop_ipc;
 mod glossary;
 mod history;
 mod lifecycle;
@@ -96,6 +97,15 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir()?;
+            #[cfg(windows)]
+            match desktop_ipc::start_server(app_dir.clone()) {
+                Ok(state) => {
+                    app.manage(state);
+                }
+                Err(error) => {
+                    log::error!("Desktop browser IPC is unavailable: {error}");
+                }
+            }
             let conn = db::init_db(app_dir)?;
             let main_win = app.get_webview_window("main").ok_or_else(|| {
                 std::io::Error::new(

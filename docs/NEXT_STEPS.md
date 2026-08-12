@@ -14,7 +14,7 @@
 ## 接手后按顺序处理
 
 1. 使用固定开发 ID 的现有最小扩展完成 Chrome/Edge `hello` / `ping` 真实烟雾，并验证安装、重复安装、升级和卸载；商店发布前把 Chrome Web Store 与 Edge Add-ons 的正式 ID 一并写入 `allowed_origins`。
-2. 双浏览器烟雾通过后，依次实现桌面私有 IPC、配对与撤销、`translate` / `cancel` / `add_word`。
+2. 桌面私有 IPC 的 Windows 命名管道、随机端点、令牌校验和在线探针骨架已经完成；下一步把 Host 的配对申请接入该边界，并实现桌面批准、拒绝与撤销，再接 `translate` / `cancel` / `add_word`。
 3. 桥接安全边界稳定后，实现 Manifest V3 service worker、content script 和划词翻译浮层，完成 Chrome/Edge 真实烟雾后发布 `v0.5.0`。
 4. `v0.5.1` 先固定文档任务契约和配置快照，再实现 DOCX 解析/重建、翻译队列、取消/重试/恢复和 DOCX 导出。
 5. DOCX 稳定后加入文本型 PDF 导入、阅读顺序检查和 DOCX 导出；扫描 PDF 与像素级 PDF 版式还原不进入 MVP。
