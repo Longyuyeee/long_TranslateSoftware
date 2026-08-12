@@ -1,12 +1,18 @@
-use long_translate_lib::desktop_ipc::{self, BrowserPairingRequest, DesktopIpcHandler};
+use long_translate_lib::desktop_ipc::{
+    self, BrowserAddWordRequest, BrowserCancelRequest, BrowserPairingRequest,
+    BrowserTranslationOutcome, BrowserTranslationRequest, BrowserWordAddedOutcome,
+    DesktopIpcHandler,
+};
 use long_translate_lib::native_host::{read_frame, write_frame, ALLOWED_ORIGINS_ENV};
 use long_translate_lib::native_protocol::{
-    ErrorCode, HelloRequest, PairRequest, PairingResponse, PairingState, Request, RequestEnvelope,
-    Response, ResponseEnvelope, ResponsePayload, MAX_MESSAGE_BYTES,
+    AddWordRequest, CancelRequest, ErrorCode, HelloRequest, PairRequest, PairingResponse,
+    PairingState, ProtocolError, Request, RequestEnvelope, Response, ResponseEnvelope,
+    ResponsePayload, TextFormat, TranslateRequest, TranslationResponse, WordAddedResponse,
+    MAX_MESSAGE_BYTES,
 };
 use std::io::{Cursor, Write};
 use std::process::{Command, Output, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use uuid::Uuid;
 
 const ALLOWED_ORIGIN: &str = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
@@ -63,6 +69,10 @@ fn decode_responses(output: &[u8]) -> Vec<ResponseEnvelope> {
 #[derive(Default)]
 struct RecordingPairingHandler {
     requests: Mutex<Vec<BrowserPairingRequest>>,
+    translations: Mutex<Vec<BrowserTranslationRequest>>,
+    cancellations: Mutex<Vec<BrowserCancelRequest>>,
+    words: Mutex<Vec<BrowserAddWordRequest>>,
+    cancellation: (Mutex<bool>, Condvar),
 }
 
 impl DesktopIpcHandler for RecordingPairingHandler {
@@ -77,6 +87,45 @@ impl DesktopIpcHandler for RecordingPairingHandler {
     fn request_pairing(&self, request: BrowserPairingRequest) -> std::io::Result<PairingState> {
         self.requests.lock().unwrap().push(request);
         Ok(PairingState::Pending)
+    }
+
+    fn translate(&self, request: BrowserTranslationRequest) -> BrowserTranslationOutcome {
+        let slow = request.translation.text == "slow request";
+        self.translations.lock().unwrap().push(request);
+        if slow {
+            let (cancelled, signal) = &self.cancellation;
+            let guard = cancelled.lock().unwrap();
+            let (guard, _) = signal
+                .wait_timeout_while(guard, std::time::Duration::from_secs(5), |value| !*value)
+                .unwrap();
+            if *guard {
+                return BrowserTranslationOutcome::Error {
+                    error: ProtocolError::new(ErrorCode::Cancelled, "Translation cancelled", false),
+                };
+            }
+        }
+        BrowserTranslationOutcome::Success {
+            response: TranslationResponse {
+                text: "translated by desktop".to_string(),
+                detected_language: Some("en".to_string()),
+                cached: false,
+            },
+        }
+    }
+
+    fn cancel(&self, request: BrowserCancelRequest) -> std::io::Result<bool> {
+        self.cancellations.lock().unwrap().push(request);
+        let (cancelled, signal) = &self.cancellation;
+        *cancelled.lock().unwrap() = true;
+        signal.notify_all();
+        Ok(true)
+    }
+
+    fn add_word(&self, request: BrowserAddWordRequest) -> BrowserWordAddedOutcome {
+        self.words.lock().unwrap().push(request);
+        BrowserWordAddedOutcome::Success {
+            word_id: "word-process-123".to_string(),
+        }
     }
 }
 
@@ -241,6 +290,145 @@ async fn host_process_forwards_pairing_to_the_running_desktop_pipe() {
         }
     ));
     assert_eq!(handler.requests.lock().unwrap().len(), 1);
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(roaming_root);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn host_process_forwards_translation_cancellation_and_wordbook_write() {
+    let roaming_root = std::env::temp_dir().join(format!("long-host-data-{}", Uuid::new_v4()));
+    let app_dir = roaming_root.join("com.long.translate");
+    let handler = Arc::new(RecordingPairingHandler::default());
+    let state = desktop_ipc::start_server(app_dir, handler.clone()).unwrap();
+
+    let hello = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "hello-data".to_string(),
+        request: Request::Hello(HelloRequest {
+            min_protocol: 1,
+            max_protocol: 1,
+            extension_version: "0.1.0".to_string(),
+            client_nonce: "nonce-data".to_string(),
+            capabilities: vec!["translation".to_string(), "wordbook".to_string()],
+        }),
+    };
+    let translation = TranslateRequest {
+        text: "slow request".to_string(),
+        target_language: "zh-Hans".to_string(),
+        source_language: Some("en".to_string()),
+        format: TextFormat::PlainText,
+        glossary: Vec::new(),
+    };
+    let translate = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "translate-process-1".to_string(),
+        request: Request::Translate(translation.clone()),
+    };
+    let word = AddWordRequest {
+        word: "hello".to_string(),
+        translation: "你好".to_string(),
+        context: None,
+    };
+    let add_word = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "word-process-1".to_string(),
+        request: Request::AddWord(word.clone()),
+    };
+    let cancel = RequestEnvelope {
+        protocol_version: 1,
+        request_id: "cancel-process-1".to_string(),
+        request: Request::Cancel(CancelRequest {
+            target_request_id: "translate-process-1".to_string(),
+        }),
+    };
+    let mut input = framed(&hello);
+    input.extend(framed(&translate));
+    input.extend(framed(&add_word));
+    input.extend(framed(&cancel));
+
+    let roaming_for_child = roaming_root.clone();
+    let output = tokio::task::spawn_blocking(move || {
+        let mut child = Command::new(native_host_path())
+            .arg(ALLOWED_ORIGIN)
+            .env(ALLOWED_ORIGINS_ENV, ALLOWED_ORIGIN)
+            .env("APPDATA", roaming_for_child)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("native host should start");
+        child.stdin.take().unwrap().write_all(&input).unwrap();
+        child.wait_with_output().unwrap()
+    })
+    .await
+    .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let responses = decode_responses(&output.stdout);
+    assert_eq!(responses.len(), 4);
+    let response = |request_id: &str| {
+        responses
+            .iter()
+            .find(|response| response.request_id == request_id)
+            .unwrap_or_else(|| panic!("missing response for {request_id}"))
+    };
+    assert!(matches!(
+        response("word-process-1").response,
+        Response::Ok {
+            payload: ResponsePayload::WordAdded(WordAddedResponse { ref word_id })
+        } if word_id == "word-process-123"
+    ));
+    assert!(matches!(
+        response("cancel-process-1").response,
+        Response::Ok {
+            payload: ResponsePayload::Cancelled
+        }
+    ));
+    let translation_response = response("translate-process-1");
+    assert!(
+        matches!(
+            translation_response.response,
+            Response::Error {
+                error: ProtocolError {
+                    code: ErrorCode::Cancelled,
+                    ..
+                }
+            }
+        ),
+        "unexpected translation response: {translation_response:?}"
+    );
+    assert_eq!(
+        *handler.translations.lock().unwrap(),
+        vec![BrowserTranslationRequest {
+            origin: ALLOWED_ORIGIN.to_string(),
+            request_id: "translate-process-1".to_string(),
+            translation,
+        }]
+    );
+    assert_eq!(
+        *handler.cancellations.lock().unwrap(),
+        vec![BrowserCancelRequest {
+            origin: ALLOWED_ORIGIN.to_string(),
+            target_request_id: "translate-process-1".to_string(),
+        }]
+    );
+    assert_eq!(
+        *handler.words.lock().unwrap(),
+        vec![BrowserAddWordRequest {
+            origin: ALLOWED_ORIGIN.to_string(),
+            word,
+        }]
+    );
 
     drop(state);
     let _ = std::fs::remove_dir_all(roaming_root);

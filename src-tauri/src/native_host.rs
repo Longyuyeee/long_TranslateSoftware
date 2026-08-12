@@ -304,6 +304,7 @@ fn write_response(writer: &mut impl Write, response: &ResponseEnvelope) -> io::R
 fn run_stdio_concurrent(mut session: NativeHostSession) -> io::Result<()> {
     let writer = Arc::new(Mutex::new(io::stdout()));
     let in_flight = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let explicitly_cancelled = Arc::new(Mutex::new(HashSet::<String>::new()));
     let mut workers = Vec::new();
     let mut reader = io::stdin().lock();
 
@@ -359,6 +360,7 @@ fn run_stdio_concurrent(mut session: NativeHostSession) -> io::Result<()> {
             let mut worker_session = session.clone();
             let worker_writer = Arc::clone(&writer);
             let worker_requests = Arc::clone(&in_flight);
+            let worker_cancellations = Arc::clone(&explicitly_cancelled);
             workers.push(thread::spawn(move || {
                 let response = worker_session.handle(request);
                 if let Ok(mut output) = worker_writer.lock() {
@@ -367,11 +369,37 @@ fn run_stdio_concurrent(mut session: NativeHostSession) -> io::Result<()> {
                 if let Ok(mut active) = worker_requests.lock() {
                     active.remove(&request_id);
                 }
+                if let Ok(mut cancelled) = worker_cancellations.lock() {
+                    cancelled.remove(&request_id);
+                }
             }));
             continue;
         }
 
+        let cancelled_request_id = match &request.request {
+            Request::Cancel(cancel) => Some(cancel.target_request_id.clone()),
+            _ => None,
+        };
+        if let Some(request_id) = &cancelled_request_id {
+            explicitly_cancelled
+                .lock()
+                .map_err(|_| io::Error::other("Native Host cancellation state is unavailable"))?
+                .insert(request_id.clone());
+        }
         let response = session.handle(request);
+        if !matches!(
+            &response.response,
+            Response::Ok {
+                payload: ResponsePayload::Cancelled
+            }
+        ) {
+            if let Some(request_id) = &cancelled_request_id {
+                explicitly_cancelled
+                    .lock()
+                    .map_err(|_| io::Error::other("Native Host cancellation state is unavailable"))?
+                    .remove(request_id);
+            }
+        }
         write_response(
             &mut *writer
                 .lock()
@@ -380,9 +408,19 @@ fn run_stdio_concurrent(mut session: NativeHostSession) -> io::Result<()> {
         )?;
     }
 
+    let explicitly_cancelled = explicitly_cancelled
+        .lock()
+        .map(|requests| requests.clone())
+        .unwrap_or_default();
     let active = in_flight
         .lock()
-        .map(|requests| requests.iter().cloned().collect::<Vec<_>>())
+        .map(|requests| {
+            requests
+                .iter()
+                .filter(|request_id| !explicitly_cancelled.contains(*request_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     for request_id in active {
         let _ = session.cancel_translation(CancelRequest {

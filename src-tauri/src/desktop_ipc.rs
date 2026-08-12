@@ -242,6 +242,10 @@ mod windows {
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
     use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeServer, ServerOptions};
 
+    const ERROR_PIPE_BUSY: i32 = 231;
+    const PIPE_OPEN_RETRY_LIMIT: usize = 50;
+    const PIPE_OPEN_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
+
     pub fn start_server(
         app_data_dir: PathBuf,
         handler: Arc<dyn DesktopIpcHandler>,
@@ -570,6 +574,7 @@ mod windows {
     fn desktop_client_runtime() -> io::Result<tokio::runtime::Runtime> {
         tokio::runtime::Builder::new_current_thread()
             .enable_io()
+            .enable_time()
             .build()
             .map_err(|_| io::Error::other("Desktop IPC runtime is unavailable"))
     }
@@ -645,7 +650,20 @@ mod windows {
         action: DesktopIpcAction,
     ) -> io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
         let endpoint = read_endpoint(endpoint_path)?;
-        let mut stream = ClientOptions::new().open(&endpoint.pipe_name)?;
+        let mut retries = 0;
+        let mut stream = loop {
+            match ClientOptions::new().open(&endpoint.pipe_name) {
+                Ok(stream) => break stream,
+                Err(error)
+                    if error.raw_os_error() == Some(ERROR_PIPE_BUSY)
+                        && retries < PIPE_OPEN_RETRY_LIMIT =>
+                {
+                    retries += 1;
+                    tokio::time::sleep(PIPE_OPEN_RETRY_DELAY).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
         write_json_frame(
             &mut stream,
             &DesktopIpcRequest {
