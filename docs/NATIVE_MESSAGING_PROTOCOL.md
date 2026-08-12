@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` 与用户触发的划词浮层已经完成；尚未完成真实浏览器烟雾、商店 ID 或 `add_word`
+状态：协议、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 与用户触发的划词浮层已经完成；尚未完成真实浏览器烟雾或商店 ID
 
 版本：`1`
 
@@ -113,7 +113,7 @@ approved
 | `pair` | 否 | 只发起桌面确认，不可自行批准 |
 | `ping` | 否 | 不访问模型和数据库 |
 | `translate` | 是 | 文本最多 32 KiB；术语最多 100 条；只允许纯文本/Markdown |
-| `add_word` | 是 | 单条写入；桌面端仍负责去重和数据库事务 |
+| `add_word` | 是，独立 `wordbook` 能力 | 词条 1 KiB、译文 8 KiB、可选上下文 16 KiB；桌面端仍负责去重和数据库事务 |
 | `cancel` | 是 | 只能取消同一会话中属于该 Origin 的请求 |
 
 单个会话最多同时执行 4 个请求。达到上限返回 `busy`，不无限排队。翻译默认超时 60 秒，Host/桌面 IPC 超时返回 `timeout`；断开连接时取消该会话尚未完成的任务。
@@ -176,13 +176,14 @@ approved
 3. 已固定受控开发扩展 ID 并把注册命令接入 NSIS/WiX 安装/卸载；下一步完成 Chrome/Edge `hello` / `ping`、升级与卸载的真实烟雾。
 4. 已建立桌面侧 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已在强制 `hello` 首帧后转发配对申请，桌面未运行、端点过期和 IPC 异常均失败关闭。
 5. 桌面端已实现配对批准、拒绝、授权撤销和最小能力持久化；批准绑定完整 Origin 与申请能力，后续 `hello` 通过桌面私有 IPC 查询状态，能力增加时必须重新确认。
-6. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
+6. 已创建 Manifest V3 service worker，并完成 hello/ping/pair、翻译、取消和收藏转发。
 
 ## 2026-08-12 实现对齐
 
 `translate` / `cancel` 已接入实际 Host 与桌面翻译核心。Host 对翻译请求使用工作线程，使同一 Native Messaging 端口仍可读取相关联的取消请求；响应顺序不作假设，始终以 request ID 关联。划词 UI 已通过用户触发的 `activeTab` 注入暴露该能力；content script 不能连接 Host，只能向 service worker 发送白名单消息。
 
-`add_word` 继续返回不可用，不在本次翻译只读权限中顺带开放数据写入。
-7. 网页划词 UI 已完成；下一步独立实现收藏入口与 `add_word` 写入授权。
+7. 网页划词 UI、收藏入口与 `add_word` 独立写入授权已完成；下一步执行 Chrome / Edge 全链路真实烟雾。
+
+`add_word` 已使用独立 `wordbook` 能力接入桌面生词本。Host 与桌面 IPC 保留经过验证的 Origin 和 request ID；桌面只接收单个词条、译文和可选受限上下文，成功只返回词条 ID。扩展浮层默认不发送页面上下文，旧的 `translation` 授权必须重新确认后才能写入。
 
 任何阶段都不得把桌面密钥复制到扩展存储。

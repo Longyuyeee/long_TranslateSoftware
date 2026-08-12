@@ -13,7 +13,10 @@ function selection(text: string): Selection {
 }
 
 async function install(
-  sendMessage: (message: unknown, callback: (response: unknown) => void) => void,
+  sendMessage: (
+    message: unknown,
+    callback: (response: unknown) => void,
+  ) => void,
   selectedText = "hello world",
 ) {
   document.getElementById("long-translate-selection-root")?.remove();
@@ -42,15 +45,23 @@ describe("selection translation overlay", () => {
       callback({ ok: true, result: { text: "你好，世界" } });
     });
 
-    expect(shadow.querySelector<HTMLButtonElement>(".launcher")?.textContent).toBe("译");
+    expect(
+      shadow.querySelector<HTMLButtonElement>(".launcher")?.textContent,
+    ).toBe("译");
     shadow.querySelector<HTMLButtonElement>(".launcher")?.click();
 
     expect(messages[0]).toMatchObject({
       type: "native-translate",
-      input: { text: "hello world", targetLanguage: "Chinese", format: "plain_text" },
+      input: {
+        text: "hello world",
+        targetLanguage: "Chinese",
+        format: "plain_text",
+      },
     });
     expect(shadow.querySelector(".result")?.textContent).toBe("你好，世界");
-    expect(shadow.querySelector<HTMLButtonElement>(".copy")?.hidden).toBe(false);
+    expect(shadow.querySelector<HTMLButtonElement>(".copy")?.hidden).toBe(
+      false,
+    );
   });
 
   it("focuses the dialog and cancels the correlated task on Escape", async () => {
@@ -61,9 +72,11 @@ describe("selection translation overlay", () => {
     shadow.querySelector<HTMLButtonElement>(".launcher")?.click();
     const translation = messages[0];
     expect(shadow.activeElement).toBe(shadow.querySelector(".cancel"));
-    shadow.querySelector(".panel")?.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
+    shadow
+      .querySelector(".panel")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
 
     expect(messages[1]).toEqual({
       type: "native-cancel",
@@ -84,10 +97,35 @@ describe("selection translation overlay", () => {
     });
   });
 
+  it("shows the wordbook action only after success and saves the selected pair", async () => {
+    const messages: Array<Record<string, unknown>> = [];
+    const shadow = await install((message, callback) => {
+      messages.push(message as Record<string, unknown>);
+      const type = (message as Record<string, unknown>).type;
+      callback(
+        type === "native-translate"
+          ? { ok: true, result: { text: "你好，世界" } }
+          : { ok: true, result: { wordId: "word-123" } },
+      );
+    });
+    shadow.querySelector<HTMLButtonElement>(".launcher")?.click();
+    const save = shadow.querySelector<HTMLButtonElement>(".save");
+    expect(save?.hidden).toBe(false);
+    save?.click();
+
+    expect(messages[1]).toEqual({
+      type: "native-add-word",
+      input: { word: "hello world", translation: "你好，世界" },
+    });
+    expect(save?.textContent).toBe("已收藏");
+  });
+
   it("rejects oversized selections before messaging the desktop", async () => {
     const sendMessage = vi.fn();
     const shadow = await install(sendMessage);
-    vi.mocked(window.getSelection).mockReturnValue(selection("文".repeat(11_000)));
+    vi.mocked(window.getSelection).mockReturnValue(
+      selection("文".repeat(11_000)),
+    );
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     await Promise.resolve();
 

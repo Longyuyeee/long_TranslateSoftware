@@ -1,6 +1,6 @@
 use crate::desktop_ipc::{
-    BrowserCancelRequest, BrowserPairingRequest, BrowserTranslationOutcome,
-    BrowserTranslationRequest, DesktopIpcHandler,
+    BrowserAddWordRequest, BrowserCancelRequest, BrowserPairingRequest, BrowserTranslationOutcome,
+    BrowserTranslationRequest, BrowserWordAddedOutcome, DesktopIpcHandler,
 };
 use crate::native_protocol::{validate_origin, ErrorCode, PairingState, ProtocolError};
 use chrono::Utc;
@@ -346,6 +346,28 @@ impl DesktopIpcHandler for BrowserPairingManager {
             .map_err(|_| io::Error::other("Browser translation cancellation failed"))?;
         Ok(true)
     }
+
+    fn add_word(&self, request: BrowserAddWordRequest) -> BrowserWordAddedOutcome {
+        match self.pairing_state(&request.origin, &["wordbook".to_string()]) {
+            Ok(PairingState::Approved) => {}
+            Ok(_) => return wordbook_error(ErrorCode::PairingRequired, false),
+            Err(_) => return wordbook_error(ErrorCode::InternalError, true),
+        }
+        let context = request.word.context.clone().map(|source| {
+            crate::wordbook::WordContextInput::browser(source, request.word.translation.clone())
+        });
+        match crate::wordbook::add_wordbook_entry(
+            &self.app,
+            request.word.word,
+            None,
+            Some(request.word.translation),
+            None,
+            context,
+        ) {
+            Ok(word_id) => BrowserWordAddedOutcome::Success { word_id },
+            Err(_) => wordbook_error(ErrorCode::InternalError, true),
+        }
+    }
 }
 
 fn translation_error(code: ErrorCode, retryable: bool) -> BrowserTranslationOutcome {
@@ -359,6 +381,16 @@ fn translation_error(code: ErrorCode, retryable: bool) -> BrowserTranslationOutc
         _ => "Desktop translation failed",
     };
     BrowserTranslationOutcome::Error {
+        error: ProtocolError::new(code, message, retryable),
+    }
+}
+
+fn wordbook_error(code: ErrorCode, retryable: bool) -> BrowserWordAddedOutcome {
+    let message = match code {
+        ErrorCode::PairingRequired => "Desktop wordbook approval is required",
+        _ => "Desktop wordbook write failed",
+    };
+    BrowserWordAddedOutcome::Error {
         error: ProtocolError::new(code, message, retryable),
     }
 }

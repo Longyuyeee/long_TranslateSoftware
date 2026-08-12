@@ -46,7 +46,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ### 4.1 浏览器扩展
 
-仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已强制 `hello` 首帧，并可把同端口 `pair` 申请转发到桌面。桌面已完成展示真实 Origin/能力、批准、拒绝、持久化和撤销，后续 `hello` 可查询授权状态。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、`translate` / `cancel` / `add_word`、content script 和划词浮层，不能被描述为“扩展已经可用”。
+仓库已有由桌面 EXE 参数分流运行的 Native Host，并通过真实子进程测试验证 framing、协议握手、非法 Origin、超限帧、非法 JSON 和桌面转发；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的 Manifest V3 工程、service worker、诊断弹窗、用户触发的划词浮层与 NSIS/WiX 安装事务已经实现。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 强制 `hello` 首帧，并转发 `pair`、`translate`、`cancel` 和 `add_word`。桌面已完成真实 Origin/能力展示、批准、拒绝、持久化和撤销。当前仍缺 Chrome/Edge 真实交互烟雾和商店正式 ID，因此仍不能描述为“扩展已经可用”。
 
 另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让 Host 模式直接读取 API Key、数据库或复制一套翻译实现。
 
@@ -86,10 +86,10 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 1. Host 仅实现 `hello` / `ping`，完成 framing、超限、非法 JSON、非法 Origin 和子进程测试；
 2. 加入 Chrome/Edge 注册器基础，验证 manifest 原子替换、重复安装、Origin 升级、所有权保护和卸载；
-3. 已固定受控开发扩展 ID 并接入 NSIS/WiX；下一步完成 Chrome/Edge `hello` / `ping` 真实烟雾；
+3. 已固定受控开发扩展 ID 并接入 NSIS/WiX；待完成 Chrome/Edge `hello` / `ping` 真实烟雾；
 4. 已建立私有 IPC、桌面配对代理和授权管理，跑通 `hello` / `pair`；
-5. 接入 `translate` / `cancel` / `add_word`，复用桌面翻译核心；
-6. 实现扩展 service worker、content script 和隔离样式的划词浮层；
+5. 已接入 `translate` / `cancel` / `add_word`，复用桌面翻译和生词本核心；
+6. 已实现扩展 service worker、content script 和隔离样式的划词浮层；
 7. 完成真实浏览器烟雾、隐私审计、打包说明和发布候选。
 
 ### 5.4 发布门槛
@@ -192,4 +192,4 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 `translate` / `cancel` 已完成 Host、桌面 IPC、WebView 翻译任务和扩展 service worker 的端到端代码接入，并保持每 Origin 4 并发、精确 request ID 取消、65 秒超时和结构化失败。此处实现完成仅指代码与自动门槛，Chrome / Edge 真实烟雾仍未完成。
 
-content script 与划词浮层现已完成，采用 `activeTab + scripting` 用户触发注入，不声明持久网站权限，并以 Shadow DOM 隔离页面样式。后续顺序修订为：`add_word` 独立写入授权 → Chrome / Edge 全链路烟雾 → v0.5.0 收口。PDF / Word 继续排在 v0.5.1。
+content script 与划词浮层现已完成，采用 `activeTab + scripting` 用户触发注入，不声明持久网站权限，并以 Shadow DOM 隔离页面样式。`add_word` 已通过独立 `wordbook` 能力接入桌面生词本，旧翻译授权不会自动获得写入权，浮层只在翻译成功后显示收藏入口且默认不发送页面上下文。后续顺序修订为：Chrome / Edge 全链路烟雾 → v0.5.0 收口。PDF / Word 继续排在 v0.5.1。

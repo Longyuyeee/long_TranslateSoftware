@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   NATIVE_HOST_NAME,
   requestNativePairing,
+  runNativeAddWord,
   runNativeTranslation,
   runNativeSmoke,
   type ChromeEvent,
@@ -122,7 +123,9 @@ describe("browser Native Messaging smoke client", () => {
   it("surfaces Chrome's disconnect reason without hanging", async () => {
     const port = new FakePort();
     const runtime = createRuntime(port);
-    runtime.lastError = { message: "Specified native messaging host not found." };
+    runtime.lastError = {
+      message: "Specified native messaging host not found.",
+    };
     const pending = runNativeSmoke(runtime, 1_000);
     port.onDisconnect.emit();
     await expect(pending).rejects.toThrow("host not found");
@@ -150,7 +153,11 @@ describe("browser Native Messaging smoke client", () => {
       request_id: string;
       payload: { client_nonce: string; capabilities: string[] };
     };
-    expect(hello.payload.capabilities).toEqual(["ping", "translation", "wordbook"]);
+    expect(hello.payload.capabilities).toEqual([
+      "ping",
+      "translation",
+      "wordbook",
+    ]);
     port.onMessage.emit({
       protocol_version: 1,
       request_id: hello.request_id,
@@ -190,26 +197,45 @@ describe("browser Native Messaging smoke client", () => {
 
   it("translates through the approved desktop session", async () => {
     const port = new FakePort();
-    const pending = runNativeTranslation(createRuntime(port), {
-      text: "hello",
-      targetLanguage: "zh-Hans",
-      sourceLanguage: "en",
-    }, undefined, 1_000);
-    const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
+    const pending = runNativeTranslation(
+      createRuntime(port),
+      {
+        text: "hello",
+        targetLanguage: "zh-Hans",
+        sourceLanguage: "en",
+      },
+      undefined,
+      1_000,
+    );
+    const hello = port.posted[0] as {
+      request_id: string;
+      payload: { client_nonce: string };
+    };
     port.onMessage.emit({
       protocol_version: 1,
       request_id: hello.request_id,
       status: "ok",
-      payload: { type: "hello", data: {
-        selected_protocol: 1, desktop_version: "0.4.9", session_id: "session-translate",
-        client_nonce: hello.payload.client_nonce, pairing_state: "approved",
-        capabilities: ["ping", "translation"], limits: {},
-      } },
+      payload: {
+        type: "hello",
+        data: {
+          selected_protocol: 1,
+          desktop_version: "0.4.9",
+          session_id: "session-translate",
+          client_nonce: hello.payload.client_nonce,
+          pairing_state: "approved",
+          capabilities: ["ping", "translation"],
+          limits: {},
+        },
+      },
     });
     const translate = port.posted[1] as { request_id: string };
     expect(translate).toMatchObject({
       action: "translate",
-      payload: { text: "hello", target_language: "zh-Hans", source_language: "en" },
+      payload: {
+        text: "hello",
+        target_language: "zh-Hans",
+        source_language: "en",
+      },
     });
     port.onMessage.emit({
       protocol_version: 1,
@@ -218,7 +244,9 @@ describe("browser Native Messaging smoke client", () => {
       payload: { type: "translation", data: { text: "你好", cached: false } },
     });
     await expect(pending).resolves.toEqual({
-      text: "你好", cached: false, detectedLanguage: undefined,
+      text: "你好",
+      cached: false,
+      detectedLanguage: undefined,
     });
   });
 
@@ -231,25 +259,88 @@ describe("browser Native Messaging smoke client", () => {
       controller.signal,
       1_000,
     );
-    const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
+    const hello = port.posted[0] as {
+      request_id: string;
+      payload: { client_nonce: string };
+    };
     port.onMessage.emit({
-      protocol_version: 1, request_id: hello.request_id, status: "ok",
-      payload: { type: "hello", data: {
-        selected_protocol: 1, desktop_version: "0.4.9", session_id: "session-cancel",
-        client_nonce: hello.payload.client_nonce, pairing_state: "approved",
-        capabilities: ["ping", "translation"], limits: {},
-      } },
+      protocol_version: 1,
+      request_id: hello.request_id,
+      status: "ok",
+      payload: {
+        type: "hello",
+        data: {
+          selected_protocol: 1,
+          desktop_version: "0.4.9",
+          session_id: "session-cancel",
+          client_nonce: hello.payload.client_nonce,
+          pairing_state: "approved",
+          capabilities: ["ping", "translation"],
+          limits: {},
+        },
+      },
     });
     const translate = port.posted[1] as { request_id: string };
     controller.abort();
     const cancel = port.posted[2] as { request_id: string };
     expect(cancel).toMatchObject({
-      action: "cancel", payload: { target_request_id: translate.request_id },
+      action: "cancel",
+      payload: { target_request_id: translate.request_id },
     });
     port.onMessage.emit({
-      protocol_version: 1, request_id: cancel.request_id, status: "ok",
+      protocol_version: 1,
+      request_id: cancel.request_id,
+      status: "ok",
       payload: { type: "cancelled", data: { accepted: true } },
     });
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("requires wordbook approval and returns the persisted word ID", async () => {
+    const port = new FakePort();
+    const pending = runNativeAddWord(
+      createRuntime(port),
+      {
+        word: "hello",
+        translation: "你好",
+      },
+      1_000,
+    );
+    const hello = port.posted[0] as {
+      request_id: string;
+      payload: { client_nonce: string };
+    };
+    expect(hello).toMatchObject({
+      payload: { capabilities: ["ping", "wordbook"] },
+    });
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: hello.request_id,
+      status: "ok",
+      payload: {
+        type: "hello",
+        data: {
+          selected_protocol: 1,
+          desktop_version: "0.4.9",
+          session_id: "session-wordbook",
+          client_nonce: hello.payload.client_nonce,
+          pairing_state: "approved",
+          capabilities: ["ping", "wordbook"],
+          limits: {},
+        },
+      },
+    });
+    const addWord = port.posted[1] as { request_id: string };
+    expect(addWord).toMatchObject({
+      action: "add_word",
+      payload: { word: "hello", translation: "你好" },
+    });
+    port.onMessage.emit({
+      protocol_version: 1,
+      request_id: addWord.request_id,
+      status: "ok",
+      payload: { type: "word_added", data: { word_id: "word-123" } },
+    });
+    await expect(pending).resolves.toEqual({ wordId: "word-123" });
   });
 });

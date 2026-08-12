@@ -55,6 +55,16 @@ export interface NativeTranslationResult {
   detectedLanguage?: string;
 }
 
+export interface NativeAddWordInput {
+  word: string;
+  translation: string;
+  context?: string;
+}
+
+export interface NativeAddWordResult {
+  wordId: string;
+}
+
 interface HelloData {
   selected_protocol: number;
   desktop_version: string;
@@ -126,7 +136,9 @@ export function runNativeSmoke(
         const response = parseNativeResponse(message, pingRequestId);
         const pong = parsePong(response);
         if (pong.desktop_version !== hello.desktop_version) {
-          throw new Error("Native Host version changed during the smoke session");
+          throw new Error(
+            "Native Host version changed during the smoke session",
+          );
         }
         finish({
           desktopVersion: hello.desktop_version,
@@ -140,11 +152,17 @@ export function runNativeSmoke(
 
     const onDisconnect = () => {
       const message = runtime.lastError?.message?.trim();
-      fail(new Error(message || "Native Host disconnected before the smoke check completed"));
+      fail(
+        new Error(
+          message ||
+            "Native Host disconnected before the smoke check completed",
+        ),
+      );
     };
 
     const timer = setTimeout(
-      () => fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
+      () =>
+        fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
       timeoutMs,
     );
 
@@ -153,7 +171,12 @@ export function runNativeSmoke(
 
     try {
       port.postMessage(
-        createHelloRequest(runtime.getManifest().version, helloRequestId, nonce, ["ping"]),
+        createHelloRequest(
+          runtime.getManifest().version,
+          helloRequestId,
+          nonce,
+          ["ping"],
+        ),
       );
     } catch (error) {
       fail(error);
@@ -206,7 +229,10 @@ export function requestNativePairing(
     const onMessage = (message: unknown) => {
       try {
         if (!hello) {
-          hello = parseHello(parseNativeResponse(message, helloRequestId), nonce);
+          hello = parseHello(
+            parseNativeResponse(message, helloRequestId),
+            nonce,
+          );
           port.postMessage(createPairRequest(pairRequestId, displayName));
           return;
         }
@@ -228,10 +254,15 @@ export function requestNativePairing(
     };
     const onDisconnect = () => {
       const message = runtime.lastError?.message?.trim();
-      fail(new Error(message || "Native Host disconnected before pairing completed"));
+      fail(
+        new Error(
+          message || "Native Host disconnected before pairing completed",
+        ),
+      );
     };
     const timer = setTimeout(
-      () => fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
+      () =>
+        fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
       timeoutMs,
     );
 
@@ -239,11 +270,12 @@ export function requestNativePairing(
     port.onDisconnect.addListener(onDisconnect);
     try {
       port.postMessage(
-        createHelloRequest(runtime.getManifest().version, helloRequestId, nonce, [
-          "ping",
-          "translation",
-          "wordbook",
-        ]),
+        createHelloRequest(
+          runtime.getManifest().version,
+          helloRequestId,
+          nonce,
+          ["ping", "translation", "wordbook"],
+        ),
       );
     } catch (error) {
       fail(error);
@@ -279,7 +311,11 @@ export function runNativeTranslation(
       signal?.removeEventListener("abort", onAbort);
       port.onMessage.removeListener(onMessage);
       port.onDisconnect.removeListener(onDisconnect);
-      try { port.disconnect(); } catch { /* Chromium may already have closed it. */ }
+      try {
+        port.disconnect();
+      } catch {
+        /* Chromium may already have closed it. */
+      }
     };
     const finish = (result: NativeTranslationResult) => {
       if (settled) return;
@@ -299,12 +335,14 @@ export function runNativeTranslation(
         return;
       }
       try {
-        port.postMessage(createNativeRequest({
-          protocol_version: NATIVE_PROTOCOL_VERSION,
-          request_id: cancelRequestId,
-          action: "cancel",
-          payload: { target_request_id: translateRequestId },
-        }));
+        port.postMessage(
+          createNativeRequest({
+            protocol_version: NATIVE_PROTOCOL_VERSION,
+            request_id: cancelRequestId,
+            action: "cancel",
+            payload: { target_request_id: translateRequestId },
+          }),
+        );
       } catch (error) {
         fail(error);
       }
@@ -312,7 +350,10 @@ export function runNativeTranslation(
     const onMessage = (message: unknown) => {
       try {
         if (!helloCompleted) {
-          const hello = parseHello(parseNativeResponse(message, helloRequestId), nonce);
+          const hello = parseHello(
+            parseNativeResponse(message, helloRequestId),
+            nonce,
+          );
           if (hello.pairing_state !== "approved") {
             throw new Error("pairing_required: Desktop approval is required");
           }
@@ -321,33 +362,44 @@ export function runNativeTranslation(
           }
           helloCompleted = true;
           translateStarted = true;
-          port.postMessage(createNativeRequest({
-            protocol_version: NATIVE_PROTOCOL_VERSION,
-            request_id: translateRequestId,
-            action: "translate",
-            payload: {
-              text: input.text,
-              target_language: input.targetLanguage,
-              source_language: input.sourceLanguage,
-              format: input.format || "plain_text",
-              glossary: input.glossary || [],
-            },
-          }));
+          port.postMessage(
+            createNativeRequest({
+              protocol_version: NATIVE_PROTOCOL_VERSION,
+              request_id: translateRequestId,
+              action: "translate",
+              payload: {
+                text: input.text,
+                target_language: input.targetLanguage,
+                source_language: input.sourceLanguage,
+                format: input.format || "plain_text",
+                glossary: input.glossary || [],
+              },
+            }),
+          );
           if (signal?.aborted) onAbort();
           return;
         }
 
         if (isRecord(message) && message.request_id === cancelRequestId) {
           const response = parseNativeResponse(message, cancelRequestId);
-          if (response.status !== "ok" || response.payload.type !== "cancelled") {
-            throw responseError(response, "Native Host could not cancel translation");
+          if (
+            response.status !== "ok" ||
+            response.payload.type !== "cancelled"
+          ) {
+            throw responseError(
+              response,
+              "Native Host could not cancel translation",
+            );
           }
           fail(new DOMException("Translation cancelled", "AbortError"));
           return;
         }
 
         const response = parseNativeResponse(message, translateRequestId);
-        if (response.status !== "ok" || response.payload.type !== "translation") {
+        if (
+          response.status !== "ok" ||
+          response.payload.type !== "translation"
+        ) {
           throw responseError(response, "Native Host rejected translation");
         }
         const data = response.payload.data;
@@ -371,10 +423,15 @@ export function runNativeTranslation(
       }
     };
     const onDisconnect = () => {
-      fail(new Error(runtime.lastError?.message?.trim() || "Native Host disconnected"));
+      fail(
+        new Error(
+          runtime.lastError?.message?.trim() || "Native Host disconnected",
+        ),
+      );
     };
     const timer = setTimeout(
-      () => fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
+      () =>
+        fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
       timeoutMs,
     );
 
@@ -382,12 +439,128 @@ export function runNativeTranslation(
     port.onDisconnect.addListener(onDisconnect);
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
-      port.postMessage(createHelloRequest(
-        runtime.getManifest().version,
-        helloRequestId,
-        nonce,
-        ["ping", "translation"],
-      ));
+      port.postMessage(
+        createHelloRequest(
+          runtime.getManifest().version,
+          helloRequestId,
+          nonce,
+          ["ping", "translation"],
+        ),
+      );
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
+
+export function runNativeAddWord(
+  runtime: NativeRuntime,
+  input: NativeAddWordInput,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<NativeAddWordResult> {
+  const helloRequestId = createRequestId("hello");
+  const addWordRequestId = createRequestId("add-word");
+  const nonce = createRequestId("nonce");
+  return new Promise((resolve, reject) => {
+    let port: NativePort;
+    try {
+      port = runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    let settled = false;
+    let helloCompleted = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      port.onMessage.removeListener(onMessage);
+      port.onDisconnect.removeListener(onDisconnect);
+      try {
+        port.disconnect();
+      } catch {
+        /* Chromium may already have closed it. */
+      }
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const finish = (result: NativeAddWordResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const onMessage = (message: unknown) => {
+      try {
+        if (!helloCompleted) {
+          const hello = parseHello(
+            parseNativeResponse(message, helloRequestId),
+            nonce,
+          );
+          if (hello.pairing_state !== "approved") {
+            throw new Error(
+              "pairing_required: Desktop wordbook approval is required",
+            );
+          }
+          if (!hello.capabilities.includes("wordbook")) {
+            throw new Error("Native Host does not support wordbook writes");
+          }
+          helloCompleted = true;
+          port.postMessage(
+            createNativeRequest({
+              protocol_version: NATIVE_PROTOCOL_VERSION,
+              request_id: addWordRequestId,
+              action: "add_word",
+              payload: input,
+            }),
+          );
+          return;
+        }
+        const response = parseNativeResponse(message, addWordRequestId);
+        if (
+          response.status !== "ok" ||
+          response.payload.type !== "word_added"
+        ) {
+          throw responseError(response, "Native Host rejected wordbook write");
+        }
+        const data = response.payload.data;
+        if (
+          !isRecord(data) ||
+          typeof data.word_id !== "string" ||
+          !data.word_id
+        ) {
+          throw new Error("Native Host returned invalid wordbook data");
+        }
+        finish({ wordId: data.word_id });
+      } catch (error) {
+        fail(error);
+      }
+    };
+    const onDisconnect = () =>
+      fail(
+        new Error(
+          runtime.lastError?.message?.trim() || "Native Host disconnected",
+        ),
+      );
+    const timer = setTimeout(
+      () =>
+        fail(new Error(`Native Host did not respond within ${timeoutMs} ms`)),
+      timeoutMs,
+    );
+    port.onMessage.addListener(onMessage);
+    port.onDisconnect.addListener(onDisconnect);
+    try {
+      port.postMessage(
+        createHelloRequest(
+          runtime.getManifest().version,
+          helloRequestId,
+          nonce,
+          ["ping", "wordbook"],
+        ),
+      );
     } catch (error) {
       fail(error);
     }
@@ -414,7 +587,10 @@ function createHelloRequest(
   });
 }
 
-function createPairRequest(requestId: string, displayName: string): NativeRequest {
+function createPairRequest(
+  requestId: string,
+  displayName: string,
+): NativeRequest {
   return createNativeRequest({
     protocol_version: NATIVE_PROTOCOL_VERSION,
     request_id: requestId,
@@ -436,7 +612,8 @@ function parseHello(response: NativeResponse, nonce: string): HelloData {
     throw responseError(response, "Native Host rejected hello");
   }
   const data = response.payload.data;
-  if (!isRecord(data)) throw new Error("Native Host returned invalid hello data");
+  if (!isRecord(data))
+    throw new Error("Native Host returned invalid hello data");
   const pairingState = data.pairing_state;
   if (
     data.selected_protocol !== NATIVE_PROTOCOL_VERSION ||
@@ -474,14 +651,20 @@ function parsePong(response: NativeResponse): PongData {
 }
 
 function responseError(response: NativeResponse, fallback: string): Error {
-  return new Error(response.status === "error" ? `${response.error.code}: ${response.error.message}` : fallback);
+  return new Error(
+    response.status === "error"
+      ? `${response.error.code}: ${response.error.message}`
+      : fallback,
+  );
 }
 
 function createRequestId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function isPairingState(value: unknown): value is NativeSmokeResult["pairingState"] {
+function isPairingState(
+  value: unknown,
+): value is NativeSmokeResult["pairingState"] {
   return value === "required" || value === "pending" || value === "approved";
 }
 

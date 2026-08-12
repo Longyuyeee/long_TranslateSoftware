@@ -26,6 +26,16 @@ pub struct WordContextInput {
     source_type: String,
 }
 
+impl WordContextInput {
+    pub(crate) fn browser(source_text: String, translated_text: String) -> Self {
+        Self {
+            source_text,
+            translated_text: Some(translated_text),
+            source_type: "browser_selection".to_string(),
+        }
+    }
+}
+
 fn escape_like(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -169,7 +179,22 @@ pub fn add_to_wordbook(
     analysis: Option<String>,
     context: Option<WordContextInput>,
 ) -> Result<(), String> {
-    let conn = open_wordbook(&app)?;
+    add_wordbook_entry(&app, word, phonetic, meaning, analysis, context).map(|_| ())
+}
+
+pub(crate) fn add_wordbook_entry(
+    app: &AppHandle,
+    word: String,
+    phonetic: Option<String>,
+    meaning: Option<String>,
+    analysis: Option<String>,
+    context: Option<WordContextInput>,
+) -> Result<String, String> {
+    let word = word.trim().to_string();
+    if word.is_empty() {
+        return Err("Word cannot be empty".to_string());
+    }
+    let conn = open_wordbook(app)?;
     let existing_uuid: Option<String> = conn
         .query_row(
             "SELECT uuid FROM wordbook WHERE word = ?1 AND is_deleted = 0",
@@ -216,7 +241,8 @@ pub fn add_to_wordbook(
         }
     }
     app.emit("wordbook-updated", "local")
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(uuid)
 }
 
 #[tauri::command]
