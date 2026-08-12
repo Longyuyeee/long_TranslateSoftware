@@ -1,6 +1,9 @@
 export const NATIVE_PROTOCOL_VERSION = 1 as const;
 export const NATIVE_MAX_MESSAGE_BYTES = 1024 * 1024;
 export const NATIVE_MAX_TEXT_BYTES = 32 * 1024;
+export const NATIVE_MAX_WORD_BYTES = 1024;
+export const NATIVE_MAX_WORD_TRANSLATION_BYTES = 8 * 1024;
+export const NATIVE_MAX_WORD_CONTEXT_BYTES = 16 * 1024;
 export const NATIVE_MAX_GLOSSARY_ENTRIES = 100;
 export const NATIVE_MAX_IN_FLIGHT_REQUESTS = 4;
 
@@ -112,9 +115,7 @@ const RESPONSE_TYPES = [
 ] as const;
 const textEncoder = new TextEncoder();
 
-export function createNativeRequest(
-  request: NativeRequest,
-): NativeRequest {
+export function createNativeRequest(request: NativeRequest): NativeRequest {
   if (request.protocol_version !== NATIVE_PROTOCOL_VERSION) {
     throw new Error("Unsupported native messaging protocol version");
   }
@@ -136,6 +137,29 @@ export function createNativeRequest(
     request.payload.glossary.length > NATIVE_MAX_GLOSSARY_ENTRIES
   ) {
     throw new Error("Too many native messaging glossary entries");
+  }
+  if (request.action === "add_word") {
+    if (
+      !request.payload.word.trim() ||
+      textEncoder.encode(request.payload.word).byteLength >
+        NATIVE_MAX_WORD_BYTES
+    ) {
+      throw new Error("Word must be non-empty and at most 1 KiB");
+    }
+    if (
+      !request.payload.translation.trim() ||
+      textEncoder.encode(request.payload.translation).byteLength >
+        NATIVE_MAX_WORD_TRANSLATION_BYTES
+    ) {
+      throw new Error("Word translation must be non-empty and at most 8 KiB");
+    }
+    if (
+      request.payload.context !== undefined &&
+      textEncoder.encode(request.payload.context).byteLength >
+        NATIVE_MAX_WORD_CONTEXT_BYTES
+    ) {
+      throw new Error("Word context exceeds 16 KiB");
+    }
   }
   return request;
 }

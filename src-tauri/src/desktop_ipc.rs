@@ -1,6 +1,6 @@
 use crate::native_protocol::{
-    validate_origin, CancelRequest, ErrorCode, PairingState, ProtocolError, Request,
-    RequestEnvelope, TranslateRequest, TranslationResponse, PROTOCOL_VERSION,
+    validate_origin, AddWordRequest, CancelRequest, ErrorCode, PairingState, ProtocolError,
+    Request, RequestEnvelope, TranslateRequest, TranslationResponse, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -36,6 +36,7 @@ enum DesktopIpcAction {
     PairingState(BrowserPairingIdentity),
     RequestPairing(BrowserPairingRequest),
     Translate(BrowserTranslationRequest),
+    AddWord(BrowserAddWordRequest),
     Cancel(BrowserCancelRequest),
 }
 
@@ -58,6 +59,7 @@ enum DesktopIpcPayload {
     Probe { desktop_version: String },
     Pairing { pairing_state: PairingState },
     Translation { outcome: BrowserTranslationOutcome },
+    WordAdded { outcome: BrowserWordAddedOutcome },
     Cancelled { accepted: bool },
 }
 
@@ -95,9 +97,23 @@ pub struct BrowserCancelRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserAddWordRequest {
+    pub origin: String,
+    pub word: AddWordRequest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum BrowserTranslationOutcome {
     Success { response: TranslationResponse },
+    Error { error: ProtocolError },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum BrowserWordAddedOutcome {
+    Success { word_id: String },
     Error { error: ProtocolError },
 }
 
@@ -123,6 +139,15 @@ pub trait DesktopIpcHandler: Send + Sync + 'static {
     }
     fn cancel(&self, _request: BrowserCancelRequest) -> io::Result<bool> {
         Ok(false)
+    }
+    fn add_word(&self, _request: BrowserAddWordRequest) -> BrowserWordAddedOutcome {
+        BrowserWordAddedOutcome::Error {
+            error: ProtocolError::new(
+                ErrorCode::DesktopUnavailable,
+                "Desktop wordbook bridge is unavailable",
+                true,
+            ),
+        }
     }
 }
 
@@ -393,6 +418,20 @@ mod windows {
                         }
                     }
                 }
+                DesktopIpcAction::AddWord(request) => {
+                    if validate_add_word_request(&request).is_err() {
+                        DesktopIpcResponse::Error {
+                            code: DesktopIpcErrorCode::InvalidMessage,
+                            retryable: false,
+                        }
+                    } else {
+                        let outcome = handler.add_word(request);
+                        DesktopIpcResponse::Ok {
+                            protocol_version: DESKTOP_IPC_VERSION,
+                            payload: DesktopIpcPayload::WordAdded { outcome },
+                        }
+                    }
+                }
                 DesktopIpcAction::Cancel(request) => {
                     if validate_cancel_request(&request).is_err() {
                         DesktopIpcResponse::Error {
@@ -502,6 +541,15 @@ mod windows {
         })
     }
 
+    pub fn add_word_blocking(
+        endpoint_path: &Path,
+        request: BrowserAddWordRequest,
+    ) -> io::Result<BrowserWordAddedOutcome> {
+        run_client_blocking(endpoint_path, move |path| async move {
+            add_word(&path, request).await
+        })
+    }
+
     fn run_client_blocking<T, F, Fut>(endpoint_path: &Path, operation: F) -> io::Result<T>
     where
         T: Send + 'static,
@@ -574,6 +622,21 @@ mod windows {
                 payload: DesktopIpcPayload::Cancelled { accepted },
             } => Ok(accepted),
             response => Err(response_error(response, "cancellation")),
+        }
+    }
+
+    async fn add_word(
+        endpoint_path: &Path,
+        request: BrowserAddWordRequest,
+    ) -> io::Result<BrowserWordAddedOutcome> {
+        validate_add_word_request(&request)?;
+        let mut stream = open_client(endpoint_path, DesktopIpcAction::AddWord(request)).await?;
+        match read_json_frame::<_, DesktopIpcResponse>(&mut stream).await? {
+            DesktopIpcResponse::Ok {
+                protocol_version: DESKTOP_IPC_VERSION,
+                payload: DesktopIpcPayload::WordAdded { outcome },
+            } => Ok(outcome),
+            response => Err(response_error(response, "wordbook write")),
         }
     }
 
@@ -727,6 +790,7 @@ mod windows {
             pairing_state: Mutex<PairingState>,
             translations: Mutex<Vec<BrowserTranslationRequest>>,
             cancellations: Mutex<Vec<BrowserCancelRequest>>,
+            words: Mutex<Vec<BrowserAddWordRequest>>,
         }
 
         impl Default for RecordingHandler {
@@ -736,6 +800,7 @@ mod windows {
                     pairing_state: Mutex::new(PairingState::Required),
                     translations: Mutex::new(Vec::new()),
                     cancellations: Mutex::new(Vec::new()),
+                    words: Mutex::new(Vec::new()),
                 }
             }
         }
@@ -768,6 +833,13 @@ mod windows {
             fn cancel(&self, request: BrowserCancelRequest) -> io::Result<bool> {
                 self.cancellations.lock().unwrap().push(request);
                 Ok(true)
+            }
+
+            fn add_word(&self, request: BrowserAddWordRequest) -> BrowserWordAddedOutcome {
+                self.words.lock().unwrap().push(request);
+                BrowserWordAddedOutcome::Success {
+                    word_id: "word-123".to_string(),
+                }
             }
         }
 
@@ -923,6 +995,20 @@ mod windows {
             )
             .await
             .unwrap());
+            let word_request = BrowserAddWordRequest {
+                origin: origin.to_string(),
+                word: AddWordRequest {
+                    word: "hello".to_string(),
+                    translation: "你好".to_string(),
+                    context: None,
+                },
+            };
+            assert_eq!(
+                add_word(&endpoint, word_request.clone()).await.unwrap(),
+                BrowserWordAddedOutcome::Success {
+                    word_id: "word-123".to_string(),
+                }
+            );
             assert_eq!(
                 *handler.translations.lock().unwrap(),
                 vec![BrowserTranslationRequest {
@@ -938,6 +1024,7 @@ mod windows {
                     target_request_id: "translate-1".to_string(),
                 }]
             );
+            assert_eq!(*handler.words.lock().unwrap(), vec![word_request]);
 
             drop(state);
             let _ = fs::remove_dir_all(app_dir);
@@ -947,8 +1034,8 @@ mod windows {
 
 #[cfg(windows)]
 pub use windows::{
-    cancel_blocking, pairing_state_blocking, probe, request_pairing, request_pairing_blocking,
-    start_server, translate_blocking,
+    add_word_blocking, cancel_blocking, pairing_state_blocking, probe, request_pairing,
+    request_pairing_blocking, start_server, translate_blocking,
 };
 
 #[cfg(not(windows))]
@@ -995,6 +1082,17 @@ pub fn translate_blocking(
 
 #[cfg(not(windows))]
 pub fn cancel_blocking(_endpoint_path: &Path, _request: BrowserCancelRequest) -> io::Result<bool> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Desktop browser IPC is currently supported only on Windows",
+    ))
+}
+
+#[cfg(not(windows))]
+pub fn add_word_blocking(
+    _endpoint_path: &Path,
+    _request: BrowserAddWordRequest,
+) -> io::Result<BrowserWordAddedOutcome> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "Desktop browser IPC is currently supported only on Windows",
@@ -1055,6 +1153,18 @@ fn validate_cancel_request(request: &BrowserCancelRequest) -> io::Result<()> {
     }
     .validate()
     .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid cancellation request"))
+}
+
+fn validate_add_word_request(request: &BrowserAddWordRequest) -> io::Result<()> {
+    validate_origin(&request.origin, std::slice::from_ref(&request.origin))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid extension origin"))?;
+    RequestEnvelope {
+        protocol_version: PROTOCOL_VERSION,
+        request_id: "desktop-add-word".to_string(),
+        request: Request::AddWord(request.word.clone()),
+    }
+    .validate()
+    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid wordbook request"))
 }
 
 #[cfg(test)]

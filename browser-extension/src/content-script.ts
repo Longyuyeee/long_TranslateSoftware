@@ -22,7 +22,8 @@ const textEncoder = new TextEncoder();
 function installSelectionOverlay(runtime: SelectionRuntime): void {
   const host = document.createElement("div");
   host.id = ROOT_ID;
-  host.style.cssText = "all:initial;position:fixed;inset:0 auto auto 0;z-index:2147483647;";
+  host.style.cssText =
+    "all:initial;position:fixed;inset:0 auto auto 0;z-index:2147483647;";
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `<style>${overlayStyles}</style><div id="mount"></div>`;
   document.documentElement.append(host);
@@ -44,8 +45,16 @@ function installSelectionOverlay(runtime: SelectionRuntime): void {
     selectedText = text;
     taskId = undefined;
     mount.innerHTML = `<button class="launcher" type="button" aria-label="翻译所选文字">译</button>`;
-    position(mount.firstElementChild as HTMLElement, rect.right + 8, rect.bottom + 8, 42, 42);
-    mount.querySelector("button")?.addEventListener("click", () => showPanel(rect));
+    position(
+      mount.firstElementChild as HTMLElement,
+      rect.right + 8,
+      rect.bottom + 8,
+      42,
+      42,
+    );
+    mount
+      .querySelector("button")
+      ?.addEventListener("click", () => showPanel(rect));
   };
 
   const showPanel = (rect: DOMRect) => {
@@ -60,13 +69,20 @@ function installSelectionOverlay(runtime: SelectionRuntime): void {
         <div class="result" role="status" aria-live="polite"><span class="spinner"></span>正在翻译…</div>
         <footer>
           <button class="cancel" type="button">取消</button>
+          <button class="save" type="button" hidden>收藏到生词本</button>
           <button class="copy" type="button" hidden>复制译文</button>
           <button class="close" type="button" aria-label="关闭">×</button>
         </footer>
       </section>`;
     const panel = mount.querySelector<HTMLElement>(".panel");
     if (!panel) return;
-    position(panel, rect.left, rect.bottom + 10, Math.min(340, window.innerWidth - 24), 220);
+    position(
+      panel,
+      rect.left,
+      rect.bottom + 10,
+      Math.min(340, window.innerWidth - 24),
+      220,
+    );
     const source = panel.querySelector<HTMLElement>(".source");
     if (source) source.textContent = selectedText;
     panel.querySelector(".cancel")?.addEventListener("click", () => {
@@ -81,37 +97,81 @@ function installSelectionOverlay(runtime: SelectionRuntime): void {
     });
     panel.querySelector<HTMLButtonElement>(".cancel")?.focus();
 
-    runtime.sendMessage({
-      type: "native-translate",
-      taskId,
-      input: {
-        text: selectedText,
-        targetLanguage,
-        format: "plain_text",
+    runtime.sendMessage(
+      {
+        type: "native-translate",
+        taskId,
+        input: {
+          text: selectedText,
+          targetLanguage,
+          format: "plain_text",
+        },
       },
-    }, (response) => {
-      if (taskId !== currentTaskId) return;
-      taskId = undefined;
-      const runtimeError = runtime.lastError?.message?.trim();
-      const reply = isReply(response) ? response : undefined;
-      const translated = reply?.ok ? reply.result?.text?.trim() : undefined;
-      if (runtimeError || !translated) {
-        setResult(panel, friendlyError(runtimeError || reply?.error), "error");
-        return;
-      }
-      setResult(panel, translated, "success");
-      const copy = panel.querySelector<HTMLButtonElement>(".copy");
-      if (copy) {
-        copy.hidden = false;
-        copy.addEventListener("click", () => {
-          void navigator.clipboard.writeText(translated).then(() => {
-            copy.textContent = "已复制";
-          }).catch(() => {
-            copy.textContent = "复制失败";
+      (response) => {
+        if (taskId !== currentTaskId) return;
+        taskId = undefined;
+        const runtimeError = runtime.lastError?.message?.trim();
+        const reply = isReply(response) ? response : undefined;
+        const translated = reply?.ok ? reply.result?.text?.trim() : undefined;
+        if (runtimeError || !translated) {
+          setResult(
+            panel,
+            friendlyError(runtimeError || reply?.error),
+            "error",
+          );
+          return;
+        }
+        setResult(panel, translated, "success");
+        const copy = panel.querySelector<HTMLButtonElement>(".copy");
+        const save = panel.querySelector<HTMLButtonElement>(".save");
+        if (save) {
+          save.hidden = false;
+          save.addEventListener("click", () => {
+            if (save.dataset.saved === "true") return;
+            save.disabled = true;
+            save.textContent = "正在收藏…";
+            runtime.sendMessage(
+              {
+                type: "native-add-word",
+                input: { word: selectedText, translation: translated },
+              },
+              (saveResponse) => {
+                const saveError = runtime.lastError?.message?.trim();
+                const saveReply = isReply(saveResponse)
+                  ? saveResponse
+                  : undefined;
+                if (saveError || !saveReply?.ok) {
+                  save.disabled = false;
+                  save.textContent = friendlySaveError(
+                    saveError || saveReply?.error,
+                  );
+                  return;
+                }
+                save.dataset.saved = "true";
+                save.textContent = "已收藏";
+              },
+            );
           });
-        }, { once: true });
-      }
-    });
+        }
+        if (copy) {
+          copy.hidden = false;
+          copy.addEventListener(
+            "click",
+            () => {
+              void navigator.clipboard
+                .writeText(translated)
+                .then(() => {
+                  copy.textContent = "已复制";
+                })
+                .catch(() => {
+                  copy.textContent = "复制失败";
+                });
+            },
+            { once: true },
+          );
+        }
+      },
+    );
   };
 
   const inspectSelection = (event: Event) => {
@@ -126,7 +186,10 @@ function installSelectionOverlay(runtime: SelectionRuntime): void {
         return;
       }
       if (textEncoder.encode(text).byteLength > MAX_SELECTION_BYTES) {
-        showMessage(selection.getRangeAt(0).getBoundingClientRect(), "所选文字超过 32 KiB");
+        showMessage(
+          selection.getRangeAt(0).getBoundingClientRect(),
+          "所选文字超过 32 KiB",
+        );
         return;
       }
       showLauncher(text, selection.getRangeAt(0).getBoundingClientRect());
@@ -134,9 +197,13 @@ function installSelectionOverlay(runtime: SelectionRuntime): void {
   };
 
   document.addEventListener("mouseup", inspectSelection, true);
-  document.addEventListener("keyup", (event) => {
-    if (event.key === "Shift" || event.shiftKey) inspectSelection(event);
-  }, true);
+  document.addEventListener(
+    "keyup",
+    (event) => {
+      if (event.key === "Shift" || event.shiftKey) inspectSelection(event);
+    },
+    true,
+  );
 
   window.addEventListener("pagehide", () => hide(true), { once: true });
 
@@ -163,11 +230,25 @@ function targetFor(text: string): "Chinese" | "English" {
 
 function friendlyError(error?: string): string {
   if (error?.includes("pairing_required")) return "请先在桌面端批准浏览器配对";
-  if (error?.toLowerCase().includes("desktop") || error?.includes("host not found")) {
+  if (
+    error?.toLowerCase().includes("desktop") ||
+    error?.includes("host not found")
+  ) {
     return "请先启动 Long Translate 桌面端";
   }
   if (error?.includes("cancel")) return "已取消";
   return "翻译失败，请稍后重试";
+}
+
+function friendlySaveError(error?: string): string {
+  if (error?.includes("pairing_required")) return "请更新桌面授权";
+  if (
+    error?.toLowerCase().includes("desktop") ||
+    error?.includes("host not found")
+  ) {
+    return "桌面端未运行";
+  }
+  return "收藏失败，请重试";
 }
 
 function isReply(value: unknown): value is TranslationReply {
@@ -176,10 +257,22 @@ function isReply(value: unknown): value is TranslationReply {
   return typeof reply.ok === "boolean";
 }
 
-function position(element: HTMLElement, x: number, y: number, width: number, height: number): void {
+function position(
+  element: HTMLElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
   const margin = 12;
-  const left = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
-  const top = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+  const left = Math.max(
+    margin,
+    Math.min(x, window.innerWidth - width - margin),
+  );
+  const top = Math.max(
+    margin,
+    Math.min(y, window.innerHeight - height - margin),
+  );
   element.style.left = `${left}px`;
   element.style.top = `${top}px`;
 }
@@ -200,7 +293,7 @@ const overlayStyles = `
   .spinner { display: inline-block; width: 12px; height: 12px; margin-right: 7px; border: 2px solid #bdc9df; border-top-color: #5b7cfa; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
   footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   footer button { min-height: 30px; border: 0; border-radius: 8px; padding: 0 10px; background: #e8eef9; color: #34425a; cursor: pointer; }
-  footer .copy { background: #5b7cfa; color: #fff; }
+  footer .copy, footer .save { background: #5b7cfa; color: #fff; }
   footer .close { width: 30px; padding: 0; font-size: 18px; }
   .notice { position: fixed; min-width: 220px; border-radius: 10px; background: #172033; color: #fff; box-shadow: 0 10px 30px rgb(15 23 42 / 24%); padding: 11px 13px; font: 12px/1.4 Inter, "Segoe UI", sans-serif; }
   @media (prefers-color-scheme: dark) {
@@ -212,7 +305,9 @@ const overlayStyles = `
   @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
-const selectionChrome = (globalThis as typeof globalThis & { chrome?: SelectionChrome }).chrome;
+const selectionChrome = (
+  globalThis as typeof globalThis & { chrome?: SelectionChrome }
+).chrome;
 if (selectionChrome && !document.getElementById(ROOT_ID)) {
   installSelectionOverlay(selectionChrome.runtime);
 }

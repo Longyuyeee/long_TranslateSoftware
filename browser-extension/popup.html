@@ -15,14 +15,32 @@
       </div>
       <p id="status" class="status" role="status">尚未检查</p>
       <dl id="details" hidden>
-        <div><dt>桌面版本</dt><dd id="desktop-version">—</dd></div>
-        <div><dt>配对状态</dt><dd id="pairing-state">—</dd></div>
-        <div><dt>往返耗时</dt><dd id="latency">—</dd></div>
+        <div>
+          <dt>桌面版本</dt>
+          <dd id="desktop-version">—</dd>
+        </div>
+        <div>
+          <dt>配对状态</dt>
+          <dd id="pairing-state">—</dd>
+        </div>
+        <div>
+          <dt>往返耗时</dt>
+          <dd id="latency">—</dd>
+        </div>
       </dl>
-      <button id="enable-selection" type="button">在当前页面启用划词翻译</button>
-      <p id="selection-status" class="selection-status" role="status">刷新页面后自动失效</p>
+      <button id="enable-selection" type="button">
+        在当前页面启用划词翻译
+      </button>
+      <p id="selection-status" class="selection-status" role="status">
+        刷新页面后自动失效
+      </p>
+      <button id="pair" class="secondary" type="button">
+        申请或更新桌面授权
+      </button>
       <button id="check" class="secondary" type="button">检查桌面连接</button>
-      <p class="hint">仅在你明确启用的当前页面读取所选文字；点击“译”后才发送到桌面端。</p>
+      <p class="hint">
+        仅在你明确启用的当前页面读取所选文字；点击“译”后才发送到桌面端。
+      </p>
     </main>
     <script type="module" src="/src/popup.ts"></script>
   </body>

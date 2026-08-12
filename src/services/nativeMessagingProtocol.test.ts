@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   createNativeRequest,
   NATIVE_MAX_TEXT_BYTES,
+  NATIVE_MAX_WORD_BYTES,
+  NATIVE_MAX_WORD_CONTEXT_BYTES,
   parseNativeResponse,
 } from "./nativeMessagingProtocol";
 
@@ -21,6 +23,32 @@ describe("native messaging protocol", () => {
         },
       }),
     ).toMatchObject({ protocol_version: 1, request_id: "hello-1" });
+  });
+
+  it("rejects invalid wordbook writes before opening the native channel", () => {
+    expect(() =>
+      createNativeRequest({
+        protocol_version: 1,
+        request_id: "word-1",
+        action: "add_word",
+        payload: {
+          word: "x".repeat(NATIVE_MAX_WORD_BYTES + 1),
+          translation: "译文",
+        },
+      }),
+    ).toThrow("Word must be non-empty and at most 1 KiB");
+    expect(() =>
+      createNativeRequest({
+        protocol_version: 1,
+        request_id: "word-2",
+        action: "add_word",
+        payload: {
+          word: "word",
+          translation: "译文",
+          context: "x".repeat(NATIVE_MAX_WORD_CONTEXT_BYTES + 1),
+        },
+      }),
+    ).toThrow("Word context exceeds 16 KiB");
   });
 
   it("rejects unsafe IDs and oversized translation text", () => {

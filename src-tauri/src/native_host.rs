@@ -1,12 +1,12 @@
 use crate::desktop_ipc::{
-    self, BrowserCancelRequest, BrowserPairingRequest, BrowserTranslationOutcome,
-    BrowserTranslationRequest,
+    self, BrowserAddWordRequest, BrowserCancelRequest, BrowserPairingRequest,
+    BrowserTranslationOutcome, BrowserTranslationRequest, BrowserWordAddedOutcome,
 };
 use crate::native_protocol::{
-    parse_request, validate_message_size, validate_origin, CancelRequest, ErrorCode, HelloResponse,
-    PairingResponse, PairingState, PongResponse, ProtocolError, ProtocolLimits, Request,
-    RequestEnvelope, Response, ResponseEnvelope, ResponsePayload, TranslateRequest,
-    PROTOCOL_VERSION,
+    parse_request, validate_message_size, validate_origin, AddWordRequest, CancelRequest,
+    ErrorCode, HelloResponse, PairingResponse, PairingState, PongResponse, ProtocolError,
+    ProtocolLimits, Request, RequestEnvelope, Response, ResponseEnvelope, ResponsePayload,
+    TranslateRequest, WordAddedResponse, PROTOCOL_VERSION,
 };
 use crate::native_registration;
 use serde_json::Value;
@@ -97,6 +97,7 @@ impl NativeHostSession {
                             "ping".to_string(),
                             "translation".to_string(),
                             "cancel".to_string(),
+                            "wordbook".to_string(),
                         ],
                         limits: ProtocolLimits::default(),
                     }),
@@ -110,13 +111,7 @@ impl NativeHostSession {
             Request::Pair(payload) => self.request_pairing(payload.display_name),
             Request::Translate(payload) => self.translate(action_request_id, payload),
             Request::Cancel(payload) => self.cancel_translation(payload),
-            Request::AddWord(_) => Response::Error {
-                error: ProtocolError::new(
-                    ErrorCode::PairingRequired,
-                    "Wordbook access is not available yet",
-                    false,
-                ),
-            },
+            Request::AddWord(payload) => self.add_word(payload),
         };
 
         ResponseEnvelope {
@@ -198,6 +193,25 @@ impl NativeHostSession {
                     false,
                 ),
             },
+            Err(_) => desktop_unavailable(),
+        }
+    }
+
+    fn add_word(&self, word: AddWordRequest) -> Response {
+        let Some(bridge) = &self.desktop_bridge else {
+            return desktop_unavailable();
+        };
+        match desktop_ipc::add_word_blocking(
+            &bridge.endpoint_path,
+            BrowserAddWordRequest {
+                origin: bridge.caller_origin.clone(),
+                word,
+            },
+        ) {
+            Ok(BrowserWordAddedOutcome::Success { word_id }) => Response::Ok {
+                payload: ResponsePayload::WordAdded(WordAddedResponse { word_id }),
+            },
+            Ok(BrowserWordAddedOutcome::Error { error }) => Response::Error { error },
             Err(_) => desktop_unavailable(),
         }
     }
@@ -513,6 +527,7 @@ mod tests {
         requests: Mutex<Vec<BrowserPairingRequest>>,
         translations: Mutex<Vec<BrowserTranslationRequest>>,
         pairing_state: Mutex<PairingState>,
+        words: Mutex<Vec<BrowserAddWordRequest>>,
     }
 
     #[cfg(windows)]
@@ -522,6 +537,7 @@ mod tests {
                 requests: Mutex::new(Vec::new()),
                 translations: Mutex::new(Vec::new()),
                 pairing_state: Mutex::new(PairingState::Required),
+                words: Mutex::new(Vec::new()),
             }
         }
     }
@@ -549,6 +565,13 @@ mod tests {
                     detected_language: Some("en".to_string()),
                     cached: false,
                 },
+            }
+        }
+
+        fn add_word(&self, request: BrowserAddWordRequest) -> BrowserWordAddedOutcome {
+            self.words.lock().unwrap().push(request);
+            BrowserWordAddedOutcome::Success {
+                word_id: "word-123".to_string(),
             }
         }
     }
@@ -613,7 +636,10 @@ mod tests {
                 assert_eq!(payload.desktop_version, "0.5.0-test");
                 assert_eq!(payload.client_nonce, "nonce-1");
                 assert_eq!(payload.pairing_state, PairingState::Required);
-                assert_eq!(payload.capabilities, ["ping", "translation", "cancel"]);
+                assert_eq!(
+                    payload.capabilities,
+                    ["ping", "translation", "cancel", "wordbook"]
+                );
                 assert!(payload.session_id.starts_with("session-"));
             }
             response => panic!("unexpected hello response: {response:?}"),
@@ -869,6 +895,62 @@ mod tests {
             }]
         );
 
+        drop(state);
+        let _ = std::fs::remove_dir_all(app_dir);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wordbook_write_is_forwarded_to_the_authenticated_desktop_pipe() {
+        let app_dir = std::env::temp_dir().join(format!("long-host-word-{}", Uuid::new_v4()));
+        let handler = Arc::new(RecordingPairingHandler::default());
+        *handler.pairing_state.lock().unwrap() = PairingState::Approved;
+        let state = desktop_ipc::start_server(app_dir.clone(), handler.clone()).unwrap();
+        let origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
+        let mut session = NativeHostSession::with_desktop_bridge(
+            "test",
+            desktop_ipc::endpoint_path(&app_dir),
+            origin,
+        );
+        session.handle(RequestEnvelope {
+            protocol_version: 1,
+            request_id: "hello-1".to_string(),
+            request: Request::Hello(HelloRequest {
+                min_protocol: 1,
+                max_protocol: 1,
+                extension_version: "0.1.0".to_string(),
+                client_nonce: "nonce-1".to_string(),
+                capabilities: vec!["wordbook".to_string()],
+            }),
+        });
+        let word = AddWordRequest {
+            word: "hello".to_string(),
+            translation: "你好".to_string(),
+            context: None,
+        };
+        let request_word = word.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            session.handle(RequestEnvelope {
+                protocol_version: 1,
+                request_id: "word-1".to_string(),
+                request: Request::AddWord(request_word),
+            })
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            response.response,
+            Response::Ok {
+                payload: ResponsePayload::WordAdded(WordAddedResponse { word_id })
+            } if word_id == "word-123"
+        ));
+        assert_eq!(
+            *handler.words.lock().unwrap(),
+            vec![BrowserAddWordRequest {
+                origin: origin.to_string(),
+                word,
+            }]
+        );
         drop(state);
         let _ = std::fs::remove_dir_all(app_dir);
     }

@@ -1,6 +1,6 @@
 # 浏览器桥接桌面私有 IPC
 
-状态：已完成安全骨架、桌面在线探针、受认证配对申请、批准/拒绝/撤销、`translate` / `cancel` 和最小持久化；生词本 `add_word` 尚未实现。
+状态：已完成安全骨架、桌面在线探针、受认证配对申请、批准/拒绝/撤销、`translate` / `cancel` / `add_word` 和最小持久化；真实浏览器烟雾尚未完成。
 
 ## 设计边界
 
@@ -8,7 +8,7 @@
 - 桌面进程每次启动生成新的管道名和随机令牌，写入当前用户应用数据目录的 `browser-ipc.json`。
 - 客户端先严格校验端点版本、管道名前缀和令牌格式；服务端使用定长比较校验令牌。
 - IPC 消息使用 4 字节小端长度前缀和 UTF-8 JSON，读入正文前执行 64 KiB 上限。
-- 当前动作包括 `probe`、`pairing_state` 和 `request_pairing`：状态查询与申请只使用已由 Host 校验的扩展 Origin、显示名称和申请能力；它们都不访问或返回 API Key、数据库、网页文本、文件路径和配置。
+- 当前动作包括 `probe`、`pairing_state`、`request_pairing`、`translate`、`cancel` 和 `add_word`；所有数据动作都携带已由 Host 校验的扩展 Origin，并在桌面端按能力再次授权。
 - 长期记录写入 `browser-pairings.json`，仅保存配对 ID、Origin、显示名称、获准能力和批准/最后使用时间。文件采用限长、严格结构校验和带备份恢复的替换写入；批准与撤销只有在落盘成功后才更新内存。
 - 端点文件只由仍持有同一令牌的桌面实例删除，旧实例退出不能删除新实例的端点。
 
@@ -23,7 +23,7 @@ Long翻译桌面启动
   -> 退出时按所有权清理端点文件
 ```
 
-Native Host 已在同一 Native Messaging 端口完成 `hello` 后把 `pair`、`translate` 和 `cancel` 转发到该管道；重复 `hello` 或任何早于 `hello` 的动作都会被拒绝。未授权申请返回 `pending` 并唤醒桌面确认弹窗；批准绑定弹窗展示的完整 Origin 和能力列表，下一次 `hello` 才返回 `approved`。用户可在高级设置撤销长期记录。下一增量只增加独立的 `add_word` 写入授权。
+Native Host 已在同一 Native Messaging 端口完成 `hello` 后把 `pair`、`translate`、`cancel` 和 `add_word` 转发到该管道；重复 `hello` 或任何早于 `hello` 的动作都会被拒绝。未授权申请返回 `pending` 并唤醒桌面确认弹窗；批准绑定弹窗展示的完整 Origin 和能力列表，下一次 `hello` 才返回 `approved`。用户可在高级设置撤销长期记录。`add_word` 要求独立 `wordbook` 能力，旧的翻译授权不会自动升级。
 
 ## 验收门槛
 
@@ -42,3 +42,5 @@ Chrome / Edge 的真实安装、`hello` / `ping`、升级和卸载烟雾仍是�
 IPC 已增加严格校验的 `translate` 与 `cancel`。Host 将浏览器验证后的 Origin、翻译 request ID 和受限正文转发到桌面；桌面仅在对应 Origin 已获 `translation` 权限且前端翻译桥接 ready 时接单。每个 Origin 最多 4 个在途任务，重复 request ID 拒绝，单次等待上限 65 秒。
 
 翻译仍复用 WebView 内既有任务核心及其主备模型、术语表、缓存、格式检查和取消能力，不在 Host 中读取 API Key 或复制供应商实现。完成、撤销、超时和取消都会移除任务关联；取消必须同时匹配 Origin 与目标 request ID。
+
+IPC 同时增加 `add_word`，仅在 Origin 已获独立 `wordbook` 能力时调用现有生词本写入核心。词条、译文和可选上下文分别受协议限额保护；重复词条复用现有记录，成功响应只包含词条 ID，错误不会透出数据库或用户内容。
