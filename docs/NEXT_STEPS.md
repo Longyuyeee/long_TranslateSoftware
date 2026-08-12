@@ -16,6 +16,7 @@
 1. 使用固定开发 ID 的现有最小扩展完成 Chrome/Edge `hello` / `ping` 真实烟雾，并验证安装、重复安装、升级和卸载；商店发布前把 Chrome Web Store 与 Edge Add-ons 的正式 ID 一并写入 `allowed_origins`。
 2. `translate` / `cancel`、划词浮层与独立 `wordbook` 授权的 `add_word` 收藏入口已经完成代码接入；翻译旧授权不会自动获得数据写入权。
 3. 下一步完成 Chrome/Edge 安装、配对、划词、翻译、取消、收藏、升级和卸载真实烟雾，通过后发布 `v0.5.0`。
+   Windows 预检脚本可先固定浏览器、扩展包、双注册项、Host manifest 与桌面 IPC 环境，减少误用旧 EXE 或错误 Origin；预检通过不等于真实烟雾通过。
 4. `v0.5.1` 先固定文档任务契约和配置快照，再实现 DOCX 解析/重建、翻译队列、取消/重试/恢复和 DOCX 导出。
 5. DOCX 稳定后加入文本型 PDF 导入、阅读顺序检查和 DOCX 导出；扫描 PDF 与像素级 PDF 版式还原不进入 MVP。
 
