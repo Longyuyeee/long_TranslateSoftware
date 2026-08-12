@@ -42,7 +42,7 @@ fn run_host(origin: &str, input: &[u8]) -> Output {
 fn run_host_without_allowlist(origin: &str) -> Output {
     Command::new(native_host_path())
         .arg(origin)
-        .env_remove(ALLOWED_ORIGINS_ENV)
+        .env(ALLOWED_ORIGINS_ENV, ";")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -196,8 +196,8 @@ fn host_process_requires_an_explicit_allowlist() {
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains(ALLOWED_ORIGINS_ENV),
-        "stderr should identify the missing configuration"
+        stderr.contains("Native Host allowed origin list is empty"),
+        "stderr should identify the empty explicit allowlist"
     );
 }
 

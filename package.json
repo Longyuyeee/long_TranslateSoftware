@@ -11,6 +11,7 @@
     "audit:bundle": "node scripts/check-bundle-size.mjs",
     "audit:extension": "node scripts/check-browser-extension.mjs",
     "smoke:browser:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/browser-smoke-preflight.ps1",
+    "smoke:browser:runtime": "node scripts/browser-runtime-smoke.mjs",
     "test": "vitest run",
     "quality:report": "vite-node scripts/generate-quality-report.ts",
     "preview": "vite preview",
