@@ -46,7 +46,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 
 ### 4.1 浏览器扩展
 
-仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已强制 `hello` 首帧，并可把同端口 `pair` 申请转发到桌面，桌面只返回 `pending` 而不会自动授权。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、桌面批准/拒绝/撤销界面、content script 和划词浮层，不能被描述为“扩展已经可用”。
+仓库已有由桌面 EXE 参数分流运行的最小 Native Host，并通过真实子进程测试验证 `hello` / `ping`、非法 Origin、超限帧和非法 JSON；Windows 注册器已实现原子 manifest、Chrome/Edge HKCU 幂等安装/升级和所有权保护卸载；固定开发 ID 的最小 Manifest V3 工程、service worker、诊断弹窗与 NSIS/WiX 安装事务已经实现并完成实际打包。桌面私有 IPC 已建立 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已强制 `hello` 首帧，并可把同端口 `pair` 申请转发到桌面。桌面已完成展示真实 Origin/能力、批准、拒绝、持久化和撤销，后续 `hello` 可查询授权状态。当前仍缺 Chrome/Edge 真实交互烟雾、商店正式 ID、`translate` / `cancel` / `add_word`、content script 和划词浮层，不能被描述为“扩展已经可用”。
 
 另一个架构约束是：当前翻译任务主要运行在 Tauri WebView 的 TypeScript 层。Host 接入时必须建立受测的桌面请求代理，不能让 Host 模式直接读取 API Key、数据库或复制一套翻译实现。
 
@@ -87,7 +87,7 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 1. Host 仅实现 `hello` / `ping`，完成 framing、超限、非法 JSON、非法 Origin 和子进程测试；
 2. 加入 Chrome/Edge 注册器基础，验证 manifest 原子替换、重复安装、Origin 升级、所有权保护和卸载；
 3. 已固定受控开发扩展 ID 并接入 NSIS/WiX；下一步完成 Chrome/Edge `hello` / `ping` 真实烟雾；
-4. 建立私有 IPC 和桌面请求代理，先跑通 `hello` / `pair`；
+4. 已建立私有 IPC、桌面配对代理和授权管理，跑通 `hello` / `pair`；
 5. 接入 `translate` / `cancel` / `add_word`，复用桌面翻译核心；
 6. 实现扩展 service worker、content script 和隔离样式的划词浮层；
 7. 完成真实浏览器烟雾、隐私审计、打包说明和发布候选。
@@ -186,4 +186,4 @@ npm 官方 registry 曾报告 `postcss@8.5.19` 和其依赖 `nanoid@3.3.16` 命�
 - NSIS 在安装后注册、非升级卸载后按所有权清理，WiX 为注册和注销分别设置回滚动作；
 - 实际生成 NSIS/MSI 审计包，最小扩展生产包约 9.17 KiB / 64 KiB 门槛。
 
-本阶段没有加入商店正式 ID、桌面 IPC、配对 UI、content script 或翻译浮层。下一步只完成 Chrome/Edge `hello` / `ping`、重复安装、升级和卸载的真实烟雾，不同时接入桌面翻译；烟雾清单见 [`BROWSER_EXTENSION_SMOKE.md`](BROWSER_EXTENSION_SMOKE.md)。
+当前已继续完成桌面随机命名管道、令牌认证、配对状态查询，以及展示真实 Origin/能力的批准、拒绝、撤销 UI 和最小持久化。尚未加入商店正式 ID、`translate` / `cancel` / `add_word`、content script 或翻译浮层。下一步在不扩展权限面的前提下接入三项桌面能力；Chrome/Edge `hello` / `ping`、配对、重复安装、升级和卸载的真实烟雾仍是独立发布门槛，清单见 [`BROWSER_EXTENSION_SMOKE.md`](BROWSER_EXTENSION_SMOKE.md)。

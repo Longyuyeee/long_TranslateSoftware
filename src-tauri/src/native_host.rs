@@ -75,13 +75,14 @@ impl NativeHostSession {
             Request::Hello(payload) => {
                 self.hello_received = true;
                 self.requested_capabilities = payload.capabilities;
+                let pairing_state = self.current_pairing_state();
                 Response::Ok {
                     payload: ResponsePayload::Hello(HelloResponse {
                         selected_protocol: PROTOCOL_VERSION,
                         desktop_version: self.desktop_version.clone(),
                         session_id: self.session_id.clone(),
                         client_nonce: payload.client_nonce,
-                        pairing_state: PairingState::Required,
+                        pairing_state,
                         capabilities: vec!["ping".to_string()],
                         limits: ProtocolLimits::default(),
                     }),
@@ -126,6 +127,18 @@ impl NativeHostSession {
             },
             Err(_) => desktop_unavailable(),
         }
+    }
+
+    fn current_pairing_state(&self) -> PairingState {
+        let Some(bridge) = &self.desktop_bridge else {
+            return PairingState::Required;
+        };
+        desktop_ipc::pairing_state_blocking(
+            &bridge.endpoint_path,
+            bridge.caller_origin.clone(),
+            self.requested_capabilities.clone(),
+        )
+        .unwrap_or(PairingState::Required)
     }
 }
 
@@ -342,6 +355,14 @@ mod tests {
 
     #[cfg(windows)]
     impl desktop_ipc::DesktopIpcHandler for RecordingPairingHandler {
+        fn pairing_state(
+            &self,
+            _origin: &str,
+            _capabilities: &[String],
+        ) -> io::Result<PairingState> {
+            Ok(PairingState::Required)
+        }
+
         fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState> {
             self.requests.lock().unwrap().push(request);
             Ok(PairingState::Pending)

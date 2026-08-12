@@ -9,6 +9,8 @@ import {
 import GeneralSettingsMaintenanceSection from "./GeneralSettingsMaintenanceSection";
 import GeneralSettingsShortcutsSection from "./GeneralSettingsShortcutsSection";
 import GeneralSettingsWebDavSection from "./GeneralSettingsWebDavSection";
+import GeneralSettingsBrowserPairingSection from "./GeneralSettingsBrowserPairingSection";
+import type { BrowserPairingRecord } from "../services/browserPairing";
 import type {
   GeneralSettingsPatch,
   GeneralSettingsValue,
@@ -40,6 +42,8 @@ interface GeneralSettingsTabProps {
   isSyncing: boolean;
   cacheSize: string;
   isExportingDiagnostics: boolean;
+  browserPairings: BrowserPairingRecord[];
+  isUpdatingBrowserPairing: boolean;
   onChange: (patch: GeneralSettingsPatch) => void;
   onToggleAutoLaunch: () => void;
   onRecordingChange: (recording: "q" | "w" | null) => void;
@@ -50,6 +54,7 @@ interface GeneralSettingsTabProps {
   onExport: () => void;
   onImport: () => void;
   onExportDiagnostics: () => void;
+  onRevokeBrowserPairing: (pairingId: string) => void;
 }
 
 export default function GeneralSettingsTab({
@@ -65,6 +70,8 @@ export default function GeneralSettingsTab({
   isSyncing,
   cacheSize,
   isExportingDiagnostics,
+  browserPairings,
+  isUpdatingBrowserPairing,
   onChange,
   onToggleAutoLaunch,
   onRecordingChange,
@@ -75,6 +82,7 @@ export default function GeneralSettingsTab({
   onExport,
   onImport,
   onExportDiagnostics,
+  onRevokeBrowserPairing,
 }: GeneralSettingsTabProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -186,6 +194,12 @@ export default function GeneralSettingsTab({
 
       {showAdvanced && (
         <>
+          <GeneralSettingsBrowserPairingSection
+            labels={labels}
+            pairings={browserPairings}
+            isUpdating={isUpdatingBrowserPairing}
+            onRevoke={onRevokeBrowserPairing}
+          />
           <GeneralSettingsWebDavSection
             labels={labels}
             webdav={webdav}

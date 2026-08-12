@@ -66,6 +66,14 @@ struct RecordingPairingHandler {
 }
 
 impl DesktopIpcHandler for RecordingPairingHandler {
+    fn pairing_state(
+        &self,
+        _origin: &str,
+        _capabilities: &[String],
+    ) -> std::io::Result<PairingState> {
+        Ok(PairingState::Required)
+    }
+
     fn request_pairing(&self, request: BrowserPairingRequest) -> std::io::Result<PairingState> {
         self.requests.lock().unwrap().push(request);
         Ok(PairingState::Pending)
