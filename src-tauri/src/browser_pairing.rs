@@ -1,11 +1,15 @@
-use crate::desktop_ipc::{BrowserPairingRequest, DesktopIpcHandler};
-use crate::native_protocol::{validate_origin, PairingState};
+use crate::desktop_ipc::{
+    BrowserCancelRequest, BrowserPairingRequest, BrowserTranslationOutcome,
+    BrowserTranslationRequest, DesktopIpcHandler,
+};
+use crate::native_protocol::{validate_origin, ErrorCode, PairingState, ProtocolError};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
@@ -13,6 +17,8 @@ use uuid::Uuid;
 
 const PAIRINGS_FILE: &str = "browser-pairings.json";
 const MAX_PAIRINGS_FILE_BYTES: usize = 64 * 1024;
+const MAX_TRANSLATIONS_PER_ORIGIN: usize = 4;
+const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(65);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,11 +42,25 @@ struct PendingPairing {
     last_notified: Instant,
 }
 
+struct PendingTranslation {
+    origin: String,
+    request_id: String,
+    sender: mpsc::Sender<BrowserTranslationOutcome>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct BrowserTranslationEvent {
+    task_id: String,
+    request: BrowserTranslationRequest,
+}
+
 pub struct BrowserPairingManager {
     app: AppHandle,
     path: PathBuf,
     pending: Mutex<HashMap<String, PendingPairing>>,
     records: Mutex<Vec<BrowserPairingRecord>>,
+    translations: Mutex<HashMap<String, PendingTranslation>>,
+    translation_bridges: Mutex<HashSet<String>>,
 }
 
 impl BrowserPairingManager {
@@ -76,6 +96,8 @@ impl BrowserPairingManager {
             path,
             pending: Mutex::new(HashMap::new()),
             records: Mutex::new(records),
+            translations: Mutex::new(HashMap::new()),
+            translation_bridges: Mutex::new(HashSet::new()),
         })
     }
 
@@ -159,6 +181,10 @@ impl BrowserPairingManager {
             .lock()
             .map_err(|_| "Browser pairing records are unavailable".to_string())?;
         let mut next_records = records.clone();
+        let revoked_origin = next_records
+            .iter()
+            .find(|record| record.pairing_id == pairing_id)
+            .map(|record| record.origin.clone());
         let original_len = next_records.len();
         next_records.retain(|record| record.pairing_id != pairing_id);
         if next_records.len() == original_len {
@@ -167,6 +193,9 @@ impl BrowserPairingManager {
         write_records(&self.path, &next_records)
             .map_err(|_| "Browser pairing revocation could not be saved".to_string())?;
         *records = next_records;
+        if let Some(origin) = revoked_origin {
+            self.cancel_origin(&origin);
+        }
         Ok(())
     }
 
@@ -175,6 +204,23 @@ impl BrowserPairingManager {
             .lock()
             .map(|records| records.clone())
             .map_err(|_| "Browser pairing records are unavailable".to_string())
+    }
+
+    fn cancel_origin(&self, origin: &str) {
+        let task_ids = self
+            .translations
+            .lock()
+            .map(|translations| {
+                translations
+                    .iter()
+                    .filter(|(_, task)| task.origin == origin)
+                    .map(|(task_id, _)| task_id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for task_id in task_ids {
+            let _ = self.app.emit("browser-translation-cancelled", task_id);
+        }
     }
 }
 
@@ -213,6 +259,108 @@ impl DesktopIpcHandler for BrowserPairingManager {
         }
         Ok(PairingState::Pending)
     }
+
+    fn translate(&self, request: BrowserTranslationRequest) -> BrowserTranslationOutcome {
+        match self.pairing_state(&request.origin, &["translation".to_string()]) {
+            Ok(PairingState::Approved) => {}
+            Ok(_) => return translation_error(ErrorCode::PairingRequired, false),
+            Err(_) => return translation_error(ErrorCode::InternalError, true),
+        }
+        if self
+            .translation_bridges
+            .lock()
+            .map_or(true, |bridges| bridges.is_empty())
+        {
+            return translation_error(ErrorCode::DesktopUnavailable, true);
+        }
+
+        let task_id = Uuid::new_v4().to_string();
+        let (sender, receiver) = mpsc::channel();
+        let mut translations = match self.translations.lock() {
+            Ok(translations) => translations,
+            Err(_) => return translation_error(ErrorCode::InternalError, true),
+        };
+        let origin_count = translations
+            .values()
+            .filter(|task| task.origin == request.origin)
+            .count();
+        let duplicate = translations
+            .values()
+            .any(|task| task.origin == request.origin && task.request_id == request.request_id);
+        if duplicate || origin_count >= MAX_TRANSLATIONS_PER_ORIGIN {
+            return translation_error(ErrorCode::Busy, true);
+        }
+        translations.insert(
+            task_id.clone(),
+            PendingTranslation {
+                origin: request.origin.clone(),
+                request_id: request.request_id.clone(),
+                sender,
+            },
+        );
+        drop(translations);
+
+        if self
+            .app
+            .emit(
+                "browser-translation-requested",
+                BrowserTranslationEvent {
+                    task_id: task_id.clone(),
+                    request,
+                },
+            )
+            .is_err()
+        {
+            let _ = self
+                .translations
+                .lock()
+                .map(|mut tasks| tasks.remove(&task_id));
+            return translation_error(ErrorCode::InternalError, true);
+        }
+
+        let outcome = receiver
+            .recv_timeout(TRANSLATION_TIMEOUT)
+            .unwrap_or_else(|_| translation_error(ErrorCode::Timeout, true));
+        let _ = self
+            .translations
+            .lock()
+            .map(|mut tasks| tasks.remove(&task_id));
+        outcome
+    }
+
+    fn cancel(&self, request: BrowserCancelRequest) -> io::Result<bool> {
+        let task_id = self
+            .translations
+            .lock()
+            .map_err(|_| io::Error::other("Browser translations are unavailable"))?
+            .iter()
+            .find(|(_, task)| {
+                task.origin == request.origin && task.request_id == request.target_request_id
+            })
+            .map(|(task_id, _)| task_id.clone());
+        let Some(task_id) = task_id else {
+            return Ok(false);
+        };
+        self.app
+            .emit("browser-translation-cancelled", task_id)
+            .map_err(|_| io::Error::other("Browser translation cancellation failed"))?;
+        Ok(true)
+    }
+}
+
+fn translation_error(code: ErrorCode, retryable: bool) -> BrowserTranslationOutcome {
+    let message = match code {
+        ErrorCode::PairingRequired => "Desktop approval is required",
+        ErrorCode::Busy => "Too many browser translation requests are active",
+        ErrorCode::Timeout => "Desktop translation timed out",
+        ErrorCode::Cancelled => "Desktop translation was cancelled",
+        ErrorCode::ProviderError => "Translation provider request failed",
+        ErrorCode::DesktopUnavailable => "Desktop translation bridge is not ready",
+        _ => "Desktop translation failed",
+    };
+    BrowserTranslationOutcome::Error {
+        error: ProtocolError::new(code, message, retryable),
+    }
 }
 
 #[tauri::command]
@@ -244,6 +392,60 @@ pub fn revoke_browser_pairing(
     pairing_id: String,
 ) -> Result<(), String> {
     state.revoke(&pairing_id)
+}
+
+#[tauri::command]
+pub fn complete_browser_translation(
+    state: State<'_, std::sync::Arc<BrowserPairingManager>>,
+    task_id: String,
+    outcome: BrowserTranslationOutcome,
+) -> Result<(), String> {
+    Uuid::parse_str(&task_id).map_err(|_| "Invalid browser translation task ID".to_string())?;
+    let task = state
+        .translations
+        .lock()
+        .map_err(|_| "Browser translations are unavailable".to_string())?
+        .remove(&task_id)
+        .ok_or_else(|| "Browser translation task is no longer pending".to_string())?;
+    task.sender
+        .send(outcome)
+        .map_err(|_| "Browser translation requester is no longer available".to_string())
+}
+
+#[tauri::command]
+pub fn set_browser_translation_bridge_ready(
+    state: State<'_, std::sync::Arc<BrowserPairingManager>>,
+    bridge_id: String,
+    ready: bool,
+) -> Result<(), String> {
+    Uuid::parse_str(&bridge_id).map_err(|_| "Invalid browser translation bridge ID".to_string())?;
+    let mut bridges = state
+        .translation_bridges
+        .lock()
+        .map_err(|_| "Browser translation bridge state is unavailable".to_string())?;
+    if ready {
+        bridges.insert(bridge_id);
+    } else {
+        bridges.remove(&bridge_id);
+    }
+    let should_cancel = !ready && bridges.is_empty();
+    drop(bridges);
+    if should_cancel {
+        let origins = state
+            .translations
+            .lock()
+            .map(|tasks| {
+                tasks
+                    .values()
+                    .map(|task| task.origin.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for origin in origins {
+            state.cancel_origin(&origin);
+        }
+    }
+    Ok(())
 }
 
 fn load_records(path: &Path) -> io::Result<Vec<BrowserPairingRecord>> {

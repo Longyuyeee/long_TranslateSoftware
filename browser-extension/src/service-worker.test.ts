@@ -117,4 +117,55 @@ describe("browser service worker boundary", () => {
       }),
     );
   });
+
+  it("cancels an active internal translation by task ID", async () => {
+    const onMessage = new CapturingEvent<[
+      unknown, { id?: string }, (response: unknown) => void,
+    ]>();
+    const port = new FakePort();
+    const runtime: ExtensionRuntime = {
+      id: "imaogjlfhfohdnngppnfhapdfkaldmkn",
+      getManifest: () => ({ version: "0.1.0" }),
+      connectNative: () => port,
+      onMessage,
+    };
+    const translationResponse = vi.fn();
+    const cancelResponse = vi.fn();
+    installNativeBridgeListener(runtime);
+
+    expect(onMessage.listener?.(
+      { type: "native-translate", taskId: "selection-1", input: {
+        text: "hello", targetLanguage: "zh-Hans",
+      } },
+      { id: runtime.id },
+      translationResponse,
+    )).toBe(true);
+    const hello = port.posted[0] as { request_id: string; payload: { client_nonce: string } };
+    port.onMessage.emit({
+      protocol_version: 1, request_id: hello.request_id, status: "ok",
+      payload: { type: "hello", data: {
+        selected_protocol: 1, desktop_version: "0.4.9", session_id: "session-translate",
+        client_nonce: hello.payload.client_nonce, pairing_state: "approved",
+        capabilities: ["ping", "translation"], limits: {},
+      } },
+    });
+    const translate = port.posted[1] as { request_id: string };
+    onMessage.listener?.(
+      { type: "native-cancel", taskId: "selection-1" },
+      { id: runtime.id },
+      cancelResponse,
+    );
+    expect(cancelResponse).toHaveBeenCalledWith({ ok: true, result: { cancelled: true } });
+    expect(port.posted[2]).toMatchObject({
+      action: "cancel", payload: { target_request_id: translate.request_id },
+    });
+    const cancel = port.posted[2] as { request_id: string };
+    port.onMessage.emit({
+      protocol_version: 1, request_id: cancel.request_id, status: "ok",
+      payload: { type: "cancelled", data: { accepted: true } },
+    });
+    await vi.waitFor(() => expect(translationResponse).toHaveBeenCalledWith({
+      ok: false, error: "Translation cancelled",
+    }));
+  });
 });

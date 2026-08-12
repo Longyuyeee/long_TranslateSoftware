@@ -93,6 +93,23 @@ describe("startTranslationTask", () => {
     );
   });
 
+  it("uses browser translation language and glossary overrides", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(sseResponse("您好"));
+    const completion = await startTranslationTask("hello", {}, {
+      sourceLang: "en",
+      targetLang: "zh-Hans",
+      glossary: [{ source_term: "hello", target_term: "您好" }],
+    }).done;
+
+    expect(completion).toMatchObject({ status: "success", result: { text: "您好" } });
+    const request = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
+    const prompt = body.messages.map((message) => message.content).join("\n");
+    expect(prompt).toContain("zh-Hans");
+    expect(prompt).toContain("hello");
+    expect(prompt).toContain("您好");
+  });
+
   it("ignores a cached translation that loses source invariants", async () => {
     invokeMock.mockImplementation((command: string, args?: { key?: string; keys?: string[] }) => {
       if (command === "get_config_value") return Promise.resolve(config[args?.key || ""] || "");

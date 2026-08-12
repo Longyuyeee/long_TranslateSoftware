@@ -1,19 +1,27 @@
-use crate::desktop_ipc::{self, BrowserPairingRequest};
+use crate::desktop_ipc::{
+    self, BrowserCancelRequest, BrowserPairingRequest, BrowserTranslationOutcome,
+    BrowserTranslationRequest,
+};
 use crate::native_protocol::{
-    parse_request, validate_message_size, validate_origin, ErrorCode, HelloResponse,
+    parse_request, validate_message_size, validate_origin, CancelRequest, ErrorCode, HelloResponse,
     PairingResponse, PairingState, PongResponse, ProtocolError, ProtocolLimits, Request,
-    RequestEnvelope, Response, ResponseEnvelope, ResponsePayload, PROTOCOL_VERSION,
+    RequestEnvelope, Response, ResponseEnvelope, ResponsePayload, TranslateRequest,
+    PROTOCOL_VERSION,
 };
 use crate::native_registration;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::env;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use uuid::Uuid;
 
 pub const ALLOWED_ORIGINS_ENV: &str = "LONG_TRANSLATE_NATIVE_ALLOWED_ORIGINS";
 const FALLBACK_REQUEST_ID: &str = "host";
 
+#[derive(Clone)]
 pub struct NativeHostSession {
     desktop_version: String,
     session_id: String,
@@ -22,6 +30,7 @@ pub struct NativeHostSession {
     desktop_bridge: Option<DesktopBridge>,
 }
 
+#[derive(Clone)]
 struct DesktopBridge {
     endpoint_path: PathBuf,
     caller_origin: String,
@@ -53,6 +62,7 @@ impl NativeHostSession {
 
     pub fn handle(&mut self, request: RequestEnvelope) -> ResponseEnvelope {
         let request_id = request.request_id;
+        let action_request_id = request_id.clone();
         let is_hello = matches!(&request.request, Request::Hello(_));
         if (!self.hello_received && !is_hello) || (self.hello_received && is_hello) {
             return ResponseEnvelope {
@@ -83,7 +93,11 @@ impl NativeHostSession {
                         session_id: self.session_id.clone(),
                         client_nonce: payload.client_nonce,
                         pairing_state,
-                        capabilities: vec!["ping".to_string()],
+                        capabilities: vec![
+                            "ping".to_string(),
+                            "translation".to_string(),
+                            "cancel".to_string(),
+                        ],
                         limits: ProtocolLimits::default(),
                     }),
                 }
@@ -94,10 +108,12 @@ impl NativeHostSession {
                 }),
             },
             Request::Pair(payload) => self.request_pairing(payload.display_name),
-            Request::Translate(_) | Request::AddWord(_) | Request::Cancel(_) => Response::Error {
+            Request::Translate(payload) => self.translate(action_request_id, payload),
+            Request::Cancel(payload) => self.cancel_translation(payload),
+            Request::AddWord(_) => Response::Error {
                 error: ProtocolError::new(
                     ErrorCode::PairingRequired,
-                    "Desktop approval is required",
+                    "Wordbook access is not available yet",
                     false,
                 ),
             },
@@ -139,6 +155,51 @@ impl NativeHostSession {
             self.requested_capabilities.clone(),
         )
         .unwrap_or(PairingState::Required)
+    }
+
+    fn translate(&self, request_id: String, translation: TranslateRequest) -> Response {
+        let Some(bridge) = &self.desktop_bridge else {
+            return desktop_unavailable();
+        };
+        match desktop_ipc::translate_blocking(
+            &bridge.endpoint_path,
+            BrowserTranslationRequest {
+                origin: bridge.caller_origin.clone(),
+                request_id,
+                translation,
+            },
+        ) {
+            Ok(BrowserTranslationOutcome::Success { response }) => Response::Ok {
+                payload: ResponsePayload::Translation(response),
+            },
+            Ok(BrowserTranslationOutcome::Error { error }) => Response::Error { error },
+            Err(_) => desktop_unavailable(),
+        }
+    }
+
+    fn cancel_translation(&self, request: CancelRequest) -> Response {
+        let Some(bridge) = &self.desktop_bridge else {
+            return desktop_unavailable();
+        };
+        match desktop_ipc::cancel_blocking(
+            &bridge.endpoint_path,
+            BrowserCancelRequest {
+                origin: bridge.caller_origin.clone(),
+                target_request_id: request.target_request_id,
+            },
+        ) {
+            Ok(true) => Response::Ok {
+                payload: ResponsePayload::Cancelled,
+            },
+            Ok(false) => Response::Error {
+                error: ProtocolError::new(
+                    ErrorCode::InvalidRequest,
+                    "Translation request is not active in this session",
+                    false,
+                ),
+            },
+            Err(_) => desktop_unavailable(),
+        }
     }
 }
 
@@ -216,6 +277,110 @@ pub fn run_stream(
     Ok(())
 }
 
+fn write_response(writer: &mut impl Write, response: &ResponseEnvelope) -> io::Result<()> {
+    let payload = serde_json::to_vec(response).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Cannot serialize Native Messaging response: {error}"),
+        )
+    })?;
+    write_frame(writer, &payload)
+}
+
+fn run_stdio_concurrent(mut session: NativeHostSession) -> io::Result<()> {
+    let writer = Arc::new(Mutex::new(io::stdout()));
+    let in_flight = Arc::new(Mutex::new(HashSet::<String>::new()));
+    let mut workers = Vec::new();
+    let mut reader = io::stdin().lock();
+
+    while let Some(frame) = read_frame(&mut reader)? {
+        let request = match parse_request(&frame) {
+            Ok(request) => request,
+            Err(error) => {
+                let response = ResponseEnvelope {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id: request_id_for_error(&frame),
+                    response: Response::Error { error },
+                };
+                write_response(
+                    &mut *writer
+                        .lock()
+                        .map_err(|_| io::Error::other("Native Host output is unavailable"))?,
+                    &response,
+                )?;
+                continue;
+            }
+        };
+
+        if matches!(&request.request, Request::Translate(_)) {
+            let request_id = request.request_id.clone();
+            let mut active = in_flight
+                .lock()
+                .map_err(|_| io::Error::other("Native Host request state is unavailable"))?;
+            if active.len() >= crate::native_protocol::MAX_IN_FLIGHT_REQUESTS
+                || !active.insert(request_id.clone())
+            {
+                drop(active);
+                let response = ResponseEnvelope {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id,
+                    response: Response::Error {
+                        error: ProtocolError::new(
+                            ErrorCode::Busy,
+                            "Too many translation requests are active",
+                            true,
+                        ),
+                    },
+                };
+                write_response(
+                    &mut *writer
+                        .lock()
+                        .map_err(|_| io::Error::other("Native Host output is unavailable"))?,
+                    &response,
+                )?;
+                continue;
+            }
+            drop(active);
+
+            let mut worker_session = session.clone();
+            let worker_writer = Arc::clone(&writer);
+            let worker_requests = Arc::clone(&in_flight);
+            workers.push(thread::spawn(move || {
+                let response = worker_session.handle(request);
+                if let Ok(mut output) = worker_writer.lock() {
+                    let _ = write_response(&mut *output, &response);
+                }
+                if let Ok(mut active) = worker_requests.lock() {
+                    active.remove(&request_id);
+                }
+            }));
+            continue;
+        }
+
+        let response = session.handle(request);
+        write_response(
+            &mut *writer
+                .lock()
+                .map_err(|_| io::Error::other("Native Host output is unavailable"))?,
+            &response,
+        )?;
+    }
+
+    let active = in_flight
+        .lock()
+        .map(|requests| requests.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    for request_id in active {
+        let _ = session.cancel_translation(CancelRequest {
+            target_request_id: request_id,
+        });
+    }
+    for worker in workers {
+        let _ = worker.join();
+    }
+    Ok(())
+}
+
 pub fn parse_allowed_origins(value: &str) -> io::Result<Vec<String>> {
     let origins = value
         .split(';')
@@ -264,7 +429,7 @@ pub fn run_from_args(args: &[String]) -> io::Result<()> {
     validate_origin(caller_origin, &allowed_origins)
         .map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error.message))?;
 
-    let mut session = match desktop_ipc::default_endpoint_path() {
+    let session = match desktop_ipc::default_endpoint_path() {
         Ok(endpoint_path) => NativeHostSession::with_desktop_bridge(
             env!("CARGO_PKG_VERSION"),
             endpoint_path,
@@ -272,11 +437,7 @@ pub fn run_from_args(args: &[String]) -> io::Result<()> {
         ),
         Err(_) => NativeHostSession::new(env!("CARGO_PKG_VERSION")),
     };
-    run_stream(
-        &mut io::stdin().lock(),
-        &mut io::stdout().lock(),
-        &mut session,
-    )
+    run_stdio_concurrent(session)
 }
 
 fn development_allowed_origins() -> io::Result<Vec<String>> {
@@ -348,9 +509,21 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[cfg(windows)]
-    #[derive(Default)]
     struct RecordingPairingHandler {
         requests: Mutex<Vec<BrowserPairingRequest>>,
+        translations: Mutex<Vec<BrowserTranslationRequest>>,
+        pairing_state: Mutex<PairingState>,
+    }
+
+    #[cfg(windows)]
+    impl Default for RecordingPairingHandler {
+        fn default() -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                translations: Mutex::new(Vec::new()),
+                pairing_state: Mutex::new(PairingState::Required),
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -360,12 +533,23 @@ mod tests {
             _origin: &str,
             _capabilities: &[String],
         ) -> io::Result<PairingState> {
-            Ok(PairingState::Required)
+            Ok(*self.pairing_state.lock().unwrap())
         }
 
         fn request_pairing(&self, request: BrowserPairingRequest) -> io::Result<PairingState> {
             self.requests.lock().unwrap().push(request);
             Ok(PairingState::Pending)
+        }
+
+        fn translate(&self, request: BrowserTranslationRequest) -> BrowserTranslationOutcome {
+            self.translations.lock().unwrap().push(request);
+            BrowserTranslationOutcome::Success {
+                response: crate::native_protocol::TranslationResponse {
+                    text: "translated".to_string(),
+                    detected_language: Some("en".to_string()),
+                    cached: false,
+                },
+            }
         }
     }
 
@@ -429,7 +613,7 @@ mod tests {
                 assert_eq!(payload.desktop_version, "0.5.0-test");
                 assert_eq!(payload.client_nonce, "nonce-1");
                 assert_eq!(payload.pairing_state, PairingState::Required);
-                assert_eq!(payload.capabilities, ["ping"]);
+                assert_eq!(payload.capabilities, ["ping", "translation", "cancel"]);
                 assert!(payload.session_id.starts_with("session-"));
             }
             response => panic!("unexpected hello response: {response:?}"),
@@ -495,8 +679,8 @@ mod tests {
             translate.response,
             Response::Error {
                 error: ProtocolError {
-                    code: ErrorCode::PairingRequired,
-                    retryable: false,
+                    code: ErrorCode::DesktopUnavailable,
+                    retryable: true,
                     ..
                 }
             }
@@ -618,6 +802,70 @@ mod tests {
                 origin: origin.to_string(),
                 display_name: "Long Translate extension".to_string(),
                 capabilities: vec!["translation".to_string()],
+            }]
+        );
+
+        drop(state);
+        let _ = std::fs::remove_dir_all(app_dir);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn translation_is_forwarded_to_the_authenticated_desktop_pipe() {
+        let app_dir = std::env::temp_dir().join(format!("long-host-translate-{}", Uuid::new_v4()));
+        let handler = Arc::new(RecordingPairingHandler::default());
+        *handler.pairing_state.lock().unwrap() = PairingState::Approved;
+        let state = desktop_ipc::start_server(app_dir.clone(), handler.clone()).unwrap();
+        let origin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/";
+        let mut session = NativeHostSession::with_desktop_bridge(
+            "test",
+            desktop_ipc::endpoint_path(&app_dir),
+            origin,
+        );
+        session.handle(RequestEnvelope {
+            protocol_version: 1,
+            request_id: "hello-1".to_string(),
+            request: Request::Hello(HelloRequest {
+                min_protocol: 1,
+                max_protocol: 1,
+                extension_version: "0.1.0".to_string(),
+                client_nonce: "nonce-1".to_string(),
+                capabilities: vec!["translation".to_string()],
+            }),
+        });
+        let translation = TranslateRequest {
+            text: "hello".to_string(),
+            target_language: "zh-Hans".to_string(),
+            source_language: Some("en".to_string()),
+            format: TextFormat::PlainText,
+            glossary: Vec::new(),
+        };
+        let request_translation = translation.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            session.handle(RequestEnvelope {
+                protocol_version: 1,
+                request_id: "translate-1".to_string(),
+                request: Request::Translate(request_translation),
+            })
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            response.response,
+            Response::Ok {
+                payload: ResponsePayload::Translation(crate::native_protocol::TranslationResponse {
+                    text,
+                    cached: false,
+                    ..
+                })
+            } if text == "translated"
+        ));
+        assert_eq!(
+            *handler.translations.lock().unwrap(),
+            vec![BrowserTranslationRequest {
+                origin: origin.to_string(),
+                request_id: "translate-1".to_string(),
+                translation,
             }]
         );
 

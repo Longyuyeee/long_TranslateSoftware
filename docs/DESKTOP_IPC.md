@@ -36,3 +36,9 @@ Native Host 已在同一 Native Messaging 端口完成 `hello` 后把 `pair` 转
 - IPC 监听任务随桌面状态释放而停止，不留下仍可连接的孤立管道。
 
 Chrome / Edge 的真实安装、`hello` / `ping`、升级和卸载烟雾仍是独立发布门槛，不能由 IPC 单元测试替代。
+
+## 2026-08-12 增量
+
+IPC 已增加严格校验的 `translate` 与 `cancel`。Host 将浏览器验证后的 Origin、翻译 request ID 和受限正文转发到桌面；桌面仅在对应 Origin 已获 `translation` 权限且前端翻译桥接 ready 时接单。每个 Origin 最多 4 个在途任务，重复 request ID 拒绝，单次等待上限 65 秒。
+
+翻译仍复用 WebView 内既有任务核心及其主备模型、术语表、缓存、格式检查和取消能力，不在 Host 中读取 API Key 或复制供应商实现。完成、撤销、超时和取消都会移除任务关联；取消必须同时匹配 Origin 与目标 request ID。

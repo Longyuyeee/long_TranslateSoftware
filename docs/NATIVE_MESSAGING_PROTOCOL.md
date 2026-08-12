@@ -177,6 +177,12 @@ approved
 4. 已建立桌面侧 Windows 随机命名管道、随机令牌、64 KiB 帧限制和受认证在线探针；Host 已在强制 `hello` 首帧后转发配对申请，桌面未运行、端点过期和 IPC 异常均失败关闭。
 5. 桌面端已实现配对批准、拒绝、授权撤销和最小能力持久化；批准绑定完整 Origin 与申请能力，后续 `hello` 通过桌面私有 IPC 查询状态，能力增加时必须重新确认。
 6. 创建 Manifest V3 service worker，先完成 hello/ping/pair，再接翻译。
+
+## 2026-08-12 实现对齐
+
+`translate` / `cancel` 已接入实际 Host 与桌面翻译核心。Host 对翻译请求使用工作线程，使同一 Native Messaging 端口仍可读取相关联的取消请求；响应顺序不作假设，始终以 request ID 关联。扩展内部 API 使用调用方生成的有限长度任务 ID 管理 `AbortController`，但尚未暴露给网页，因为 content script 与划词 UI 属于下一增量。
+
+`add_word` 继续返回不可用，不在本次翻译只读权限中顺带开放数据写入。
 7. 最后实现网页划词 UI 和收藏入口。
 
 任何阶段都不得把桌面密钥复制到扩展存储。

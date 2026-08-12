@@ -116,7 +116,7 @@ fn host_process_handles_hello_and_ping_without_unframed_stdout() {
         } => {
             assert_eq!(payload.client_nonce, "nonce-1");
             assert_eq!(payload.pairing_state, PairingState::Required);
-            assert_eq!(payload.capabilities, ["ping"]);
+            assert_eq!(payload.capabilities, ["ping", "translation", "cancel"]);
         }
         response => panic!("unexpected hello response: {response:?}"),
     }

@@ -540,6 +540,12 @@
 | **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 开发扩展（待真实浏览器烟雾） |
 | **文档翻译** | v0.5.1 规划中（DOCX 与文本型 PDF MVP） |
 
+### v0.5.0 浏览器桥接最新进度（2026-08-12）
+
+- Native Host、桌面私有 IPC 与现有桌面翻译任务已打通 `translate` / `cancel`，继续由桌面端独占 API Key、模型配置、术语表和缓存。
+- 扩展 service worker 提供带任务 ID 的内部翻译与取消入口；桌面桥接未就绪、未配对、超时、限流和服务商失败均返回结构化错误。
+- 本增量不申请网页访问权限，也不包含 content script、划词浮层或 `add_word`；下一步先完成这三项产品界面，再执行 Chrome / Edge 真实翻译与取消烟雾。
+
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
 - [Node.js](https://nodejs.org/) (v20.19+)
