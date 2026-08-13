@@ -184,6 +184,17 @@ export interface DocxRebuildPlan {
   replacements: DocxRebuildReplacement[];
 }
 
+export interface DocxRebuildValidation {
+  replacementCount: number;
+  partCount: number;
+  translatedBytes: number;
+}
+
+export interface DocxRebuildCommandError {
+  code: "invalid-plan" | "stale-source" | "rebuild-failed";
+  message: string;
+}
+
 export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
   return invoke<DocxInspection>("inspect_docx_document", { path });
 }
@@ -324,6 +335,12 @@ export function createDocxRebuildPlan(
     outputMode: job.outputMode,
     replacements,
   };
+}
+
+export async function validateDocxRebuildPlan(
+  plan: DocxRebuildPlan,
+): Promise<DocxRebuildValidation> {
+  return invoke<DocxRebuildValidation>("validate_docx_rebuild_plan", { plan });
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */
