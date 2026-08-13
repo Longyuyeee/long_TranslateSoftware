@@ -50,6 +50,7 @@
 - PR [#67](https://github.com/Longyuyeee/long_TranslateSoftware/pull/67) 已通过 CI 并合并。阶段 3B 的第一增量正在把队列状态接入串行、节流且终态强制落盘的 Checkpoint writer；存储失败会取消请求并向上返回，下一步是恢复后只重试失败段和有上限退避。
 - PR [#68](https://github.com/Longyuyeee/long_TranslateSoftware/pull/68) 在 Chrome Runtime 瞬时启动失败后重跑全绿并合并。当前增量实现恢复后只选择可重试失败段、单次运行最多 2 次自动重试、可取消指数退避以及永久错误快速失败；成功段不会重发或覆盖。
 - PR [#69](https://github.com/Longyuyeee/long_TranslateSoftware/pull/69) 已通过完整 CI 并合并。阶段 3 最后补齐任务注册表、重复启动拒绝、多任务隔离和统一 `cancelAll`；无 UI 调度层达到退出门槛后进入 DOCX 重建，长文档、强制结束和恢复提示继续作为 UI 接入后的人工发布门禁。
+- PR [#70](https://github.com/Longyuyeee/long_TranslateSoftware/pull/70) 已通过完整 CI 并合并，阶段 3 无 UI 核心收口。阶段 4 第一增量先建立 DOCX 重建 preflight：重新校验源指纹与完整段锚点，生成不含凭据的替换白名单并拒绝源路径覆盖；尚不写 XML 或输出文件。
 
 ## 每一步的交付要求
 

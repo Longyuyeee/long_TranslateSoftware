@@ -15,6 +15,7 @@ import {
   loadDocumentCheckpoint,
   deleteDocumentCheckpoint,
   cleanupDocumentCheckpoints,
+  createDocxRebuildPlan,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -314,5 +315,96 @@ describe("document checkpoints", () => {
     expect(() => parseDocumentCheckpoint(checkpoint({
       outputPath: "c:\\DOCS\\input.docx",
     }))).toThrow("must not overwrite");
+  });
+});
+
+describe("DOCX rebuild preflight", () => {
+  function rebuildingFixture() {
+    const rebuilding = job({
+      phase: "rebuilding",
+      segments: [segment({
+        location: {
+          order: 0,
+          part: "word/document.xml",
+          sourcePosition: "paragraph:0:chunk:0:bytes:0-5:runs:0-0:texts:0-0",
+        },
+        status: "translated",
+        translatedText: "你好",
+        attempts: 1,
+      })],
+    });
+    const inspection = {
+      fingerprint: rebuilding.input.fingerprint,
+      fileName: rebuilding.input.fileName,
+      sizeBytes: rebuilding.input.sizeBytes,
+      warnings: [],
+      segments: [{
+        id: "segment-1",
+        order: 0,
+        part: "word/document.xml",
+        sourcePosition: "paragraph:0:chunk:0:bytes:0-5:runs:0-0:texts:0-0",
+        structure: "paragraph" as const,
+        sourceText: "Hello",
+      }],
+    };
+    return { rebuilding, inspection };
+  }
+
+  it("creates an ordered replacement allowlist without runtime credentials", () => {
+    const { rebuilding, inspection } = rebuildingFixture();
+    const plan = createDocxRebuildPlan(
+      rebuilding,
+      inspection,
+      "C:\\docs\\translated.docx",
+    );
+
+    expect(plan).toMatchObject({
+      sourcePath: "C:\\docs\\input.docx",
+      outputPath: "C:\\docs\\translated.docx",
+      outputMode: "translated",
+      replacements: [{
+        id: "segment-1",
+        translatedText: "你好",
+      }],
+    });
+    expect(JSON.stringify(plan)).not.toContain("apiKey");
+  });
+
+  it("rejects changed sources, anchors, incomplete translations, and source overwrite", () => {
+    const { rebuilding, inspection } = rebuildingFixture();
+    expect(() => createDocxRebuildPlan(
+      rebuilding,
+      { ...inspection, fingerprint: "sha256:changed" },
+      "C:\\docs\\translated.docx",
+    )).toThrow("source changed");
+    expect(() => createDocxRebuildPlan(
+      rebuilding,
+      {
+        ...inspection,
+        segments: [{ ...inspection.segments[0], sourcePosition: "paragraph:1" }],
+      },
+      "C:\\docs\\translated.docx",
+    )).toThrow("anchor changed");
+    expect(() => createDocxRebuildPlan(
+      { ...rebuilding, segments: [segment()] },
+      inspection,
+      "C:\\docs\\translated.docx",
+    )).toThrow("not ready");
+    expect(() => createDocxRebuildPlan(
+      rebuilding,
+      inspection,
+      "c:/DOCS/input.docx",
+    )).toThrow("must not overwrite");
+  });
+
+  it("rejects relative and non-DOCX output paths", () => {
+    const { rebuilding, inspection } = rebuildingFixture();
+    expect(() => createDocxRebuildPlan(rebuilding, inspection, "output.docx"))
+      .toThrow("absolute .docx path");
+    expect(() => createDocxRebuildPlan(
+      rebuilding,
+      inspection,
+      "C:\\docs\\output.pdf",
+    )).toThrow("absolute .docx path");
   });
 });

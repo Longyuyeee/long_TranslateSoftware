@@ -166,6 +166,24 @@ export interface DocxInspection {
   warnings: DocxImportWarning[];
 }
 
+export interface DocxRebuildReplacement {
+  id: string;
+  order: number;
+  part: string;
+  sourcePosition: string;
+  structure: DocumentStructureKind;
+  sourceText: string;
+  translatedText: string;
+}
+
+export interface DocxRebuildPlan {
+  sourcePath: string;
+  outputPath: string;
+  fingerprint: string;
+  outputMode: DocumentOutputMode;
+  replacements: DocxRebuildReplacement[];
+}
+
 export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
   return invoke<DocxInspection>("inspect_docx_document", { path });
 }
@@ -207,6 +225,105 @@ export function documentSegmentsFromDocx(
     status: "pending",
     attempts: 0,
   }));
+}
+
+function normalizedWindowsPath(path: string): string {
+  return path.trim().replace(/\//g, "\\").toLocaleLowerCase();
+}
+
+/** Builds a closed replacement allowlist after re-checking the source inspection. */
+export function createDocxRebuildPlan(
+  sourceJob: DocumentJob,
+  inspection: DocxInspection,
+  outputPath: string,
+): DocxRebuildPlan {
+  const job = parseDocumentCheckpoint({
+    schemaVersion: DOCUMENT_CHECKPOINT_VERSION,
+    job: sourceJob,
+  }).job;
+  if (job.phase !== "rebuilding" || job.input.format !== "docx") {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "DOCX rebuild requires a rebuilding DOCX job",
+    );
+  }
+  const trimmedOutput = outputPath.trim();
+  if (
+    !trimmedOutput
+    || !/\.docx$/iu.test(trimmedOutput)
+    || !/^(?:[a-z]:[\\/]|\\\\)/iu.test(trimmedOutput)
+  ) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "DOCX output must be an absolute .docx path",
+    );
+  }
+  if (normalizedWindowsPath(trimmedOutput) === normalizedWindowsPath(job.input.sourcePath)) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "DOCX output must not overwrite its source",
+    );
+  }
+  if (
+    inspection.fingerprint !== job.input.fingerprint
+    || inspection.sizeBytes !== job.input.sizeBytes
+    || inspection.fileName.toLocaleLowerCase() !== job.input.fileName.toLocaleLowerCase()
+  ) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "DOCX source changed after it was inspected",
+    );
+  }
+  if (inspection.segments.length !== job.segments.length) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "DOCX segment count changed after inspection",
+    );
+  }
+
+  const replacements = job.segments.map((segment, order) => {
+    const inspected = inspection.segments[order];
+    if (
+      segment.status !== "translated"
+      || !segment.translatedText?.trim()
+      || !segment.location.sourcePosition
+    ) {
+      throw new DocumentContractError(
+        "rebuild-failed",
+        `DOCX segment is not ready for rebuild: ${segment.id}`,
+      );
+    }
+    if (
+      inspected.id !== segment.id
+      || inspected.order !== order
+      || inspected.part !== segment.location.part
+      || inspected.sourcePosition !== segment.location.sourcePosition
+      || inspected.structure !== segment.structure
+      || inspected.sourceText !== segment.sourceText
+    ) {
+      throw new DocumentContractError(
+        "rebuild-failed",
+        `DOCX segment anchor changed after inspection: ${segment.id}`,
+      );
+    }
+    return {
+      id: segment.id,
+      order,
+      part: inspected.part,
+      sourcePosition: inspected.sourcePosition,
+      structure: segment.structure,
+      sourceText: segment.sourceText,
+      translatedText: segment.translatedText,
+    };
+  });
+
+  return {
+    sourcePath: job.input.sourcePath,
+    outputPath: trimmedOutput,
+    fingerprint: job.input.fingerprint,
+    outputMode: job.outputMode,
+    replacements,
+  };
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */
