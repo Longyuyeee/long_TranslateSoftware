@@ -1,4 +1,7 @@
-import type { GlossaryEntry } from "./translationTask";
+import type {
+  GlossaryEntry,
+  TranslationExecutionSnapshot,
+} from "./translationTask";
 
 export const DOCUMENT_CHECKPOINT_VERSION = 1 as const;
 export const DOCUMENT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
@@ -111,6 +114,25 @@ export interface DocumentJob {
 export interface DocumentCheckpoint {
   schemaVersion: typeof DOCUMENT_CHECKPOINT_VERSION;
   job: DocumentJob;
+}
+
+/** Produces the persistable task summary without copying runtime credentials. */
+export function documentSnapshotFromExecution(
+  snapshot: TranslationExecutionSnapshot,
+): DocumentTranslationSnapshot {
+  return {
+    sourceLanguage: snapshot.sourceLang,
+    targetLanguage: snapshot.targetLang,
+    primary: {
+      baseUrl: snapshot.primary.baseUrl,
+      model: snapshot.primary.model,
+    },
+    backup: snapshot.backup
+      ? { baseUrl: snapshot.backup.baseUrl, model: snapshot.backup.model }
+      : undefined,
+    customPrompt: snapshot.customPrompt,
+    glossary: snapshot.glossary.map(entry => ({ ...entry })),
+  };
 }
 
 export class DocumentContractError extends Error {

@@ -8,6 +8,8 @@ import {
   buildTranslationCacheContext,
   buildTranslationMessages,
   detectSpeechLocale,
+  executeTranslationWithSnapshot,
+  loadTranslationExecutionSnapshot,
   resolveEdgeVoice,
   selectRelevantGlossary,
   speak,
@@ -108,6 +110,52 @@ describe("startTranslationTask", () => {
     expect(prompt).toContain("zh-Hans");
     expect(prompt).toContain("hello");
     expect(prompt).toContain("您好");
+  });
+
+  it("loads and freezes one runtime snapshot for multiple text executions", async () => {
+    const taskConfig = { ...config };
+    const taskGlossary = [{ source_term: "hello", target_term: "您好" }];
+    invokeMock.mockImplementation((command: string, args?: { keys?: string[] }) => {
+      if (command === "get_config_values") {
+        return Promise.resolve(Object.fromEntries(
+          (args?.keys || []).map(key => [key, taskConfig[key] || ""]),
+        ));
+      }
+      if (command === "get_glossary_entries") return Promise.resolve(taskGlossary);
+      if (command === "lookup_translation_memory") return Promise.resolve(null);
+      return Promise.resolve(undefined);
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(sseResponse("您好"))
+      .mockResolvedValueOnce(sseResponse("您好 again"));
+
+    const snapshot = await loadTranslationExecutionSnapshot();
+    taskConfig.trans_model_name = "changed-mid-task";
+    taskGlossary[0].target_term = "污染";
+    await executeTranslationWithSnapshot("hello", snapshot);
+    await executeTranslationWithSnapshot("hello again", snapshot);
+
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.primary)).toBe(true);
+    expect(Object.isFrozen(snapshot.glossary)).toBe(true);
+    expect(snapshot.glossary[0].target_term).toBe("您好");
+    expect(invokeMock.mock.calls.filter(([command]) => command === "get_config_values"))
+      .toHaveLength(1);
+    expect(invokeMock.mock.calls.filter(([command]) => command === "get_glossary_entries"))
+      .toHaveLength(1);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      "https://primary.example/v1/chat/completions",
+      "https://primary.example/v1/chat/completions",
+    ]);
+    for (const [, options] of vi.mocked(fetch).mock.calls) {
+      const body = JSON.parse(String(options?.body)) as {
+        model: string;
+        messages: Array<{ content: string }>;
+      };
+      expect(body.model).toBe("primary-model");
+      expect(body.messages.map(message => message.content).join("\n")).toContain("您好");
+      expect(body.messages.map(message => message.content).join("\n")).not.toContain("污染");
+    }
   });
 
   it("ignores a cached translation that loses source invariants", async () => {

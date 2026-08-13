@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DOCUMENT_CHECKPOINT_VERSION,
   DOCUMENT_MAX_INPUT_BYTES,
+  documentSnapshotFromExecution,
   documentProgress,
   inspectDocumentInput,
   parseDocumentCheckpoint,
@@ -136,6 +137,35 @@ describe("document state machines", () => {
 });
 
 describe("document checkpoints", () => {
+  it("redacts runtime credentials from the persisted snapshot", () => {
+    const persisted = documentSnapshotFromExecution({
+      primary: {
+        apiKey: "primary-secret",
+        baseUrl: "https://api.example.com/v1",
+        model: "primary-model",
+      },
+      backup: {
+        apiKey: "backup-secret",
+        baseUrl: "https://backup.example.com/v1",
+        model: "backup-model",
+      },
+      sourceLang: "en",
+      targetLang: "zh-Hans",
+      customPrompt: "Translate",
+      glossary: [{ source_term: "hello", target_term: "您好" }],
+    });
+
+    expect(persisted.primary).toEqual({
+      baseUrl: "https://api.example.com/v1",
+      model: "primary-model",
+    });
+    expect(persisted.backup).toEqual({
+      baseUrl: "https://backup.example.com/v1",
+      model: "backup-model",
+    });
+    expect(JSON.stringify(persisted)).not.toContain("secret");
+  });
+
   it("round-trips the allow-listed v1 shape", () => {
     const value = checkpoint();
     expect(parseDocumentCheckpoint(JSON.stringify(value))).toEqual(value);

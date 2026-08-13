@@ -23,12 +23,17 @@ export type {
 export {
   buildTranslationCacheContext,
   buildTranslationMessages,
+  executeTranslationWithSnapshot,
+  loadTranslationExecutionSnapshot,
   selectRelevantGlossary,
   startTranslationTask,
 } from "./translationTask";
 export type {
   GlossaryEntry,
+  TranslationExecutionCallbacks,
+  TranslationExecutionSnapshot,
   TranslationPhase,
+  TranslationRuntimeProvider,
   TranslationTask,
   TranslationTaskCallbacks,
   TranslationTaskCompletion,

@@ -58,6 +58,27 @@ export interface TranslationTaskOverrides {
   glossary?: GlossaryEntry[];
 }
 
+export interface TranslationRuntimeProvider {
+  readonly apiKey: string;
+  readonly baseUrl: string;
+  readonly model: string;
+}
+
+/** Runtime-only snapshot. It contains credentials and must never be checkpointed. */
+export interface TranslationExecutionSnapshot {
+  readonly primary: TranslationRuntimeProvider;
+  readonly backup?: TranslationRuntimeProvider;
+  readonly targetLang: string;
+  readonly sourceLang: string;
+  readonly customPrompt: string;
+  readonly glossary: readonly Readonly<GlossaryEntry>[];
+}
+
+export interface TranslationExecutionCallbacks {
+  onState?: (state: Omit<TranslationTaskState, "requestId">) => void;
+  onText?: (text: string) => void;
+}
+
 export interface GlossaryEntry {
   source_term: string;
   target_term: string;
@@ -86,8 +107,8 @@ function containsGlossaryTerm(text: string, term: string): boolean {
 
 export function selectRelevantGlossary(
   text: string,
-  glossary: GlossaryEntry[] = [],
-): GlossaryEntry[] {
+  glossary: readonly Readonly<GlossaryEntry>[] = [],
+): Readonly<GlossaryEntry>[] {
   const seen = new Set<string>();
   return glossary
     .filter(entry => containsGlossaryTerm(text, entry.source_term))
@@ -107,7 +128,7 @@ export function buildTranslationCacheContext(config: {
   sourceLang: string;
   targetLang: string;
   customPrompt: string;
-  glossary?: GlossaryEntry[];
+  glossary?: readonly Readonly<GlossaryEntry>[];
   text: string;
 }): string {
   const matchedGlossary = selectRelevantGlossary(config.text, config.glossary)
@@ -136,7 +157,7 @@ export function buildTranslationMessages(
   targetLang: string,
   sourceLang: string,
   customPrompt: string,
-  glossary: GlossaryEntry[] = [],
+  glossary: readonly Readonly<GlossaryEntry>[] = [],
 ): Array<{ role: "system" | "user"; content: string }> {
   const sourceHint = sourceLang !== "auto"
     ? `The source language is ${sourceLang}.`
@@ -189,7 +210,7 @@ export async function doTranslate(
   sourceLang: string,
   customPrompt: string,
   onChunk: (chunk: string) => void,
-  glossary?: GlossaryEntry[],
+  glossary?: readonly Readonly<GlossaryEntry>[],
   signal?: AbortSignal,
 ): Promise<boolean> {
   await streamChatCompletion({
@@ -209,10 +230,195 @@ export async function doTranslate(
   return true;
 }
 
+const TRANSLATION_CONFIG_KEYS = [
+  "trans_api_key", "openai_api_key", "trans_base_url", "base_url",
+  "trans_model_name", "model_name", "target_lang", "source_lang",
+  "custom_prompt", "backup_api_key", "backup_base_url", "backup_model",
+] as const;
+
+function runtimeProvider(
+  apiKey: string,
+  baseUrl: string,
+  model: string,
+): TranslationRuntimeProvider | undefined {
+  const provider = {
+    apiKey: apiKey.trim(),
+    baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+    model: model.trim(),
+  };
+  return provider.apiKey && provider.baseUrl && provider.model
+    ? provider
+    : undefined;
+}
+
+/** Reads settings and glossary once so a multi-part task cannot drift mid-run. */
+export async function loadTranslationExecutionSnapshot(
+  overrides: TranslationTaskOverrides = {},
+): Promise<TranslationExecutionSnapshot> {
+  const config = await invoke<Record<string, string>>("get_config_values", {
+    keys: [...TRANSLATION_CONFIG_KEYS],
+  });
+  const primary = runtimeProvider(
+    config.trans_api_key || config.openai_api_key || "",
+    config.trans_base_url || config.base_url || "https://api.openai.com/v1",
+    config.trans_model_name || config.model_name || "deepseek-chat",
+  );
+  if (!primary) {
+    throw new TranslationRequestError(
+      "missing-api-key",
+      "API key is not configured",
+    );
+  }
+
+  let glossary = overrides.glossary;
+  if (glossary === undefined) {
+    try {
+      glossary = await invoke<GlossaryEntry[]>("get_glossary_entries");
+    } catch {
+      glossary = [];
+    }
+  }
+  const backup = runtimeProvider(
+    config.backup_api_key || "",
+    config.backup_base_url || "",
+    config.backup_model || "",
+  );
+  const snapshot: TranslationExecutionSnapshot = {
+    primary: Object.freeze(primary),
+    backup: backup ? Object.freeze(backup) : undefined,
+    targetLang: overrides.targetLang || config.target_lang || "Chinese",
+    sourceLang: overrides.sourceLang || config.source_lang || "auto",
+    customPrompt: config.custom_prompt || "",
+    glossary: Object.freeze(glossary.map(entry => Object.freeze({ ...entry }))),
+  };
+  return Object.freeze(snapshot);
+}
+
+/** Executes text with an already loaded snapshot; safe to reuse across document segments. */
+export async function executeTranslationWithSnapshot(
+  text: string,
+  snapshot: TranslationExecutionSnapshot,
+  callbacks: TranslationExecutionCallbacks = {},
+  signal?: AbortSignal,
+): Promise<TranslationTaskResult> {
+  const { primary, backup, sourceLang, targetLang, customPrompt, glossary } = snapshot;
+  const primaryCacheContext = buildTranslationCacheContext({
+    baseUrl: primary.baseUrl,
+    model: primary.model,
+    sourceLang,
+    targetLang,
+    customPrompt,
+    glossary,
+    text,
+  });
+
+  callbacks.onState?.({ phase: "checking-cache", model: primary.model });
+  const cached = await invoke<string | null>("lookup_translation_memory", {
+    text,
+    targetLang,
+    cacheContext: primaryCacheContext,
+  });
+  if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  const cachedReport = cached
+    ? evaluateTranslationFormat(text, cached, {
+      requiredTerms: selectRelevantGlossary(text, glossary)
+        .map(entry => entry.target_term),
+    })
+    : null;
+  if (cached && cachedReport?.passed) {
+    callbacks.onText?.(cached);
+    return {
+      text: cached,
+      model: primary.model,
+      cached: true,
+      usedBackup: false,
+    };
+  }
+
+  let translatedText = "";
+  let activeProvider = primary;
+  let usedBackup = false;
+  callbacks.onText?.("");
+  callbacks.onState?.({
+    phase: "translating-primary",
+    model: primary.model,
+    cached: false,
+    usedBackup: false,
+  });
+  const translate = async (provider: TranslationRuntimeProvider) => {
+    await doTranslate(
+      text,
+      provider.apiKey,
+      provider.baseUrl,
+      provider.model,
+      targetLang,
+      sourceLang,
+      customPrompt,
+      (chunk) => {
+        if (signal?.aborted) return;
+        translatedText += chunk;
+        callbacks.onText?.(translatedText);
+      },
+      glossary,
+      signal,
+    );
+    requireTranslationFormat(text, translatedText, glossary);
+  };
+
+  try {
+    await translate(primary);
+  } catch (primaryError) {
+    if (signal?.aborted || !backup) throw primaryError;
+    usedBackup = true;
+    activeProvider = backup;
+    translatedText = "";
+    callbacks.onText?.("");
+    callbacks.onState?.({
+      phase: "translating-backup",
+      model: backup.model,
+      cached: false,
+      usedBackup: true,
+    });
+    await translate(backup);
+  }
+
+  if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+  const result: TranslationTaskResult = {
+    text: translatedText.trim(),
+    model: activeProvider.model,
+    cached: false,
+    usedBackup,
+  };
+  if (!result.text) {
+    throw new TranslationRequestError(
+      "server",
+      "Translation service returned no text",
+    );
+  }
+  if (text.length < 500) {
+    const cacheContext = buildTranslationCacheContext({
+      baseUrl: activeProvider.baseUrl,
+      model: activeProvider.model,
+      sourceLang,
+      targetLang,
+      customPrompt,
+      glossary,
+      text,
+    });
+    invoke("save_translation_memory", {
+      sourceText: text,
+      translatedText: result.text,
+      targetLang,
+      cacheContext,
+    }).catch(() => {});
+  }
+  return result;
+}
+
 export function requireTranslationFormat(
   source: string,
   candidate: string,
-  glossary: GlossaryEntry[],
+  glossary: readonly Readonly<GlossaryEntry>[],
 ): void {
   const report = evaluateTranslationFormat(source, candidate, {
     requiredTerms: selectRelevantGlossary(source, glossary)
@@ -252,192 +458,20 @@ export function startTranslationTask(
     try {
       invoke("increment_translate_count").catch(console.error);
       emitState({ phase: "loading-config" });
-
-      const config = await invoke<Record<string, string>>(
-        "get_config_values",
-        {
-          keys: [
-            "trans_api_key", "openai_api_key", "trans_base_url", "base_url",
-            "trans_model_name", "model_name", "target_lang", "source_lang",
-            "custom_prompt", "backup_api_key", "backup_base_url",
-            "backup_model",
-          ],
+      const snapshot = await loadTranslationExecutionSnapshot(overrides);
+      if (controller.signal.aborted) return completeCancellation();
+      const result = await executeTranslationWithSnapshot(text, snapshot, {
+        onState: state => {
+          usedBackup = state.usedBackup ?? usedBackup;
+          emitState(state);
         },
-      );
-      const primaryKey = (
-        config.trans_api_key || config.openai_api_key || ""
-      ).trim();
-      const primaryUrl = (
-        config.trans_base_url
-        || config.base_url
-        || "https://api.openai.com/v1"
-      ).trim().replace(/\/+$/, "");
-      const primaryModel = (
-        config.trans_model_name || config.model_name || "deepseek-chat"
-      ).trim();
-      const targetLang = overrides.targetLang || config.target_lang || "Chinese";
-      const sourceLang = overrides.sourceLang || config.source_lang || "auto";
-      const customPrompt = config.custom_prompt || "";
-
-      if (controller.signal.aborted) return completeCancellation();
-      if (!primaryKey) {
-        throw new TranslationRequestError(
-          "missing-api-key",
-          "API key is not configured",
-        );
-      }
-
-      let glossary: GlossaryEntry[] = overrides.glossary || [];
-      if (!overrides.glossary) {
-        try {
-          glossary = await invoke<GlossaryEntry[]>("get_glossary_entries");
-        } catch {
-          // Glossary injection is optional.
-        }
-      }
-      const primaryCacheContext = buildTranslationCacheContext({
-        baseUrl: primaryUrl,
-        model: primaryModel,
-        sourceLang,
-        targetLang,
-        customPrompt,
-        glossary,
-        text,
-      });
-
-      emitState({ phase: "checking-cache", model: primaryModel });
-      const cached = await invoke<string | null>(
-        "lookup_translation_memory",
-        { text, targetLang, cacheContext: primaryCacheContext },
-      );
-      if (controller.signal.aborted) return completeCancellation();
-      const cachedReport = cached
-        ? evaluateTranslationFormat(text, cached, {
-          requiredTerms: selectRelevantGlossary(text, glossary)
-            .map(entry => entry.target_term),
-        })
-        : null;
-      if (cached && cachedReport?.passed) {
-        callbacks.onText?.(cached, requestId);
-        const result = {
-          text: cached,
-          model: primaryModel,
-          cached: true,
-          usedBackup: false,
-        };
-        emitState({
-          phase: "success",
-          model: primaryModel,
-          cached: true,
-          usedBackup: false,
-        });
-        return { status: "success", result };
-      }
-
-      let translatedText = "";
-      let activeModel = primaryModel;
-      let activeBaseUrl = primaryUrl;
-      callbacks.onText?.("", requestId);
-      emitState({
-        phase: "translating-primary",
-        model: primaryModel,
-        cached: false,
-        usedBackup: false,
-      });
-
-      try {
-        await doTranslate(
-          text,
-          primaryKey,
-          primaryUrl,
-          primaryModel,
-          targetLang,
-          sourceLang,
-          customPrompt,
-          (chunk) => {
-            if (controller.signal.aborted) return;
-            translatedText += chunk;
-            callbacks.onText?.(translatedText, requestId);
-          },
-          glossary,
-          controller.signal,
-        );
-        requireTranslationFormat(text, translatedText, glossary);
-      } catch (primaryError) {
-        if (controller.signal.aborted) return completeCancellation();
-
-        const backupKey = (config.backup_api_key || "").trim();
-        const backupUrl = (config.backup_base_url || "")
-          .trim()
-          .replace(/\/+$/, "");
-        const backupModel = (config.backup_model || "").trim();
-        if (!backupKey || !backupUrl || !backupModel) throw primaryError;
-
-        usedBackup = true;
-        activeModel = backupModel;
-        activeBaseUrl = backupUrl;
-        translatedText = "";
-        callbacks.onText?.("", requestId);
-        emitState({
-          phase: "translating-backup",
-          model: backupModel,
-          cached: false,
-          usedBackup: true,
-        });
-        await doTranslate(
-          text,
-          backupKey,
-          backupUrl,
-          backupModel,
-          targetLang,
-          sourceLang,
-          customPrompt,
-          (chunk) => {
-            if (controller.signal.aborted) return;
-            translatedText += chunk;
-            callbacks.onText?.(translatedText, requestId);
-          },
-          glossary,
-          controller.signal,
-        );
-        requireTranslationFormat(text, translatedText, glossary);
-      }
-
-      if (controller.signal.aborted) return completeCancellation();
-      const result = {
-        text: translatedText.trim(),
-        model: activeModel,
-        cached: false,
-        usedBackup,
-      };
-      if (!result.text) {
-        throw new TranslationRequestError(
-          "server",
-          "Translation service returned no text",
-        );
-      }
-
-      if (text.length < 500) {
-        const cacheContext = buildTranslationCacheContext({
-          baseUrl: activeBaseUrl,
-          model: activeModel,
-          sourceLang,
-          targetLang,
-          customPrompt,
-          glossary,
-          text,
-        });
-        invoke("save_translation_memory", {
-          sourceText: text,
-          translatedText: result.text,
-          targetLang,
-          cacheContext,
-        }).catch(() => {});
-      }
+        onText: translated => callbacks.onText?.(translated, requestId),
+      }, controller.signal);
+      usedBackup = result.usedBackup;
       emitState({
         phase: "success",
-        model: activeModel,
-        cached: false,
+        model: result.model,
+        cached: result.cached,
         usedBackup,
       });
       return { status: "success", result };
