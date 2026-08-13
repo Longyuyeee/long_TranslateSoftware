@@ -1,6 +1,6 @@
 # Native Messaging v1 协议与威胁模型
 
-状态：协议、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 与用户触发的划词浮层已经完成；尚未完成真实浏览器烟雾或商店 ID
+状态：协议、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 与用户触发的划词浮层已经完成；v0.5.0 使用固定开发 ID 的 Release ZIP 分发，商店正式 ID 后续接入
 
 版本：`1`
 
@@ -182,7 +182,7 @@ approved
 
 `translate` / `cancel` 已接入实际 Host 与桌面翻译核心。Host 对翻译请求使用工作线程，使同一 Native Messaging 端口仍可读取相关联的取消请求；响应顺序不作假设，始终以 request ID 关联。划词 UI 已通过用户触发的 `activeTab` 注入暴露该能力；content script 不能连接 Host，只能向 service worker 发送白名单消息。
 
-7. 网页划词 UI、收藏入口与 `add_word` 独立写入授权已完成；下一步执行 Chrome / Edge 全链路真实烟雾。
+7. 网页划词 UI、收藏入口与 `add_word` 独立写入授权已完成；自动化与真实 Edge 运行时烟雾已覆盖生产 content script，Chrome 商店上架与签名候选人工验收后续单独处理。
 
 `add_word` 已使用独立 `wordbook` 能力接入桌面生词本。Host 与桌面 IPC 保留经过验证的 Origin 和 request ID；桌面只接收单个词条、译文和可选受限上下文，成功只返回词条 ID。扩展浮层默认不发送页面上下文，旧的 `translation` 授权必须重新确认后才能写入。
 

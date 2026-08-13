@@ -68,6 +68,9 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF -ne "refs/tags/v$version") {
+            throw "Release tag $env:GITHUB_REF does not match application version v$version"
+          }
           $notesPath = "docs/releases/v$version.md"
           if (-not (Test-Path -LiteralPath $notesPath)) {
             throw "Missing versioned release notes: $notesPath"
@@ -78,6 +81,14 @@ jobs:
           "body<<$delimiter" >> $env:GITHUB_OUTPUT
           Get-Content -LiteralPath $notesPath -Raw >> $env:GITHUB_OUTPUT
           $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Package browser extension
+        id: browser_extension
+        shell: pwsh
+        run: |
+          $asset = "LongTranslate_${{ steps.release_notes.outputs.version }}_browser_extension.zip"
+          Compress-Archive -Path "browser-extension/dist/*" -DestinationPath $asset -CompressionLevel Optimal
+          "asset=$asset" >> $env:GITHUB_OUTPUT
 
       - name: Build, sign and publish
         uses: tauri-apps/tauri-action@v1
@@ -98,8 +109,11 @@ jobs:
           releaseAssetNamePattern: "LongTranslate_[version]_[arch][_setup][ext]"
           retryAttempts: 2
 
-      - name: Attach quality report to release
+      - name: Attach extension and quality report to release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "v${{ steps.release_notes.outputs.version }}" "quality-reports/quality-report.json" --clobber
+        run: >-
+          gh release upload "v${{ steps.release_notes.outputs.version }}"
+          "${{ steps.browser_extension.outputs.asset }}"
+          "quality-reports/quality-report.json" --clobber
