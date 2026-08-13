@@ -28,7 +28,7 @@ npm run smoke:browser:runtime -- --require-desktop
 
 自动化还会启动真实编译出的桌面 EXE Native Host 子进程，以浏览器相同的 stdin/stdout 帧穿过受认证桌面命名管道，验证翻译、取消和生词本写入的 Origin 与 request ID 关联。该测试覆盖进程边界，但仍不替代 Chrome / Edge 的扩展加载与可视交互。
 
-运行时烟雾会使用隔离的临时浏览器配置，在支持命令行加载扩展的已安装 Chromium 浏览器中打开固定 ID 的真实 MV3 弹窗，检查 service worker、受支持语言的真实本地化 DOM 和主要控件，并在结果中同时记录请求语言与浏览器实际采用的语言（GitHub Windows runner 的 Edge 可能忽略 `--lang` 并回退到系统语言）；结束后只清理自己创建的临时配置。Edge 还会在隔离的普通 HTTP 页面执行生产构建的 content script，验证 Shadow DOM 浮层、选中文字后只出现“译”启动器且尚未发送正文、点击后才发送翻译请求、取消请求与原翻译 task ID 严格关联并进入已取消界面，以及刷新后注入消失。显式增加 `--require-desktop` 时，还会点击真实弹窗的连接检查按钮，要求浏览器经 Native Host 和受认证桌面 IPC 返回桌面版本、配对状态及往返耗时。正式 Chrome 137+ 已禁用 `--load-extension`；脚本会把 `ERR_BLOCKED_BY_CLIENT` 记录为明确的 Chrome 人工门槛，不能据此宣称 Chrome 验收通过，仍需在 `chrome://extensions` 的开发者模式中手工“加载已解压的扩展程序”。
+运行时烟雾会使用隔离的临时浏览器配置，在支持命令行加载扩展的已安装 Chromium 浏览器中打开固定 ID 的真实 MV3 弹窗，检查 service worker、受支持语言的真实本地化 DOM 和主要控件，并在结果中同时记录请求语言与浏览器实际采用的语言（GitHub Windows runner 的 Edge 可能忽略 `--lang` 并回退到系统语言）；结束后只清理自己创建的临时配置。Edge 还会在隔离的普通 HTTP 页面执行生产构建的 content script，验证 Shadow DOM 浮层、选中文字后只出现“译”启动器且尚未发送正文、点击后才发送翻译请求、取消请求与原翻译 task ID 严格关联并进入已取消界面、成功后才显示复制与收藏、收藏只发送所选原文和译文，以及刷新后注入消失。显式增加 `--require-desktop` 时，还会点击真实弹窗的连接检查按钮，要求浏览器经 Native Host 和受认证桌面 IPC 返回桌面版本、配对状态及往返耗时。正式 Chrome 137+ 已禁用 `--load-extension`；脚本会把 `ERR_BLOCKED_BY_CLIENT` 记录为明确的 Chrome 人工门槛，不能据此宣称 Chrome 验收通过，仍需在 `chrome://extensions` 的开发者模式中手工“加载已解压的扩展程序”。
 
 调试接口直接打开的 popup 不具备用户点击扩展工具栏图标时才授予的 `activeTab` 临时授权，因此自动烟雾不会伪造该授权或扩大 manifest 权限。发布候选仍须人工点击工具栏入口，确认弹窗把生产 content script 注入当前普通页面；自动化负责验证注入后的真实 Edge DOM 与隐私时序契约。
 
