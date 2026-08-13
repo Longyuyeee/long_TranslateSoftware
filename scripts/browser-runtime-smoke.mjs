@@ -47,6 +47,16 @@ const localizedPopup = {
   },
   "zh-CN": { title: "桌面桥接检查", bridgeStatus: "桌面桥接可用" },
 };
+const localizedSelectionFailures = {
+  "en-US": {
+    pairing: "Approve browser access in the desktop app first",
+    desktop: "Start the Long Translate desktop app first",
+  },
+  "zh-CN": {
+    pairing: "请先在桌面端批准浏览器配对",
+    desktop: "请先启动 Long Translate 桌面端",
+  },
+};
 const locales = Object.keys(localizedPopup);
 const results = [];
 
@@ -174,6 +184,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       selection = await inspectSelectionOverlay(
         port,
         selectionPage.url,
+        actualLanguage,
       );
     }
     let bridge;
@@ -244,7 +255,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
   }
 }
 
-async function inspectSelectionOverlay(port, pageUrl) {
+async function inspectSelectionOverlay(port, pageUrl, language) {
   const pageTarget = await poll(async () => {
     const targets = await jsonRequest(`http://127.0.0.1:${port}/json/list`);
     return targets.find((target) => target.type === "page" && target.url === pageUrl);
@@ -371,6 +382,10 @@ async function inspectSelectionOverlay(port, pageUrl) {
   const successfulTranslation = await inspectSuccessfulSelection(
     pageTarget.webSocketDebuggerUrl,
   );
+  const failureStates = await inspectSelectionFailureStates(
+    pageTarget.webSocketDebuggerUrl,
+    language,
+  );
   const oversizedSelection = await inspectOversizedSelection(
     pageTarget.webSocketDebuggerUrl,
   );
@@ -384,9 +399,101 @@ async function inspectSelectionOverlay(port, pageUrl) {
     cancellationCorrelated: true,
     removedAfterRefresh: true,
     successfulTranslation,
+    failureStates,
     oversizedSelection,
     viewportPositioning,
   };
+}
+
+async function inspectSelectionFailureStates(webSocketUrl, language) {
+  const expected = localizedSelectionFailures[language];
+  const cases = [
+    {
+      name: "pairingRequired",
+      error: "pairing_required: approval missing for private origin",
+      messageKey: "approvePairingFirst",
+      message: expected.pairing,
+    },
+    {
+      name: "desktopUnavailable",
+      error: "Specified native messaging host not found at C:\\private-host",
+      messageKey: "startDesktopFirst",
+      message: expected.desktop,
+    },
+  ];
+  const results = {};
+  for (const failure of cases) {
+    await evaluatePage(webSocketUrl, "location.reload(); true");
+    const ready = await poll(async () =>
+      evaluatePage(
+        webSocketUrl,
+        "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+        100,
+      ),
+    );
+    if (!ready) throw new Error(`Edge ${failure.name} page did not become ready`);
+    await evaluatePage(
+      webSocketUrl,
+      `(() => {
+        const localized = ${JSON.stringify({ [failure.messageKey]: failure.message })};
+        globalThis.__longTranslateSmokeMessages = [];
+        globalThis.chrome = {
+          runtime: {
+            sendMessage(message, callback) {
+              globalThis.__longTranslateSmokeMessages.push(message);
+              callback({ ok: false, error: ${JSON.stringify(failure.error)} });
+            }
+          },
+          i18n: { getMessage: (name) => localized[name] || "" }
+        };
+        (0, eval)(${JSON.stringify(contentScriptSource)});
+        const source = document.getElementById("selection-source");
+        const range = document.createRange();
+        range.selectNodeContents(source.firstChild);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        return true;
+      })()`,
+    );
+    const state = await poll(async () => {
+      const value = await evaluatePage(
+        webSocketUrl,
+        `(() => {
+          const root = document.getElementById("long-translate-selection-root");
+          const launcher = root?.shadowRoot?.querySelector(".launcher");
+          if (launcher) launcher.click();
+          const result = root?.shadowRoot?.querySelector(".result");
+          return {
+            result: result?.textContent || "",
+            errorState: result?.classList.contains("error") || false,
+            cancelHidden: root?.shadowRoot?.querySelector(".cancel")?.hidden ?? false,
+            copyHidden: root?.shadowRoot?.querySelector(".copy")?.hidden ?? false,
+            saveHidden: root?.shadowRoot?.querySelector(".save")?.hidden ?? false,
+            panelText: root?.shadowRoot?.querySelector(".panel")?.textContent || "",
+            messages: globalThis.__longTranslateSmokeMessages?.length || 0,
+          };
+        })()`,
+      );
+      return value.result ? value : undefined;
+    });
+    if (
+      state?.result !== failure.message ||
+      !state.errorState ||
+      !state.cancelHidden ||
+      !state.copyHidden ||
+      !state.saveHidden ||
+      state.messages !== 1 ||
+      state.panelText.includes(failure.error)
+    ) {
+      throw new Error(
+        `Edge selection overlay failed its ${failure.name} state: ${JSON.stringify(state)}`,
+      );
+    }
+    results[failure.name] = true;
+  }
+  return { ...results, actionsHidden: true, rawErrorsHidden: true };
 }
 
 async function inspectSuccessfulSelection(webSocketUrl) {

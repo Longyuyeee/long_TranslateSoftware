@@ -35,6 +35,27 @@ async function install(
   return host.shadowRoot;
 }
 
+const failureCases: Array<{
+  error: string;
+  expected: string;
+  translations: Record<string, string>;
+}> = [
+  {
+    error: "pairing_required: approval missing",
+    expected: "Approve browser access in the desktop app first",
+    translations: {
+      approvePairingFirst: "Approve browser access in the desktop app first",
+    },
+  },
+  {
+    error: "Specified native messaging host not found at C:\\private-host",
+    expected: "Start the Long Translate desktop app first",
+    translations: {
+      startDesktopFirst: "Start the Long Translate desktop app first",
+    },
+  },
+];
+
 describe("selection translation overlay", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -157,6 +178,21 @@ describe("selection translation overlay", () => {
     expect(panel?.style.maxHeight).toBe("189px");
     expect(panel?.style.left).toBe("112px");
     expect(panel?.style.top).toBe("62px");
+  });
+
+  it.each(failureCases)("renders a safe failure for $error", async ({ error, expected, translations }) => {
+    const shadow = await install((_message, callback) => {
+      callback({ ok: false, error });
+    }, "private selected text", translations);
+    shadow.querySelector<HTMLButtonElement>(".launcher")?.click();
+
+    const result = shadow.querySelector<HTMLElement>(".result");
+    expect(result?.textContent).toBe(expected);
+    expect(result?.textContent).not.toContain(error);
+    expect(result?.classList.contains("error")).toBe(true);
+    expect(shadow.querySelector<HTMLButtonElement>(".cancel")?.hidden).toBe(true);
+    expect(shadow.querySelector<HTMLButtonElement>(".copy")?.hidden).toBe(true);
+    expect(shadow.querySelector<HTMLButtonElement>(".save")?.hidden).toBe(true);
   });
 
   it("localizes the selection launcher and dialog without page permissions", async () => {
