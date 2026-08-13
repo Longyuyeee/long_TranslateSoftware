@@ -56,6 +56,23 @@ const failureCases: Array<{
   },
 ];
 
+const saveFailureCases: Array<{
+  error: string;
+  expected: string;
+  translations: Record<string, string>;
+}> = [
+  {
+    error: "pairing_required: wordbook approval missing",
+    expected: "Update desktop access",
+    translations: { updateDesktopAccess: "Update desktop access" },
+  },
+  {
+    error: "Specified native messaging host not found at C:\\private-host",
+    expected: "Desktop app is not running",
+    translations: { desktopNotRunning: "Desktop app is not running" },
+  },
+];
+
 describe("selection translation overlay", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -144,6 +161,41 @@ describe("selection translation overlay", () => {
     });
     expect(save?.textContent).toBe("已收藏");
   });
+
+  it.each(saveFailureCases)(
+    "keeps wordbook save retryable for $error",
+    async ({ error, expected, translations }) => {
+      const messages: Array<Record<string, unknown>> = [];
+      const shadow = await install(
+        (message, callback) => {
+          messages.push(message as Record<string, unknown>);
+          callback(
+            (message as Record<string, unknown>).type === "native-translate"
+              ? { ok: true, result: { text: "translated private text" } }
+              : { ok: false, error },
+          );
+        },
+        "private selected text",
+        translations,
+      );
+      shadow.querySelector<HTMLButtonElement>(".launcher")?.click();
+      const save = shadow.querySelector<HTMLButtonElement>(".save");
+      save?.click();
+
+      expect(messages).toHaveLength(2);
+      expect(messages[1]).toEqual({
+        type: "native-add-word",
+        input: {
+          word: "private selected text",
+          translation: "translated private text",
+        },
+      });
+      expect(save?.disabled).toBe(false);
+      expect(save?.dataset.saved).toBeUndefined();
+      expect(save?.textContent).toBe(expected);
+      expect(shadow.querySelector(".panel")?.textContent).not.toContain(error);
+    },
+  );
 
   it("rejects oversized selections before messaging the desktop", async () => {
     const sendMessage = vi.fn();
