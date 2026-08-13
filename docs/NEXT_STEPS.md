@@ -49,6 +49,7 @@
 - PR [#66](https://github.com/Longyuyeee/long_TranslateSoftware/pull/66) 已通过 CI 并合并。阶段 3A 当前只推进无 UI 的有界调度核心：冻结快照、并发上限、精确取消、失败隔离、可持久化错误和重建前完整性门禁已落地；下一增量接 Checkpoint 节流、恢复与只重试失败段，之后才接 UI 和端到端强制退出验收。
 - PR [#67](https://github.com/Longyuyeee/long_TranslateSoftware/pull/67) 已通过 CI 并合并。阶段 3B 的第一增量正在把队列状态接入串行、节流且终态强制落盘的 Checkpoint writer；存储失败会取消请求并向上返回，下一步是恢复后只重试失败段和有上限退避。
 - PR [#68](https://github.com/Longyuyeee/long_TranslateSoftware/pull/68) 在 Chrome Runtime 瞬时启动失败后重跑全绿并合并。当前增量实现恢复后只选择可重试失败段、单次运行最多 2 次自动重试、可取消指数退避以及永久错误快速失败；成功段不会重发或覆盖。
+- PR [#69](https://github.com/Longyuyeee/long_TranslateSoftware/pull/69) 已通过完整 CI 并合并。阶段 3 最后补齐任务注册表、重复启动拒绝、多任务隔离和统一 `cancelAll`；无 UI 调度层达到退出门槛后进入 DOCX 重建，长文档、强制结束和恢复提示继续作为 UI 接入后的人工发布门禁。
 
 ## 每一步的交付要求
 
