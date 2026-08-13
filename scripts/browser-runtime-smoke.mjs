@@ -267,7 +267,9 @@ async function inspectSelectionOverlay(port, pageUrl) {
         runtime: {
           sendMessage(message, callback) {
             globalThis.__longTranslateSmokeMessages.push(message);
-            callback({ ok: false, error: "pairing_required" });
+            if (message.type !== "native-translate") {
+              callback({ ok: true, result: { cancelled: true } });
+            }
           }
         },
         i18n: { getMessage: () => "" }
@@ -315,15 +317,44 @@ async function inspectSelectionOverlay(port, pageUrl) {
         panel: Boolean(root.shadowRoot.querySelector(".panel")),
         messageType: message?.type,
         selectedText: message?.input?.text,
+        taskId: message?.taskId,
       };
     })()`,
   );
   if (
     !translated?.panel ||
     translated.messageType !== "native-translate" ||
-    translated.selectedText !== "Hello from the isolated selection smoke page."
+    translated.selectedText !== "Hello from the isolated selection smoke page." ||
+    !/^selection_[a-f0-9]{32}$/u.test(translated.taskId || "")
   ) {
     throw new Error("Edge selection overlay did not defer the selected text until launcher click");
+  }
+  const cancelled = await evaluatePage(
+    pageTarget.webSocketDebuggerUrl,
+    `(() => {
+      const root = document.getElementById("long-translate-selection-root");
+      root.shadowRoot.querySelector(".cancel").click();
+      const messages = globalThis.__longTranslateSmokeMessages;
+      const cancel = messages[1];
+      return {
+        messageCount: messages.length,
+        messageType: cancel?.type,
+        taskId: cancel?.taskId,
+        result: root.shadowRoot.querySelector(".result")?.textContent || "",
+        cancelHidden: root.shadowRoot.querySelector(".cancel")?.hidden ?? false,
+      };
+    })()`,
+  );
+  if (
+    cancelled?.messageCount !== 2 ||
+    cancelled.messageType !== "native-cancel" ||
+    cancelled.taskId !== translated.taskId ||
+    cancelled.result !== "已取消" ||
+    !cancelled.cancelHidden
+  ) {
+    throw new Error(
+      `Edge selection overlay failed its cancellation state: ${JSON.stringify(cancelled)}`,
+    );
   }
   await evaluatePage(pageTarget.webSocketDebuggerUrl, "location.reload(); true");
   const removedAfterRefresh = await poll(async () => {
@@ -341,6 +372,7 @@ async function inspectSelectionOverlay(port, pageUrl) {
     productionBundleLoaded: true,
     launcher: launcher.launcher,
     translationDeferredUntilClick: true,
+    cancellationCorrelated: true,
     removedAfterRefresh: true,
   };
 }
