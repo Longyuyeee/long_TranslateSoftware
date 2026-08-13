@@ -7,14 +7,14 @@
 - 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- PDF / Word 翻译还没有实现。现有代码没有 PDF 文本层解析、DOCX Open XML 解析/重建、文档任务模型或断点继续能力。
+- PDF / Word 翻译尚不可供用户使用。文档任务契约、执行快照和 DOCX Open XML 只读检查/稳定分段已经完成；DOCX 重建、文档队列、断点继续、PDF 文本层解析和 UI 尚未实现。
 - 下一条产品主线为 `v0.5.1` PDF / Word 文档翻译 MVP；浏览器商店上架不与文档领域实现混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
 
 ## 接手后按顺序处理
 
-1. `v0.5.1` 先固定文档任务契约、状态机、配置快照、输入限制和安全临时文件边界。
-2. 实现 DOCX 解析/重建、翻译队列、取消/重试/恢复和 DOCX 导出。
+1. `v0.5.1` 已固定文档任务契约、状态机、配置快照、输入限制，并完成 DOCX Open XML 只读检查、稳定分段和安全 ZIP 边界。
+2. 下一步实现有界翻译队列、进度、取消、失败段重试与断点恢复，再完成 DOCX 基础结构重建和译文版/双语版导出。
 3. DOCX 稳定后加入文本型 PDF 导入、阅读顺序检查和 DOCX 导出；扫描 PDF 与像素级 PDF 版式还原不进入 MVP。
 4. Chrome Web Store 与 Edge Add-ons 上架前取得正式 ID，将其加入安装器 `allowed_origins`，并单独执行商店包审核与真实交互验收。
 

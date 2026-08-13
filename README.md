@@ -547,7 +547,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
+浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。v0.5.1 已完成文档任务契约、执行快照和 DOCX Open XML 只读检查/稳定分段；DOCX 重建、翻译队列、PDF 文本层解析与用户界面尚未实现。
 
 Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop`，排除浏览器缺失、旧 EXE、错误注册、扩展权限扩大和桌面桥接未就绪等环境问题；该预检不会替代 Chrome / Edge 的真实交互烟雾。
 
@@ -564,7 +564,7 @@ Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNa
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
 | **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 扩展 |
-| **文档翻译** | v0.5.1 规划中（DOCX 与文本型 PDF MVP） |
+| **文档翻译** | v0.5.1 开发中（DOCX 只读检查与稳定分段已完成） |
 
 ### v0.5.0 浏览器桥接（2026-08-13）
 
