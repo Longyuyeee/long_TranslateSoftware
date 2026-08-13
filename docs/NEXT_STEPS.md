@@ -45,7 +45,7 @@
 - 错误使用稳定的 `unsupported-format`、`input-too-large`、`invalid-input` 和 `parse-failed` 结构化代码；分段保留段落、字节、Run 和文本节点范围，Unicode grapheme 优先保持完整。批注、图片、嵌入对象、修订、公式、文本框和字段产生明确降级警告。
 - 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime；GitHub Windows CI [run 31710587063](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/31710587063) 已通过真实 Edge Smoke、Windows 生命周期、Rust、Clippy、强制 Runtime 质量报告和报告上传，门禁没有降低。
 - 5 份匿名真实 DOCX 已由 LibreOffice 26.2.5.2 渲染为 7 页并逐页复核；正文、超链接、列表、表格/嵌套表格、多节页眉页脚、Unicode、图片和字段的可见顺序与产品解析结果一致，源文件不变。页眉页脚作为独立部件流按引用顺序追加且去重，不按每页重复翻译。AES 加密 DOCX 也已验证为稳定的 `invalid-input` 拒绝。
-- 阶段 2 第一增量已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除和崩溃状态回退。下一增量按顺序补损坏文件隔离、旧版本策略、过期/临时文件清理以及磁盘写满/只读目录失败注入；通过后才接翻译队列。
+- 阶段 2 已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除、崩溃状态回退、损坏隔离、未来版本保留拒绝、终态保留期和过期临时文件清理；并发、磁盘写满与权限拒绝注入证明旧文件不被破坏。下一步先完成文件独占与强制结束应用的 Windows 人工验收，再接有界翻译队列。
 
 ## 每一步的交付要求
 

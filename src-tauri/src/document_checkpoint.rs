@@ -1,3 +1,4 @@
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
@@ -20,6 +21,10 @@ const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_GLOSSARY_ENTRIES: usize = 10_000;
 const MAX_GLOSSARY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PATH_BYTES: usize = 32 * 1024;
+const COMPLETED_RETENTION_DAYS: i64 = 30;
+const CANCELLED_FAILED_RETENTION_DAYS: i64 = 14;
+const TEMPORARY_RETENTION_HOURS: i64 = 24;
+const QUARANTINE_RETENTION_DAYS: i64 = 30;
 
 static STORAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -54,6 +59,20 @@ impl DocumentCheckpointError {
 }
 
 type CheckpointResult<T> = Result<T, DocumentCheckpointError>;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentCheckpointCleanupReport {
+    removed_jobs: usize,
+    removed_temporary_files: usize,
+    removed_quarantined_files: usize,
+}
+
+#[derive(Debug)]
+struct CheckpointParseError {
+    error: DocumentCheckpointError,
+    quarantine: bool,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -319,6 +338,14 @@ impl DocumentCheckpoint {
         )?;
         bounded_text(&self.job.created_at, 64, "Invalid document creation time")?;
         bounded_text(&self.job.updated_at, 64, "Invalid document update time")?;
+        let created_at = DateTime::parse_from_rfc3339(&self.job.created_at)
+            .map_err(|_| DocumentCheckpointError::invalid("Invalid document creation time"))?;
+        let updated_at = DateTime::parse_from_rfc3339(&self.job.updated_at)
+            .map_err(|_| DocumentCheckpointError::invalid("Invalid document update time"))?;
+        invalid_if(
+            updated_at < created_at,
+            "Document update time precedes its creation",
+        )?;
         bounded_text(
             &self.job.snapshot.source_language,
             128,
@@ -595,7 +622,14 @@ fn atomic_replace(temporary: &Path, target: &Path) -> io::Result<()> {
     fs::rename(temporary, target)
 }
 
-fn save_at(root: &Path, checkpoint: &DocumentCheckpoint) -> CheckpointResult<()> {
+fn save_at_with_replace<F>(
+    root: &Path,
+    checkpoint: &DocumentCheckpoint,
+    replace: F,
+) -> CheckpointResult<()>
+where
+    F: FnOnce(&Path, &Path) -> io::Result<()>,
+{
     checkpoint.validate()?;
     let payload = serde_json::to_vec(checkpoint)
         .map_err(|_| DocumentCheckpointError::invalid("Cannot serialize document checkpoint"))?;
@@ -616,7 +650,7 @@ fn save_at(root: &Path, checkpoint: &DocumentCheckpoint) -> CheckpointResult<()>
         file.write_all(&payload)?;
         file.sync_all()?;
         drop(file);
-        atomic_replace(&temporary, &target)
+        replace(&temporary, &target)
     })();
     if let Err(error) = result {
         let _ = fs::remove_file(&temporary);
@@ -627,20 +661,175 @@ fn save_at(root: &Path, checkpoint: &DocumentCheckpoint) -> CheckpointResult<()>
     Ok(())
 }
 
+fn save_at(root: &Path, checkpoint: &DocumentCheckpoint) -> CheckpointResult<()> {
+    save_at_with_replace(root, checkpoint, atomic_replace)
+}
+
+fn parse_checkpoint(bytes: &[u8]) -> Result<DocumentCheckpoint, CheckpointParseError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| CheckpointParseError {
+            error: DocumentCheckpointError::invalid("Document checkpoint is invalid"),
+            quarantine: true,
+        })?;
+    let version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| CheckpointParseError {
+            error: DocumentCheckpointError::invalid("Document checkpoint version is invalid"),
+            quarantine: true,
+        })?;
+    if version != CHECKPOINT_SCHEMA_VERSION as u64 {
+        return Err(CheckpointParseError {
+            error: DocumentCheckpointError::invalid(format!(
+                "Unsupported document checkpoint version: {version}"
+            )),
+            quarantine: false,
+        });
+    }
+    let checkpoint: DocumentCheckpoint =
+        serde_json::from_value(value).map_err(|_| CheckpointParseError {
+            error: DocumentCheckpointError::invalid("Document checkpoint is invalid"),
+            quarantine: true,
+        })?;
+    checkpoint
+        .validate()
+        .map_err(|error| CheckpointParseError {
+            error,
+            quarantine: true,
+        })?;
+    Ok(checkpoint)
+}
+
+fn quarantine_checkpoint(path: &Path) -> CheckpointResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| DocumentCheckpointError::storage("Cannot isolate damaged checkpoint"))?;
+    let quarantined = parent.join(format!("checkpoint.corrupt.{}.json", Uuid::new_v4()));
+    fs::rename(path, quarantined)
+        .map_err(|_| DocumentCheckpointError::storage("Cannot isolate damaged checkpoint"))
+}
+
 fn load_at(root: &Path, job_id: &str) -> CheckpointResult<DocumentCheckpoint> {
     let _guard = storage_lock()?;
     let directory = job_directory(root, job_id)?;
     let directory = validate_job_directory(root, &directory)?;
     cleanup_temporary_files(&directory)?;
-    let bytes = read_bounded(&directory.join(CHECKPOINT_FILE))?;
-    let checkpoint: DocumentCheckpoint = serde_json::from_slice(&bytes)
-        .map_err(|_| DocumentCheckpointError::invalid("Document checkpoint is invalid"))?;
-    checkpoint.validate()?;
-    invalid_if(
-        checkpoint.job.id != job_id,
-        "Document checkpoint job ID does not match its directory",
-    )?;
+    let path = directory.join(CHECKPOINT_FILE);
+    let bytes = read_bounded(&path)?;
+    let checkpoint = match parse_checkpoint(&bytes) {
+        Ok(checkpoint) => checkpoint,
+        Err(parsed_error) => {
+            if parsed_error.quarantine {
+                quarantine_checkpoint(&path)?;
+            }
+            return Err(parsed_error.error);
+        }
+    };
+    if checkpoint.job.id != job_id {
+        quarantine_checkpoint(&path)?;
+        return Err(DocumentCheckpointError::invalid(
+            "Document checkpoint job ID does not match its directory",
+        ));
+    }
     Ok(checkpoint.recover())
+}
+
+fn older_than(modified: std::time::SystemTime, now: DateTime<Utc>, age: Duration) -> bool {
+    DateTime::<Utc>::from(modified) <= now - age
+}
+
+fn cleanup_at(
+    root: &Path,
+    now: DateTime<Utc>,
+) -> CheckpointResult<DocumentCheckpointCleanupReport> {
+    let _guard = storage_lock()?;
+    let mut report = DocumentCheckpointCleanupReport::default();
+    if !root.exists() {
+        return Ok(report);
+    }
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|_| DocumentCheckpointError::storage("Cannot resolve document checkpoint root"))?;
+    let entries = fs::read_dir(&canonical_root)
+        .map_err(|_| DocumentCheckpointError::storage("Cannot inspect document checkpoint root"))?;
+    for entry in entries {
+        let entry = entry.map_err(|_| {
+            DocumentCheckpointError::storage("Cannot inspect document checkpoint root")
+        })?;
+        let directory = entry.path();
+        let metadata = fs::symlink_metadata(&directory).map_err(|_| {
+            DocumentCheckpointError::storage("Cannot inspect document job directory")
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            continue;
+        }
+        let directory = match validate_job_directory(&canonical_root, &directory) {
+            Ok(directory) => directory,
+            Err(_) => continue,
+        };
+        let mut remove_job = false;
+        for file in fs::read_dir(&directory).map_err(|_| {
+            DocumentCheckpointError::storage("Cannot inspect document job directory")
+        })? {
+            let file = file.map_err(|_| {
+                DocumentCheckpointError::storage("Cannot inspect document job directory")
+            })?;
+            let name = file.file_name().to_string_lossy().into_owned();
+            let metadata = fs::symlink_metadata(file.path()).map_err(|_| {
+                DocumentCheckpointError::storage("Cannot inspect document job file")
+            })?;
+            if !metadata.is_file() {
+                continue;
+            }
+            let modified = metadata.modified().map_err(|_| {
+                DocumentCheckpointError::storage("Cannot read document job file time")
+            })?;
+            if name.starts_with(&format!(".{CHECKPOINT_FILE}."))
+                && name.ends_with(".tmp")
+                && older_than(modified, now, Duration::hours(TEMPORARY_RETENTION_HOURS))
+            {
+                fs::remove_file(file.path()).map_err(|_| {
+                    DocumentCheckpointError::storage("Cannot clean temporary checkpoint")
+                })?;
+                report.removed_temporary_files += 1;
+            } else if name.starts_with("checkpoint.corrupt.")
+                && name.ends_with(".json")
+                && older_than(modified, now, Duration::days(QUARANTINE_RETENTION_DAYS))
+            {
+                fs::remove_file(file.path()).map_err(|_| {
+                    DocumentCheckpointError::storage("Cannot clean quarantined checkpoint")
+                })?;
+                report.removed_quarantined_files += 1;
+            } else if name == CHECKPOINT_FILE {
+                let bytes = match read_bounded(&file.path()) {
+                    Ok(bytes) => bytes,
+                    Err(_) => continue,
+                };
+                let checkpoint = match parse_checkpoint(&bytes) {
+                    Ok(checkpoint) => checkpoint,
+                    Err(_) => continue,
+                };
+                let updated_at = match DateTime::parse_from_rfc3339(&checkpoint.job.updated_at) {
+                    Ok(updated_at) => updated_at.with_timezone(&Utc),
+                    Err(_) => continue,
+                };
+                let retention = match checkpoint.job.phase {
+                    DocumentJobPhase::Completed => Some(Duration::days(COMPLETED_RETENTION_DAYS)),
+                    DocumentJobPhase::Cancelled | DocumentJobPhase::Failed => {
+                        Some(Duration::days(CANCELLED_FAILED_RETENTION_DAYS))
+                    }
+                    _ => None,
+                };
+                remove_job = retention.is_some_and(|retention| updated_at <= now - retention);
+            }
+        }
+        if remove_job {
+            fs::remove_dir_all(&directory).map_err(|_| {
+                DocumentCheckpointError::storage("Cannot clean expired document job")
+            })?;
+            report.removed_jobs += 1;
+        }
+    }
+    Ok(report)
 }
 
 fn delete_at(root: &Path, job_id: &str) -> CheckpointResult<()> {
@@ -659,6 +848,12 @@ fn checkpoint_root(app: &AppHandle) -> CheckpointResult<PathBuf> {
         .app_data_dir()
         .map(|directory| directory.join(CHECKPOINT_ROOT))
         .map_err(|_| DocumentCheckpointError::storage("Cannot resolve application data directory"))
+}
+
+pub(crate) fn cleanup_document_checkpoints_in(
+    app_data_dir: &Path,
+) -> CheckpointResult<DocumentCheckpointCleanupReport> {
+    cleanup_at(&app_data_dir.join(CHECKPOINT_ROOT), Utc::now())
 }
 
 #[tauri::command]
@@ -680,6 +875,13 @@ pub fn load_document_checkpoint(
 #[tauri::command]
 pub fn delete_document_checkpoint(app: AppHandle, job_id: String) -> CheckpointResult<()> {
     delete_at(&checkpoint_root(&app)?, &job_id)
+}
+
+#[tauri::command]
+pub fn cleanup_document_checkpoints(
+    app: AppHandle,
+) -> CheckpointResult<DocumentCheckpointCleanupReport> {
+    cleanup_at(&checkpoint_root(&app)?, Utc::now())
 }
 
 #[cfg(test)]
@@ -814,8 +1016,122 @@ mod tests {
             load_at(&root, "job-1").unwrap_err().code,
             DocumentCheckpointErrorCode::CheckpointInvalid
         );
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read_dir(root.join("job-1"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("checkpoint.corrupt."))
+                .count(),
+            1
+        );
         fs::write(&path, good).unwrap();
         assert!(load_at(&root, "job-1").is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn preserves_future_versions_for_a_newer_application() {
+        let root = test_root();
+        save_at(&root, &checkpoint()).unwrap();
+        let path = root.join("job-1").join(CHECKPOINT_FILE);
+        let mut value = serde_json::to_value(checkpoint()).unwrap();
+        value["schemaVersion"] = serde_json::json!(2);
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load_at(&root, "job-1")
+            .unwrap_err()
+            .message
+            .contains("version: 2"));
+        assert!(path.exists());
+        assert_eq!(fs::read_dir(root.join("job-1")).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_replacement_preserves_the_last_complete_checkpoint() {
+        let root = test_root();
+        let first = checkpoint();
+        save_at(&root, &first).unwrap();
+        let path = root.join("job-1").join(CHECKPOINT_FILE);
+        let before = fs::read(&path).unwrap();
+        let mut second = first;
+        second.job.updated_at = "2026-08-13T00:02:00.000Z".to_string();
+        let error = save_at_with_replace(&root, &second, |_, _| {
+            Err(io::Error::new(io::ErrorKind::StorageFull, "injected"))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, DocumentCheckpointErrorCode::Storage);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let permission_error = save_at_with_replace(&root, &second, |_, _| {
+            Err(io::Error::new(io::ErrorKind::PermissionDenied, "injected"))
+        })
+        .unwrap_err();
+        assert_eq!(permission_error.code, DocumentCheckpointErrorCode::Storage);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(
+            fs::read_dir(root.join("job-1"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+                .count(),
+            0
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn concurrent_saves_leave_one_complete_valid_checkpoint() {
+        let root = test_root();
+        let mut first = checkpoint();
+        let mut second = checkpoint();
+        first.job.updated_at = "2026-08-13T00:02:00.000Z".to_string();
+        second.job.updated_at = "2026-08-13T00:03:00.000Z".to_string();
+        std::thread::scope(|scope| {
+            let first_handle = scope.spawn(|| save_at(&root, &first));
+            let second_handle = scope.spawn(|| save_at(&root, &second));
+            first_handle.join().unwrap().unwrap();
+            second_handle.join().unwrap().unwrap();
+        });
+        let bytes = fs::read(root.join("job-1").join(CHECKPOINT_FILE)).unwrap();
+        let stored = parse_checkpoint(&bytes).unwrap();
+        assert!(matches!(
+            stored.job.updated_at.as_str(),
+            "2026-08-13T00:02:00.000Z" | "2026-08-13T00:03:00.000Z"
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_only_expired_terminal_jobs_and_stale_artifacts() {
+        let root = test_root();
+        let mut completed = checkpoint();
+        completed.job.id = "completed-job".to_string();
+        completed.job.phase = DocumentJobPhase::Completed;
+        completed.job.output_path = Some(r"C:\docs\output.docx".to_string());
+        completed.job.segments[0].status = DocumentSegmentStatus::Translated;
+        completed.job.segments[0].translated_text = Some("你好".to_string());
+        completed.job.segments[0].error = None;
+        save_at(&root, &completed).unwrap();
+
+        let active = checkpoint();
+        save_at(&root, &active).unwrap();
+        let active_dir = root.join("job-1");
+        fs::write(
+            active_dir.join(format!(".{CHECKPOINT_FILE}.stale.tmp")),
+            b"stale",
+        )
+        .unwrap();
+        fs::write(active_dir.join("checkpoint.corrupt.stale.json"), b"stale").unwrap();
+
+        let report = cleanup_at(&root, Utc::now() + Duration::days(31)).unwrap();
+        assert_eq!(report.removed_jobs, 1);
+        assert_eq!(report.removed_temporary_files, 1);
+        assert_eq!(report.removed_quarantined_files, 1);
+        assert!(!root.join("completed-job").exists());
+        assert!(active_dir.join(CHECKPOINT_FILE).exists());
         fs::remove_dir_all(root).unwrap();
     }
 

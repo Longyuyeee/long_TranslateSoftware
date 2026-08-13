@@ -152,6 +152,12 @@ export interface DocumentCheckpointCommandError {
   message: string;
 }
 
+export interface DocumentCheckpointCleanupReport {
+  removedJobs: number;
+  removedTemporaryFiles: number;
+  removedQuarantinedFiles: number;
+}
+
 export interface DocxInspection {
   fingerprint: string;
   fileName: string;
@@ -180,6 +186,10 @@ export async function loadDocumentCheckpoint(jobId: string): Promise<DocumentChe
 
 export async function deleteDocumentCheckpoint(jobId: string): Promise<void> {
   return invoke<void>("delete_document_checkpoint", { jobId });
+}
+
+export async function cleanupDocumentCheckpoints(): Promise<DocumentCheckpointCleanupReport> {
+  return invoke<DocumentCheckpointCleanupReport>("cleanup_document_checkpoints");
 }
 
 export function documentSegmentsFromDocx(
@@ -518,6 +528,11 @@ export function parseDocumentCheckpoint(value: string | unknown): DocumentCheckp
   requireString(job.id, "document job ID");
   requireString(job.createdAt, "creation time");
   requireString(job.updatedAt, "update time");
+  const createdAt = Date.parse(job.createdAt as string);
+  const updatedAt = Date.parse(job.updatedAt as string);
+  if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt) || updatedAt < createdAt) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid document checkpoint time");
+  }
   const phases: readonly string[] = Object.keys(JOB_TRANSITIONS);
   if (!phases.includes(String(job.phase))) {
     throw new DocumentContractError("checkpoint-invalid", "Invalid document job phase");
