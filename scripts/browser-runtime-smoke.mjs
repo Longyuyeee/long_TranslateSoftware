@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { removeTemporaryBrowserProfile } from "./browser-smoke-cleanup.mjs";
 
 const requireDesktop = process.argv.includes("--require-desktop");
 const extensionArgument = process.argv
@@ -254,14 +255,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       new Promise((done) => setTimeout(done, 2_000)),
     ]);
     selectionPage.close();
-    const resolvedProfile = resolve(profile);
-    const expectedRoot = resolve(tmpdir()) + "\\";
-    if (
-      resolvedProfile.startsWith(expectedRoot) &&
-      basename(resolvedProfile).startsWith("long-translate-browser-smoke-")
-    ) {
-      rmSync(resolvedProfile, { recursive: true, force: true, maxRetries: 3 });
-    }
+    await removeTemporaryBrowserProfile(profile);
   }
 }
 
