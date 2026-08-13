@@ -1082,6 +1082,45 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn exclusive_windows_file_lock_preserves_the_last_complete_checkpoint() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = test_root();
+        let first = checkpoint();
+        save_at(&root, &first).unwrap();
+        let path = root.join("job-1").join(CHECKPOINT_FILE);
+        let before = fs::read(&path).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+
+        let mut second = first;
+        second.job.updated_at = "2026-08-13T00:02:00.000Z".to_string();
+        let error = save_at(&root, &second).unwrap_err();
+        assert_eq!(error.code, DocumentCheckpointErrorCode::Storage);
+        assert_eq!(
+            fs::read_dir(root.join("job-1"))
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+                .count(),
+            0
+        );
+
+        drop(lock);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        save_at(&root, &second).unwrap();
+        assert_eq!(
+            load_at(&root, "job-1").unwrap().job.updated_at,
+            "2026-08-13T00:02:00.000Z"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn concurrent_saves_leave_one_complete_valid_checkpoint() {
         let root = test_root();
