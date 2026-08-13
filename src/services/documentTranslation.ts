@@ -2,6 +2,7 @@ import type {
   GlossaryEntry,
   TranslationExecutionSnapshot,
 } from "./translationTask";
+import { invoke } from "@tauri-apps/api/core";
 
 export const DOCUMENT_CHECKPOINT_VERSION = 1 as const;
 export const DOCUMENT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
@@ -84,6 +85,7 @@ export interface DocumentSegmentLocation {
   order: number;
   part: string;
   page?: number;
+  sourcePosition?: string;
 }
 
 export interface DocumentSegment {
@@ -114,6 +116,61 @@ export interface DocumentJob {
 export interface DocumentCheckpoint {
   schemaVersion: typeof DOCUMENT_CHECKPOINT_VERSION;
   job: DocumentJob;
+}
+
+export interface DocxImportSegment {
+  id: string;
+  order: number;
+  part: string;
+  sourcePosition: string;
+  structure: DocumentStructureKind;
+  sourceText: string;
+}
+
+export interface DocxImportWarning {
+  code:
+    | "comments-ignored"
+    | "images-ignored"
+    | "embedded-objects-unsupported"
+    | "revisions-degraded"
+    | "formulas-ignored"
+    | "text-boxes-unsupported"
+    | "fields-degraded";
+  message: string;
+}
+
+export interface DocxImportCommandError {
+  code: "unsupported-format" | "input-too-large" | "invalid-input" | "parse-failed";
+  message: string;
+}
+
+export interface DocxInspection {
+  fingerprint: string;
+  fileName: string;
+  sizeBytes: number;
+  segments: DocxImportSegment[];
+  warnings: DocxImportWarning[];
+}
+
+export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
+  return invoke<DocxInspection>("inspect_docx_document", { path });
+}
+
+export function documentSegmentsFromDocx(
+  inspection: DocxInspection,
+): DocumentSegment[] {
+  return inspection.segments.map(segment => ({
+    id: segment.id,
+    location: {
+      order: segment.order,
+      part: segment.part,
+      sourcePosition: segment.sourcePosition,
+    },
+    structure: segment.structure,
+    sourceText: segment.sourceText,
+    status: "pending",
+    attempts: 0,
+  }));
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */
@@ -385,11 +442,18 @@ function validateSegment(value: unknown): asserts value is DocumentSegment {
   if (!isRecord(value.location)) {
     throw new DocumentContractError("checkpoint-invalid", "Invalid segment location");
   }
-  requireKeys(value.location, ["order", "part", "page"], ["order", "part"]);
+  requireKeys(
+    value.location,
+    ["order", "part", "page", "sourcePosition"],
+    ["order", "part"],
+  );
   if (!Number.isSafeInteger(value.location.order) || Number(value.location.order) < 0) {
     throw new DocumentContractError("checkpoint-invalid", "Invalid segment order");
   }
   requireString(value.location.part, "segment part");
+  if (value.location.sourcePosition !== undefined) {
+    requireString(value.location.sourcePosition, "segment source position");
+  }
   if (value.location.page !== undefined && (!Number.isSafeInteger(value.location.page) || Number(value.location.page) < 1)) {
     throw new DocumentContractError("checkpoint-invalid", "Invalid segment page");
   }

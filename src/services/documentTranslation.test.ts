@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 import {
   DOCUMENT_CHECKPOINT_VERSION,
   DOCUMENT_MAX_INPUT_BYTES,
+  documentSegmentsFromDocx,
   documentSnapshotFromExecution,
   documentProgress,
   inspectDocumentInput,
+  inspectDocxDocument,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -68,6 +74,53 @@ describe("document input contract", () => {
     expect(() => inspectDocumentInput("legacy.doc", 1)).toThrow("Only .docx");
     expect(() => inspectDocumentInput("large.docx", DOCUMENT_MAX_INPUT_BYTES + 1))
       .toThrow("50 MiB");
+  });
+});
+
+describe("DOCX import adaptation", () => {
+  it("invokes the read-only desktop DOCX inspection command", async () => {
+    const inspection = {
+      fingerprint: "sha256:fixture",
+      fileName: "fixture.docx",
+      sizeBytes: 2048,
+      warnings: [],
+      segments: [],
+    };
+    invokeMock.mockResolvedValueOnce(inspection);
+
+    await expect(inspectDocxDocument("C:\\docs\\fixture.docx"))
+      .resolves.toEqual(inspection);
+    expect(invokeMock).toHaveBeenCalledWith("inspect_docx_document", {
+      path: "C:\\docs\\fixture.docx",
+    });
+  });
+
+  it("maps inspected DOCX text into pending document segments", () => {
+    expect(documentSegmentsFromDocx({
+      fingerprint: "sha256:fixture",
+      fileName: "fixture.docx",
+      sizeBytes: 2048,
+      warnings: [],
+      segments: [{
+        id: "docx-stable-id",
+        order: 0,
+        part: "word/document.xml",
+        sourcePosition: "paragraph:0:chunk:0",
+        structure: "heading",
+        sourceText: "Product Overview 产品概览",
+      }],
+    })).toEqual([{
+      id: "docx-stable-id",
+      location: {
+        order: 0,
+        part: "word/document.xml",
+        sourcePosition: "paragraph:0:chunk:0",
+      },
+      structure: "heading",
+      sourceText: "Product Overview 产品概览",
+      status: "pending",
+      attempts: 0,
+    }]);
   });
 });
 

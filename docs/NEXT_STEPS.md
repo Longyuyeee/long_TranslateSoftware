@@ -7,7 +7,7 @@
 - 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- `master` 已完成文档任务契约和任务级冻结翻译快照；DOCX 安全导入检查与稳定分段正在 Draft PR #64 中开发，持久化、翻译队列、重建、导出和 UI 尚未实现。
+- 文档任务契约和任务级冻结翻译快照已经完成；DOCX 安全导入检查与稳定分段正在 Draft PR #64 中收口，持久化、翻译队列、重建、导出和 UI 尚未实现。
 - 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
 
@@ -37,6 +37,15 @@
 - 划词浮层的窄视口定位已在真实 Edge 页面验证：在 420×320 页面视口、100% / 150% / 200% 页面缩放和四角选区组合下，“译”启动器与成功态翻译面板均按 `visualViewport` 完整收纳；该回归固定生产 content script 的缩放与边缘定位契约，正式 Chrome 的工具栏注入和可见交互仍保留为发布候选人工门槛。
 - 划词翻译失败态已在真实 Edge 页面按英文与简体中文验证：未配对和 Native Host 不存在会分别显示本地化安全提示，取消、复制和收藏保持隐藏，原始 Host 错误不会写入页面浮层；真实撤销授权和桌面进程退出仍由发布候选组合链路复核。
 - 生词本收藏失败态已在真实 Edge 页面按英文与简体中文验证：旧授权缺少 `wordbook` 能力和 Native Host 不存在会分别显示本地化安全提示，收藏按钮恢复为可重试状态，请求仍只包含所选原文和译文，原始 Host 错误不会写入页面浮层；真实撤销授权和数据库落盘仍由发布候选组合链路复核。
+
+## 2026-08-13 DOCX 增量交接状态
+
+- 当前开发分支为 `codex/docx-import-segmentation`，对应 PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64)。该 PR 只完成 DOCX Open XML 的安全只读导入检查、稳定分段、结构锚点和包级夹具，不包含 Checkpoint 持久化、翻译队列、重建、导出、PDF 或 UI。
+- Rust 导入命令覆盖正文、标题、列表、表格单元格、超链接、多节页眉页脚和自定义部件名；验证 OPC 内容类型与 Relationship，只读取被引用部件。单文件上限 50 MiB、单段 32 KiB、总文本 24 MiB、最多 20,000 段、检查结果最多 48 MiB，并限制 ZIP 路径、重复 Entry、条目数、展开体积、XML 大小和压缩比。
+- 错误使用稳定的 `unsupported-format`、`input-too-large`、`invalid-input` 和 `parse-failed` 结构化代码；分段保留段落、字节、Run 和文本节点范围，Unicode grapheme 优先保持完整。批注、图片、嵌入对象、修订、公式、文本框和字段产生明确降级警告。
+- 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime；GitHub Windows CI [run 31710587063](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/31710587063) 已通过真实 Edge Smoke、Windows 生命周期、Rust、Clippy、强制 Runtime 质量报告和报告上传，门禁没有降低。
+- 5 份匿名真实 DOCX 已由 LibreOffice 26.2.5.2 渲染为 7 页并逐页复核；正文、超链接、列表、表格/嵌套表格、多节页眉页脚、Unicode、图片和字段的可见顺序与产品解析结果一致，源文件不变。页眉页脚作为独立部件流按引用顺序追加且去重，不按每页重复翻译。AES 加密 DOCX 也已验证为稳定的 `invalid-input` 拒绝。
+- PR #64 在本次变更的远端 CI 全绿后转为可审阅并合并；随后严格进入阶段 2 Checkpoint 持久化，不提前开发队列、重建或 UI。
 
 ## 每一步的交付要求
 

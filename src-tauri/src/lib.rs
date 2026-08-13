@@ -7,6 +7,7 @@ mod config;
 mod db;
 pub mod desktop_ipc;
 mod diagnostics;
+mod document;
 mod glossary;
 mod history;
 mod lifecycle;
@@ -150,6 +151,7 @@ pub fn run() {
             config::set_config_values,
             updater::updater_configured,
             diagnostics::export_diagnostics,
+            document::inspect_docx_document,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,
