@@ -17,6 +17,7 @@ import {
   cleanupDocumentCheckpoints,
   createDocxRebuildPlan,
   validateDocxRebuildPlan,
+  rebuildDocxDocument,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -394,6 +395,27 @@ describe("DOCX rebuild preflight", () => {
       rebuiltFingerprint: "sha256:rebuilt",
     });
     expect(invokeMock).toHaveBeenLastCalledWith("validate_docx_rebuild_plan", { plan });
+  });
+
+  it("publishes only through the Rust atomic rebuild boundary", async () => {
+    const { rebuilding, inspection } = rebuildingFixture();
+    const plan = createDocxRebuildPlan(
+      rebuilding,
+      inspection,
+      "C:\\docs\\translated.docx",
+    );
+    invokeMock.mockResolvedValueOnce({
+      outputPath: "C:\\docs\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:rebuilt",
+    });
+
+    await expect(rebuildDocxDocument(plan)).resolves.toMatchObject({
+      outputPath: "C:\\docs\\translated.docx",
+      replacementCount: 1,
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("rebuild_docx_document", { plan });
   });
 
   it("rejects changed sources, anchors, incomplete translations, and source overwrite", () => {
