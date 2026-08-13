@@ -40,11 +40,11 @@
 
 ## 2026-08-13 DOCX 增量交接状态
 
-- 当前开发分支为 `codex/docx-import-segmentation`，核心提交为 `860c319`，对应 Draft PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64)。该 PR 只完成 DOCX Open XML 的只读导入检查、稳定分段、原始位置契约和固定夹具，不包含翻译队列、重建、导出、PDF 解析或 UI。
-- Rust 导入命令覆盖正文、标题、列表、表格单元格、页眉、页脚、超链接文本和中英混排；单文件上限为 50 MiB，单分段上限为 32 KiB，并检查 ZIP 路径、条目数、展开体积和压缩比。旧 `.doc`、损坏/缺少主文档及加密 DOCX 明确拒绝，图片、批注、修订、公式和嵌入对象只产生降级提示。
-- 本地审计已通过：前端 242 项测试、Rust 114 项测试、Clippy 零警告、桌面与扩展生产构建、235.96 KiB 桌面前端主 chunk 门槛、34.33 KiB 扩展包门槛、npm 官方源 0 漏洞及质量报告 PASS。
-- GitHub CI 的 DOCX 代码尚未得到完整远端门禁结论：两次运行均在既有 Edge 扩展烟雾的弹窗启动阶段提前失败，表现为 zh-CN 弹窗仍停在 `about:blank` 或 20 秒内 DOM 未就绪，后续 Rust 步骤因 workflow fail-fast 被跳过。本地相同 en-US/zh-CN 烟雾通过，因此当前判断为既有启动竞态，不应误记为 DOCX 回归，也不得绕过 CI 合并。
-- 接手后先对浏览器烟雾增加“扩展弹窗 URL 与 DOM 确实就绪”的有界等待，保留本地化和控件完整性断言；该修复应独立审计并推送到 PR #64。CI 全绿后再把 PR 转为可审阅并合并，随后进入有界文档翻译队列、取消/重试和断点恢复。
+- 当前开发分支为 `codex/docx-import-segmentation`，对应 Draft PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64)。该 PR 只完成 DOCX Open XML 的安全只读导入检查、稳定分段、结构锚点和包级夹具，不包含 Checkpoint 持久化、翻译队列、重建、导出、PDF 或 UI。
+- Rust 导入命令覆盖正文、标题、列表、表格单元格、超链接、多节页眉页脚和自定义部件名；验证 OPC 内容类型与 Relationship，只读取被引用部件。单文件上限 50 MiB、单段 32 KiB、总文本 24 MiB、最多 20,000 段、检查结果最多 48 MiB，并限制 ZIP 路径、重复 Entry、条目数、展开体积、XML 大小和压缩比。
+- 错误使用稳定的 `unsupported-format`、`input-too-large`、`invalid-input` 和 `parse-failed` 结构化代码；分段保留段落、字节、Run 和文本节点范围，Unicode grapheme 优先保持完整。批注、图片、嵌入对象、修订、公式、文本框和字段产生明确降级警告。
+- 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime，浏览器 Runtime Smoke 和强制质量报告由 GitHub Windows CI 最终裁决，不降低门禁。
+- PR #64 在远端 CI 全绿且完成匿名真实 DOCX 人工顺序复核后再转为可审阅并合并；随后严格进入阶段 2 Checkpoint 持久化，不提前开发队列、重建或 UI。
 
 ## 每一步的交付要求
 

@@ -43,6 +43,7 @@ futures-util = "0.3.32"
 url = "2.5.8"
 zip = "4"
 quick-xml = "0.41"
+unicode-segmentation = "1.12"
 tauri-plugin-process = "2.3.1"
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]

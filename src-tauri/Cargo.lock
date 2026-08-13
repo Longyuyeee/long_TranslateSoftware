@@ -2864,6 +2864,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "tokio-tungstenite",
+ "unicode-segmentation",
  "url",
  "uuid",
  "windows 0.58.0",

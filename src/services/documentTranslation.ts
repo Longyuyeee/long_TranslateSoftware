@@ -133,7 +133,14 @@ export interface DocxImportWarning {
     | "images-ignored"
     | "embedded-objects-unsupported"
     | "revisions-degraded"
-    | "formulas-ignored";
+    | "formulas-ignored"
+    | "text-boxes-unsupported"
+    | "fields-degraded";
+  message: string;
+}
+
+export interface DocxImportCommandError {
+  code: "unsupported-format" | "input-too-large" | "invalid-input" | "parse-failed";
   message: string;
 }
 
