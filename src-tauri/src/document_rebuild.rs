@@ -1166,7 +1166,10 @@ mod tests {
         let result = rebuild_docx_document(plan.clone()).unwrap();
         let published = std::fs::read(&output_path).unwrap();
         inspect_docx_bytes(&published, "translated.docx".to_string()).unwrap();
-        assert_eq!(result.output_path, plan.output_path);
+        assert_eq!(
+            result.output_path,
+            display_path(&std::fs::canonicalize(&output_path).unwrap())
+        );
         assert_eq!(result.size_bytes, published.len());
         assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
         assert!(std::fs::read_dir(&directory).unwrap().all(|entry| {
