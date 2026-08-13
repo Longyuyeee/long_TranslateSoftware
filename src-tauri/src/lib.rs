@@ -8,6 +8,7 @@ mod db;
 pub mod desktop_ipc;
 mod diagnostics;
 mod document;
+mod document_checkpoint;
 mod glossary;
 mod history;
 mod lifecycle;
@@ -152,6 +153,9 @@ pub fn run() {
             updater::updater_configured,
             diagnostics::export_diagnostics,
             document::inspect_docx_document,
+            document_checkpoint::save_document_checkpoint,
+            document_checkpoint::load_document_checkpoint,
+            document_checkpoint::delete_document_checkpoint,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,

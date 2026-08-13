@@ -11,6 +11,9 @@ import {
   documentProgress,
   inspectDocumentInput,
   inspectDocxDocument,
+  saveDocumentCheckpoint,
+  loadDocumentCheckpoint,
+  deleteDocumentCheckpoint,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -190,6 +193,27 @@ describe("document state machines", () => {
 });
 
 describe("document checkpoints", () => {
+  it("validates checkpoints on both sides of the persistence bridge", async () => {
+    const value = checkpoint();
+    invokeMock.mockResolvedValueOnce(undefined);
+    await expect(saveDocumentCheckpoint(value)).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenLastCalledWith("save_document_checkpoint", {
+      checkpoint: value,
+    });
+
+    invokeMock.mockResolvedValueOnce(value);
+    await expect(loadDocumentCheckpoint("job-1")).resolves.toEqual(value);
+    expect(invokeMock).toHaveBeenLastCalledWith("load_document_checkpoint", {
+      jobId: "job-1",
+    });
+
+    invokeMock.mockResolvedValueOnce(undefined);
+    await expect(deleteDocumentCheckpoint("job-1")).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenLastCalledWith("delete_document_checkpoint", {
+      jobId: "job-1",
+    });
+  });
+
   it("redacts runtime credentials from the persisted snapshot", () => {
     const persisted = documentSnapshotFromExecution({
       primary: {
@@ -259,6 +283,18 @@ describe("document checkpoints", () => {
     expect(() => parseDocumentCheckpoint(checkpoint({
       segments: [segment({ sourceText: "译".repeat(11_000) })],
     }))).toThrow("32 KiB");
+    expect(() => parseDocumentCheckpoint(checkpoint({
+      segments: [segment({
+        status: "translated",
+        translatedText: "译".repeat(11_000),
+      })],
+    }))).toThrow("translated text");
+  });
+
+  it("rejects non-contiguous checkpoint segment order", () => {
+    expect(() => parseDocumentCheckpoint(checkpoint({
+      segments: [segment({ location: { order: 1, part: "word/document.xml" } })],
+    }))).toThrow("must be contiguous");
   });
 
   it("rejects coerced sizes and source-overwriting outputs", () => {
