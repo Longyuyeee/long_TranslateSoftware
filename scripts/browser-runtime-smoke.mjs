@@ -371,6 +371,9 @@ async function inspectSelectionOverlay(port, pageUrl) {
   const successfulTranslation = await inspectSuccessfulSelection(
     pageTarget.webSocketDebuggerUrl,
   );
+  const oversizedSelection = await inspectOversizedSelection(
+    pageTarget.webSocketDebuggerUrl,
+  );
   return {
     productionBundleLoaded: true,
     launcher: launcher.launcher,
@@ -378,6 +381,7 @@ async function inspectSelectionOverlay(port, pageUrl) {
     cancellationCorrelated: true,
     removedAfterRefresh: true,
     successfulTranslation,
+    oversizedSelection,
   };
 }
 
@@ -473,6 +477,64 @@ async function inspectSuccessfulSelection(webSocketUrl) {
     actionsVisibleAfterSuccess: true,
     wordbookPayloadMinimal: true,
   };
+}
+
+async function inspectOversizedSelection(webSocketUrl) {
+  await evaluatePage(webSocketUrl, "location.reload(); true");
+  const ready = await poll(async () =>
+    evaluatePage(
+      webSocketUrl,
+      "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+      100,
+    ),
+  );
+  if (!ready) throw new Error("Edge oversized selection page did not become ready");
+  const state = await poll(async () =>
+    evaluatePage(
+      webSocketUrl,
+      `(() => {
+        globalThis.__longTranslateSmokeMessages ??= [];
+        globalThis.chrome ??= {
+          runtime: {
+            sendMessage(message) {
+              globalThis.__longTranslateSmokeMessages.push(message);
+            }
+          },
+          i18n: { getMessage: () => "" }
+        };
+        if (!document.getElementById("long-translate-selection-root")) {
+          globalThis.__longTranslateSmokeMessages = [];
+          (0, eval)(${JSON.stringify(contentScriptSource)});
+          document.getElementById("selection-source").textContent = "a".repeat(32 * 1024 + 1);
+        }
+        const source = document.getElementById("selection-source");
+        const range = document.createRange();
+        range.selectNodeContents(source.firstChild);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        const root = document.getElementById("long-translate-selection-root");
+        return {
+          notice: root?.shadowRoot?.querySelector(".notice")?.textContent || "",
+          launcher: Boolean(root?.shadowRoot?.querySelector(".launcher")),
+          panel: Boolean(root?.shadowRoot?.querySelector(".panel")),
+          messages: globalThis.__longTranslateSmokeMessages?.length || 0,
+        };
+      })()`,
+    ).then((result) => (result.notice ? result : undefined)),
+  );
+  if (
+    !state?.notice.includes("32 KiB") ||
+    state.launcher ||
+    state.panel ||
+    state.messages !== 0
+  ) {
+    throw new Error(
+      `Edge selection overlay failed its oversized privacy state: ${JSON.stringify(state)}`,
+    );
+  }
+  return { blocked: true, messageSent: false };
 }
 
 async function evaluatePage(webSocketUrl, expression, delayMs = 0) {
