@@ -548,6 +548,29 @@ async function inspectViewportPositioning(webSocketUrl) {
     deviceScaleFactor: 1,
     mobile: false,
   });
+  const scenarios = [];
+  for (const pageScaleFactor of [1, 1.5, 2]) {
+    await sendDevToolsCommand(webSocketUrl, "Emulation.setPageScaleFactor", {
+      pageScaleFactor,
+    });
+    for (const corner of ["top-left", "top-right", "bottom-left", "bottom-right"]) {
+      scenarios.push(
+        await inspectViewportPositioningScenario(
+          webSocketUrl,
+          pageScaleFactor,
+          corner,
+        ),
+      );
+    }
+  }
+  return { viewport: "420x320", scenarios };
+}
+
+async function inspectViewportPositioningScenario(
+  webSocketUrl,
+  pageScaleFactor,
+  corner,
+) {
   await evaluatePage(webSocketUrl, "location.reload(); true");
   const ready = await poll(async () =>
     evaluatePage(
@@ -574,7 +597,18 @@ async function inspectViewportPositioning(webSocketUrl) {
       };
       const source = document.getElementById("selection-source");
       source.textContent = "Viewport edge selection";
-      source.style.cssText = "position:fixed;right:0;bottom:0;margin:0";
+      const viewport = visualViewport || { offsetLeft: 0, offsetTop: 0, width: innerWidth, height: innerHeight };
+      const corner = ${JSON.stringify(corner)};
+      const right = corner.endsWith("right");
+      const bottom = corner.startsWith("bottom");
+      source.style.cssText = [
+        "position:fixed",
+        "width:120px",
+        "margin:0",
+        "left:" + (viewport.offsetLeft + (right ? viewport.width : 0)) + "px",
+        "top:" + (viewport.offsetTop + (bottom ? viewport.height : 0)) + "px",
+        "transform:translate(" + (right ? "-100%" : "0") + "," + (bottom ? "-100%" : "0") + ")",
+      ].join(";");
       (0, eval)(${JSON.stringify(contentScriptSource)});
       const range = document.createRange();
       range.selectNodeContents(source.firstChild);
@@ -592,35 +626,52 @@ async function inspectViewportPositioning(webSocketUrl) {
         const element = document.getElementById("long-translate-selection-root")?.shadowRoot?.querySelector(".launcher");
         if (!element) return undefined;
         const rect = element.getBoundingClientRect();
-        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
+        const viewport = visualViewport || { offsetLeft: 0, offsetTop: 0, width: innerWidth, height: innerHeight };
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          viewportLeft: viewport.offsetLeft,
+          viewportTop: viewport.offsetTop,
+          viewportRight: viewport.offsetLeft + viewport.width,
+          viewportBottom: viewport.offsetTop + viewport.height,
+        };
       })()`,
     );
     return bounds || undefined;
   });
-  assertWithinViewport("launcher", launcher);
+  assertWithinViewport(`${pageScaleFactor}x ${corner} launcher`, launcher);
   const panel = await evaluatePage(
     webSocketUrl,
     `(() => {
       const root = document.getElementById("long-translate-selection-root");
       root.shadowRoot.querySelector(".launcher").click();
       const rect = root.shadowRoot.querySelector(".panel").getBoundingClientRect();
-      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
+      const viewport = visualViewport || { offsetLeft: 0, offsetTop: 0, width: innerWidth, height: innerHeight };
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        viewportLeft: viewport.offsetLeft,
+        viewportTop: viewport.offsetTop,
+        viewportRight: viewport.offsetLeft + viewport.width,
+        viewportBottom: viewport.offsetTop + viewport.height,
+      };
     })()`,
   );
-  assertWithinViewport("panel", panel);
-  if (panel.width > 420 || panel.height > 320) {
-    throw new Error(`Edge did not preserve the narrow viewport: ${JSON.stringify(panel)}`);
-  }
-  return { launcherContained: true, panelContained: true, viewport: `${panel.width}x${panel.height}` };
+  assertWithinViewport(`${pageScaleFactor}x ${corner} panel`, panel);
+  return { pageScaleFactor, corner, launcherContained: true, panelContained: true };
 }
 
 function assertWithinViewport(label, bounds) {
   if (
     !bounds ||
-    bounds.left < 0 ||
-    bounds.top < 0 ||
-    bounds.right > bounds.width ||
-    bounds.bottom > bounds.height
+    bounds.left < bounds.viewportLeft ||
+    bounds.top < bounds.viewportTop ||
+    bounds.right > bounds.viewportRight ||
+    bounds.bottom > bounds.viewportBottom
   ) {
     throw new Error(`Edge selection ${label} escaped the viewport: ${JSON.stringify(bounds)}`);
   }
