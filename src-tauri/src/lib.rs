@@ -100,6 +100,9 @@ pub fn run() {
             let app_handle = app.handle().clone();
             tray::create_tray(&app_handle)?;
             let app_dir = app.path().app_data_dir()?;
+            if let Err(error) = document_checkpoint::cleanup_document_checkpoints_in(&app_dir) {
+                log::warn!("Document checkpoint cleanup was skipped: {}", error.message);
+            }
             #[cfg(windows)]
             match browser_pairing::BrowserPairingManager::load(app_handle.clone(), &app_dir) {
                 Ok(manager) => {
@@ -156,6 +159,7 @@ pub fn run() {
             document_checkpoint::save_document_checkpoint,
             document_checkpoint::load_document_checkpoint,
             document_checkpoint::delete_document_checkpoint,
+            document_checkpoint::cleanup_document_checkpoints,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,

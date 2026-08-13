@@ -14,6 +14,7 @@ import {
   saveDocumentCheckpoint,
   loadDocumentCheckpoint,
   deleteDocumentCheckpoint,
+  cleanupDocumentCheckpoints,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -212,6 +213,15 @@ describe("document checkpoints", () => {
     expect(invokeMock).toHaveBeenLastCalledWith("delete_document_checkpoint", {
       jobId: "job-1",
     });
+
+    const cleanup = {
+      removedJobs: 1,
+      removedTemporaryFiles: 2,
+      removedQuarantinedFiles: 3,
+    };
+    invokeMock.mockResolvedValueOnce(cleanup);
+    await expect(cleanupDocumentCheckpoints()).resolves.toEqual(cleanup);
+    expect(invokeMock).toHaveBeenLastCalledWith("cleanup_document_checkpoints");
   });
 
   it("redacts runtime credentials from the persisted snapshot", () => {

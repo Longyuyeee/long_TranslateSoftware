@@ -40,12 +40,12 @@
 
 ## 2026-08-13 DOCX 增量交接状态
 
-- PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64) 已通过真实 DOCX 验收和 CI 并合并。当前开发分支为 `codex/docx-checkpoint-persistence`，严格进入阶段 2 Checkpoint 持久化，不包含翻译队列、重建、导出、PDF 或 UI。
+- PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64) 已通过真实 DOCX 验收和 CI 并合并；后续严格按阶段 2 Checkpoint 持久化推进，不提前混入翻译队列、重建、导出、PDF 或 UI。
 - Rust 导入命令覆盖正文、标题、列表、表格单元格、超链接、多节页眉页脚和自定义部件名；验证 OPC 内容类型与 Relationship，只读取被引用部件。单文件上限 50 MiB、单段 32 KiB、总文本 24 MiB、最多 20,000 段、检查结果最多 48 MiB，并限制 ZIP 路径、重复 Entry、条目数、展开体积、XML 大小和压缩比。
 - 错误使用稳定的 `unsupported-format`、`input-too-large`、`invalid-input` 和 `parse-failed` 结构化代码；分段保留段落、字节、Run 和文本节点范围，Unicode grapheme 优先保持完整。批注、图片、嵌入对象、修订、公式、文本框和字段产生明确降级警告。
 - 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime；GitHub Windows CI [run 31710587063](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/31710587063) 已通过真实 Edge Smoke、Windows 生命周期、Rust、Clippy、强制 Runtime 质量报告和报告上传，门禁没有降低。
 - 5 份匿名真实 DOCX 已由 LibreOffice 26.2.5.2 渲染为 7 页并逐页复核；正文、超链接、列表、表格/嵌套表格、多节页眉页脚、Unicode、图片和字段的可见顺序与产品解析结果一致，源文件不变。页眉页脚作为独立部件流按引用顺序追加且去重，不按每页重复翻译。AES 加密 DOCX 也已验证为稳定的 `invalid-input` 拒绝。
-- 阶段 2 第一增量已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除和崩溃状态回退。下一增量按顺序补损坏文件隔离、旧版本策略、过期/临时文件清理以及磁盘写满/只读目录失败注入；通过后才接翻译队列。
+- 阶段 2 已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除、崩溃状态回退、损坏隔离、未来版本保留拒绝、终态保留期和过期临时文件清理；并发、磁盘写满、权限拒绝与真实 Windows 文件独占均证明旧文件不被破坏。存储子系统通过后进入有界翻译队列；“翻译中强制结束应用并恢复”和 UI 删除动作在队列/UI 接通后执行端到端人工验收。
 
 ## 每一步的交付要求
 
