@@ -4,9 +4,9 @@ use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::File;
+use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
 use zip::write::ZipWriter;
 use zip::ZipArchive;
@@ -95,6 +95,38 @@ pub struct DocxRebuildValidation {
     pub rebuilt_fingerprint: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocxRebuildResult {
+    pub output_path: String,
+    pub replacement_count: usize,
+    pub size_bytes: usize,
+    pub fingerprint: String,
+}
+
+struct TempFileGuard {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ReplacementAnchor {
     paragraph: usize,
@@ -122,6 +154,15 @@ struct ParagraphOutput {
 
 fn normalized_windows_path(path: &str) -> String {
     path.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+fn display_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    value
+        .strip_prefix(r"\\?\UNC\")
+        .map(|suffix| format!(r"\\{suffix}"))
+        .or_else(|| value.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or_else(|| value.into_owned())
 }
 
 fn validate_output_path(source: &str, output: &str) -> RebuildResult<()> {
@@ -676,8 +717,9 @@ fn rebuild_package_in_memory(source: &[u8], plan: &DocxRebuildPlan) -> RebuildRe
     Ok(output)
 }
 
-#[tauri::command]
-pub fn validate_docx_rebuild_plan(plan: DocxRebuildPlan) -> RebuildResult<DocxRebuildValidation> {
+fn prepare_rebuilt_package(
+    plan: &DocxRebuildPlan,
+) -> RebuildResult<(DocxRebuildValidation, Vec<u8>)> {
     let source = read_source_bytes(&plan.source_path)?;
     let file_name = Path::new(plan.source_path.trim())
         .file_name()
@@ -687,14 +729,177 @@ pub fn validate_docx_rebuild_plan(plan: DocxRebuildPlan) -> RebuildResult<DocxRe
     let inspection = inspect_docx_bytes(&source, file_name.clone()).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot re-inspect DOCX source: {}", error.message))
     })?;
-    let mut validation = validate_against_inspection(&plan, &inspection)?;
-    let rebuilt = rebuild_package_in_memory(&source, &plan)?;
+    let mut validation = validate_against_inspection(plan, &inspection)?;
+    let rebuilt = rebuild_package_in_memory(&source, plan)?;
     inspect_docx_bytes(&rebuilt, file_name).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot validate rebuilt DOCX: {}", error.message))
     })?;
     validation.rebuilt_size_bytes = rebuilt.len();
     validation.rebuilt_fingerprint = format!("sha256:{}", hex::encode(Sha256::digest(&rebuilt)));
-    Ok(validation)
+    Ok((validation, rebuilt))
+}
+
+fn safe_output_file_name(output: &Path) -> RebuildResult<&str> {
+    let name = output
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            DocxRebuildError::invalid("DOCX output must have a valid Unicode file name")
+        })?;
+    if name.contains(':') || name.ends_with([' ', '.']) {
+        return Err(DocxRebuildError::invalid(
+            "DOCX output file name is unsafe on Windows",
+        ));
+    }
+    let device = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches([' ', '.'])
+        .to_ascii_uppercase();
+    let reserved = matches!(device.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || device
+            .strip_prefix("COM")
+            .or_else(|| device.strip_prefix("LPT"))
+            .is_some_and(|suffix| suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9'));
+    if reserved {
+        return Err(DocxRebuildError::invalid(
+            "DOCX output uses a reserved Windows device name",
+        ));
+    }
+    Ok(name)
+}
+
+fn canonical_output_path(plan: &DocxRebuildPlan) -> RebuildResult<(PathBuf, PathBuf)> {
+    let requested = Path::new(plan.output_path.trim());
+    let file_name = safe_output_file_name(requested)?;
+    let parent = requested.parent().ok_or_else(|| {
+        DocxRebuildError::invalid("DOCX output must have an existing parent directory")
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+        DocxRebuildError::invalid(format!("Cannot resolve DOCX output directory: {error}"))
+    })?;
+    if !canonical_parent.is_dir() {
+        return Err(DocxRebuildError::invalid(
+            "DOCX output parent must be a directory",
+        ));
+    }
+    let output = canonical_parent.join(file_name);
+    match fs::symlink_metadata(&output) {
+        Ok(_) => {
+            return Err(DocxRebuildError::invalid(
+                "DOCX output already exists; choose a new file name",
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(DocxRebuildError::rebuild(format!(
+                "Cannot inspect DOCX output path: {error}"
+            )))
+        }
+    }
+    let source = fs::canonicalize(plan.source_path.trim()).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot resolve DOCX source path: {error}"))
+    })?;
+    if normalized_windows_path(&source.to_string_lossy())
+        == normalized_windows_path(&output.to_string_lossy())
+    {
+        return Err(DocxRebuildError::invalid(
+            "DOCX output must not resolve to its source",
+        ));
+    }
+    Ok((canonical_parent, output))
+}
+
+#[cfg(windows)]
+fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> {
+    fs::rename(temp, output)
+}
+
+#[cfg(not(windows))]
+fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> {
+    fs::hard_link(temp, output)?;
+    if let Err(error) = fs::remove_file(temp) {
+        let _ = fs::remove_file(output);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn publish_rebuilt_package(
+    plan: &DocxRebuildPlan,
+    validation: &DocxRebuildValidation,
+    rebuilt: &[u8],
+) -> RebuildResult<DocxRebuildResult> {
+    let (canonical_parent, output) = canonical_output_path(plan)?;
+    let temp = canonical_parent.join(format!(".long-translate-{}.docx.tmp", uuid::Uuid::new_v4()));
+    let mut guard = TempFileGuard::new(temp.clone());
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot create DOCX temporary file: {error}"))
+        })?;
+    file.write_all(rebuilt).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot write DOCX temporary file: {error}"))
+    })?;
+    file.sync_all().map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot sync DOCX temporary file: {error}"))
+    })?;
+    drop(file);
+
+    let persisted = read_source_bytes(&temp.to_string_lossy())?;
+    if persisted != rebuilt {
+        return Err(DocxRebuildError::rebuild(
+            "DOCX temporary file verification failed",
+        ));
+    }
+    inspect_docx_bytes(&persisted, "translated.docx".to_string()).map_err(|error| {
+        DocxRebuildError::rebuild(format!(
+            "Cannot validate DOCX temporary file: {}",
+            error.message
+        ))
+    })?;
+
+    let current_parent = fs::canonicalize(
+        output
+            .parent()
+            .expect("canonical output always has a parent"),
+    )
+    .map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot recheck DOCX output directory: {error}"))
+    })?;
+    if normalized_windows_path(&current_parent.to_string_lossy())
+        != normalized_windows_path(&canonical_parent.to_string_lossy())
+    {
+        return Err(DocxRebuildError::rebuild(
+            "DOCX output directory changed during publication",
+        ));
+    }
+    publish_without_overwrite(&temp, &output).map_err(|error| {
+        DocxRebuildError::rebuild(format!(
+            "Cannot publish DOCX without overwriting an existing file: {error}"
+        ))
+    })?;
+    guard.disarm();
+    Ok(DocxRebuildResult {
+        output_path: display_path(&output),
+        replacement_count: validation.replacement_count,
+        size_bytes: validation.rebuilt_size_bytes,
+        fingerprint: validation.rebuilt_fingerprint.clone(),
+    })
+}
+
+#[tauri::command]
+pub fn validate_docx_rebuild_plan(plan: DocxRebuildPlan) -> RebuildResult<DocxRebuildValidation> {
+    prepare_rebuilt_package(&plan).map(|(validation, _)| validation)
+}
+
+#[tauri::command]
+pub fn rebuild_docx_document(plan: DocxRebuildPlan) -> RebuildResult<DocxRebuildResult> {
+    let (validation, rebuilt) = prepare_rebuilt_package(&plan)?;
+    publish_rebuilt_package(&plan, &validation, &rebuilt)
 }
 
 #[cfg(test)]
@@ -762,6 +967,30 @@ mod tests {
             writer.finish().unwrap();
         }
         output.into_inner()
+    }
+
+    fn fixture_plan_for_paths(
+        source: &Path,
+        output: &Path,
+        source_bytes: &[u8],
+    ) -> DocxRebuildPlan {
+        let inspection = inspect_docx_bytes(source_bytes, "source.docx".to_string()).unwrap();
+        let segment = &inspection.segments[0];
+        DocxRebuildPlan {
+            source_path: source.to_string_lossy().into_owned(),
+            output_path: output.to_string_lossy().into_owned(),
+            fingerprint: inspection.fingerprint,
+            output_mode: DocxOutputMode::Translated,
+            replacements: vec![DocxRebuildReplacement {
+                id: segment.id.clone(),
+                order: segment.order,
+                part: segment.part.clone(),
+                source_position: segment.source_position.clone(),
+                structure: segment.structure.clone(),
+                source_text: segment.source_text.clone(),
+                translated_text: "你好 & <世界> 👩‍💻".to_string(),
+            }],
+        }
     }
 
     #[test]
@@ -907,34 +1136,81 @@ mod tests {
     #[test]
     fn command_rebuilds_and_reopens_in_memory_without_writing_a_target() {
         let source_bytes = fixture_package();
-        let inspection = inspect_docx_bytes(&source_bytes, "source.docx".to_string()).unwrap();
         let directory = std::env::temp_dir().join(format!("docx-rebuild-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
         let source_path = directory.join("source.docx");
         let output_path = directory.join("translated.docx");
         std::fs::write(&source_path, &source_bytes).unwrap();
-        let segment = &inspection.segments[0];
-        let plan = DocxRebuildPlan {
-            source_path: source_path.to_string_lossy().into_owned(),
-            output_path: output_path.to_string_lossy().into_owned(),
-            fingerprint: inspection.fingerprint,
-            output_mode: DocxOutputMode::Translated,
-            replacements: vec![DocxRebuildReplacement {
-                id: segment.id.clone(),
-                order: segment.order,
-                part: segment.part.clone(),
-                source_position: segment.source_position.clone(),
-                structure: segment.structure.clone(),
-                source_text: segment.source_text.clone(),
-                translated_text: "你好 & <世界> 👩‍💻".to_string(),
-            }],
-        };
+        let plan = fixture_plan_for_paths(&source_path, &output_path, &source_bytes);
 
         let validation = validate_docx_rebuild_plan(plan).unwrap();
         assert!(validation.rebuilt_size_bytes > 0);
         assert!(validation.rebuilt_fingerprint.starts_with("sha256:"));
         assert!(!output_path.exists());
         assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn publishes_once_without_overwriting_or_leaving_temporary_files() {
+        let source_bytes = fixture_package();
+        let directory = std::env::temp_dir().join(format!("docx-publish-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let source_path = directory.join("source.docx");
+        let output_path = directory.join("translated.docx");
+        std::fs::write(&source_path, &source_bytes).unwrap();
+        let plan = fixture_plan_for_paths(&source_path, &output_path, &source_bytes);
+
+        let result = rebuild_docx_document(plan.clone()).unwrap();
+        let published = std::fs::read(&output_path).unwrap();
+        inspect_docx_bytes(&published, "translated.docx".to_string()).unwrap();
+        assert_eq!(result.output_path, plan.output_path);
+        assert_eq!(result.size_bytes, published.len());
+        assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+        assert!(std::fs::read_dir(&directory).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".long-translate-")
+        }));
+
+        assert_eq!(
+            rebuild_docx_document(plan).unwrap_err().code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
+        assert_eq!(std::fs::read(&output_path).unwrap(), published);
+
+        std::fs::remove_file(output_path).unwrap();
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn rejects_reserved_or_unresolvable_output_paths() {
+        let source_bytes = fixture_package();
+        let directory = std::env::temp_dir().join(format!("docx-paths-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let source_path = directory.join("source.docx");
+        std::fs::write(&source_path, &source_bytes).unwrap();
+
+        let reserved =
+            fixture_plan_for_paths(&source_path, &directory.join("CON.docx"), &source_bytes);
+        assert_eq!(
+            canonical_output_path(&reserved).unwrap_err().code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
+        let missing = fixture_plan_for_paths(
+            &source_path,
+            &directory.join("missing").join("translated.docx"),
+            &source_bytes,
+        );
+        assert_eq!(
+            canonical_output_path(&missing).unwrap_err().code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
 
         std::fs::remove_file(source_path).unwrap();
         std::fs::remove_dir(directory).unwrap();

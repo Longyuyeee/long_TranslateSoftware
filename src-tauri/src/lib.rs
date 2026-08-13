@@ -162,6 +162,7 @@ pub fn run() {
             document_checkpoint::delete_document_checkpoint,
             document_checkpoint::cleanup_document_checkpoints,
             document_rebuild::validate_docx_rebuild_plan,
+            document_rebuild::rebuild_docx_document,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,

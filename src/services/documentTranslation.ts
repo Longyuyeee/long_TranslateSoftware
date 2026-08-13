@@ -192,6 +192,13 @@ export interface DocxRebuildValidation {
   rebuiltFingerprint: string;
 }
 
+export interface DocxRebuildResult {
+  outputPath: string;
+  replacementCount: number;
+  sizeBytes: number;
+  fingerprint: string;
+}
+
 export interface DocxRebuildCommandError {
   code: "invalid-plan" | "stale-source" | "rebuild-failed";
   message: string;
@@ -343,6 +350,12 @@ export async function validateDocxRebuildPlan(
   plan: DocxRebuildPlan,
 ): Promise<DocxRebuildValidation> {
   return invoke<DocxRebuildValidation>("validate_docx_rebuild_plan", { plan });
+}
+
+export async function rebuildDocxDocument(
+  plan: DocxRebuildPlan,
+): Promise<DocxRebuildResult> {
+  return invoke<DocxRebuildResult>("rebuild_docx_document", { plan });
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */
