@@ -57,6 +57,16 @@ const localizedSelectionFailures = {
     desktop: "请先启动 Long Translate 桌面端",
   },
 };
+const localizedWordbookFailures = {
+  "en-US": {
+    pairing: "Update desktop access",
+    desktop: "Desktop app is not running",
+  },
+  "zh-CN": {
+    pairing: "请更新桌面授权",
+    desktop: "桌面端未运行",
+  },
+};
 const locales = Object.keys(localizedPopup);
 const results = [];
 
@@ -386,6 +396,10 @@ async function inspectSelectionOverlay(port, pageUrl, language) {
     pageTarget.webSocketDebuggerUrl,
     language,
   );
+  const wordbookFailureStates = await inspectWordbookFailureStates(
+    pageTarget.webSocketDebuggerUrl,
+    language,
+  );
   const oversizedSelection = await inspectOversizedSelection(
     pageTarget.webSocketDebuggerUrl,
   );
@@ -400,8 +414,113 @@ async function inspectSelectionOverlay(port, pageUrl, language) {
     removedAfterRefresh: true,
     successfulTranslation,
     failureStates,
+    wordbookFailureStates,
     oversizedSelection,
     viewportPositioning,
+  };
+}
+
+async function inspectWordbookFailureStates(webSocketUrl, language) {
+  const expected = localizedWordbookFailures[language];
+  const cases = [
+    {
+      name: "pairingRequired",
+      error: "pairing_required: wordbook approval missing for private origin",
+      messageKey: "updateDesktopAccess",
+      message: expected.pairing,
+    },
+    {
+      name: "desktopUnavailable",
+      error: "Specified native messaging host not found at C:\\private-host",
+      messageKey: "desktopNotRunning",
+      message: expected.desktop,
+    },
+  ];
+  const results = {};
+  for (const failure of cases) {
+    await evaluatePage(webSocketUrl, "location.reload(); true");
+    const ready = await poll(async () =>
+      evaluatePage(
+        webSocketUrl,
+        "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+        100,
+      ),
+    );
+    if (!ready) throw new Error(`Edge ${failure.name} wordbook page did not become ready`);
+    await evaluatePage(
+      webSocketUrl,
+      `(() => {
+        const localized = ${JSON.stringify({ [failure.messageKey]: failure.message })};
+        globalThis.__longTranslateSmokeMessages = [];
+        globalThis.chrome = {
+          runtime: {
+            sendMessage(message, callback) {
+              globalThis.__longTranslateSmokeMessages.push(message);
+              callback(message.type === "native-translate"
+                ? { ok: true, result: { text: "translated private text" } }
+                : { ok: false, error: ${JSON.stringify(failure.error)} });
+            }
+          },
+          i18n: { getMessage: (name) => localized[name] || "" }
+        };
+        (0, eval)(${JSON.stringify(contentScriptSource)});
+        const source = document.getElementById("selection-source");
+        const range = document.createRange();
+        range.selectNodeContents(source.firstChild);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        return true;
+      })()`,
+    );
+    const state = await poll(async () => {
+      const value = await evaluatePage(
+        webSocketUrl,
+        `(() => {
+          const root = document.getElementById("long-translate-selection-root");
+          const launcher = root?.shadowRoot?.querySelector(".launcher");
+          if (launcher) launcher.click();
+          const save = root?.shadowRoot?.querySelector(".save");
+          if (save && globalThis.__longTranslateSmokeMessages?.length === 1) save.click();
+          const messages = globalThis.__longTranslateSmokeMessages || [];
+          return {
+            result: root?.shadowRoot?.querySelector(".result")?.textContent || "",
+            label: save?.textContent || "",
+            disabled: save?.disabled ?? true,
+            saved: save?.dataset.saved || "",
+            input: messages[1]?.input,
+            messageType: messages[1]?.type,
+            messageCount: messages.length,
+            panelText: root?.shadowRoot?.querySelector(".panel")?.textContent || "",
+          };
+        })()`,
+      );
+      return value.messageCount === 2 ? value : undefined;
+    });
+    if (
+      state?.result !== "translated private text" ||
+      state.label !== failure.message ||
+      state.disabled ||
+      state.saved ||
+      state.messageType !== "native-add-word" ||
+      JSON.stringify(state.input) !== JSON.stringify({
+        word: "Hello from the isolated selection smoke page.",
+        translation: "translated private text",
+      }) ||
+      state.panelText.includes(failure.error)
+    ) {
+      throw new Error(
+        `Edge selection overlay failed its ${failure.name} wordbook state: ${JSON.stringify(state)}`,
+      );
+    }
+    results[failure.name] = true;
+  }
+  return {
+    ...results,
+    retryable: true,
+    payloadMinimal: true,
+    rawErrorsHidden: true,
   };
 }
 
