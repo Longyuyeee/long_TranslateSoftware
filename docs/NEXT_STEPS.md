@@ -48,6 +48,7 @@
 - 阶段 2 已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除、崩溃状态回退、损坏隔离、未来版本保留拒绝、终态保留期和过期临时文件清理；并发、磁盘写满、权限拒绝与真实 Windows 文件独占均证明旧文件不被破坏。存储子系统通过后进入有界翻译队列；“翻译中强制结束应用并恢复”和 UI 删除动作在队列/UI 接通后执行端到端人工验收。
 - PR [#66](https://github.com/Longyuyeee/long_TranslateSoftware/pull/66) 已通过 CI 并合并。阶段 3A 当前只推进无 UI 的有界调度核心：冻结快照、并发上限、精确取消、失败隔离、可持久化错误和重建前完整性门禁已落地；下一增量接 Checkpoint 节流、恢复与只重试失败段，之后才接 UI 和端到端强制退出验收。
 - PR [#67](https://github.com/Longyuyeee/long_TranslateSoftware/pull/67) 已通过 CI 并合并。阶段 3B 的第一增量正在把队列状态接入串行、节流且终态强制落盘的 Checkpoint writer；存储失败会取消请求并向上返回，下一步是恢复后只重试失败段和有上限退避。
+- PR [#68](https://github.com/Longyuyeee/long_TranslateSoftware/pull/68) 在 Chrome Runtime 瞬时启动失败后重跑全绿并合并。当前增量实现恢复后只选择可重试失败段、单次运行最多 2 次自动重试、可取消指数退避以及永久错误快速失败；成功段不会重发或覆盖。
 
 ## 每一步的交付要求
 
