@@ -7,6 +7,9 @@ import { invoke } from "@tauri-apps/api/core";
 export const DOCUMENT_CHECKPOINT_VERSION = 1 as const;
 export const DOCUMENT_MAX_INPUT_BYTES = 50 * 1024 * 1024;
 export const DOCUMENT_MAX_SEGMENT_BYTES = 32 * 1024;
+export const DOCUMENT_MAX_SEGMENTS = 20_000;
+export const DOCUMENT_MAX_SOURCE_TEXT_BYTES = 24 * 1024 * 1024;
+export const DOCUMENT_MAX_TRANSLATED_TEXT_BYTES = 24 * 1024 * 1024;
 export const DOCUMENT_DEFAULT_CONCURRENCY = 3;
 export const DOCUMENT_MAX_CONCURRENCY = 8;
 
@@ -144,6 +147,11 @@ export interface DocxImportCommandError {
   message: string;
 }
 
+export interface DocumentCheckpointCommandError {
+  code: "checkpoint-invalid" | "storage";
+  message: string;
+}
+
 export interface DocxInspection {
   fingerprint: string;
   fileName: string;
@@ -154,6 +162,24 @@ export interface DocxInspection {
 
 export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
   return invoke<DocxInspection>("inspect_docx_document", { path });
+}
+
+export async function saveDocumentCheckpoint(
+  checkpoint: DocumentCheckpoint,
+): Promise<void> {
+  const validated = parseDocumentCheckpoint(checkpoint);
+  return invoke<void>("save_document_checkpoint", { checkpoint: validated });
+}
+
+export async function loadDocumentCheckpoint(jobId: string): Promise<DocumentCheckpoint> {
+  const checkpoint = await invoke<DocumentCheckpoint>("load_document_checkpoint", {
+    jobId,
+  });
+  return parseDocumentCheckpoint(checkpoint);
+}
+
+export async function deleteDocumentCheckpoint(jobId: string): Promise<void> {
+  return invoke<void>("delete_document_checkpoint", { jobId });
 }
 
 export function documentSegmentsFromDocx(
@@ -525,9 +551,32 @@ export function parseDocumentCheckpoint(value: string | unknown): DocumentCheckp
   if (!Array.isArray(job.segments)) {
     throw new DocumentContractError("checkpoint-invalid", "Invalid document segments");
   }
+  if (job.segments.length === 0 || job.segments.length > DOCUMENT_MAX_SEGMENTS) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid document segment count");
+  }
   job.segments.forEach(validateSegment);
   if (new Set(job.segments.map(segment => segment.id)).size !== job.segments.length) {
     throw new DocumentContractError("checkpoint-invalid", "Document segment IDs must be unique");
+  }
+  if (job.segments.some((segment, order) => segment.location.order !== order)) {
+    throw new DocumentContractError("checkpoint-invalid", "Document segment order must be contiguous");
+  }
+  const sourceBytes = job.segments.reduce(
+    (total, segment) => total + byteLength(segment.sourceText),
+    0,
+  );
+  const translatedBytes = job.segments.reduce(
+    (total, segment) => total + byteLength(segment.translatedText ?? ""),
+    0,
+  );
+  if (sourceBytes > DOCUMENT_MAX_SOURCE_TEXT_BYTES) {
+    throw new DocumentContractError("checkpoint-invalid", "Document source text exceeds the 24 MiB limit");
+  }
+  if (
+    job.segments.some(segment => byteLength(segment.translatedText ?? "") > DOCUMENT_MAX_SEGMENT_BYTES)
+    || translatedBytes > DOCUMENT_MAX_TRANSLATED_TEXT_BYTES
+  ) {
+    throw new DocumentContractError("checkpoint-invalid", "Document translated text exceeds its limit");
   }
   if (job.error !== undefined) validateError(job.error);
   if (
