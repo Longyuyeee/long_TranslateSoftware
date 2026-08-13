@@ -28,6 +28,14 @@ export {
   selectRelevantGlossary,
   startTranslationTask,
 } from "./translationTask";
+export { startDocumentTranslationQueue } from "./documentTranslationQueue";
+export type {
+  DocumentSegmentExecutor,
+  DocumentTranslationQueueCompletion,
+  DocumentTranslationQueueOptions,
+  DocumentTranslationQueueProgress,
+  DocumentTranslationQueueTask,
+} from "./documentTranslationQueue";
 export type {
   GlossaryEntry,
   TranslationExecutionCallbacks,
