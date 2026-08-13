@@ -43,6 +43,7 @@ export {
   createDocumentCheckpointWriter,
   startPersistentDocumentTranslationQueue,
 } from "./documentTranslationPersistence";
+export { DocumentTranslationTaskRegistry } from "./documentTranslationRegistry";
 export type {
   DocumentCheckpointSink,
   DocumentCheckpointWriter,
