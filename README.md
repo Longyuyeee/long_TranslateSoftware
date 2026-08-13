@@ -538,6 +538,7 @@
 当前稳定版为 v0.5.0，已交付 Chrome / Edge 浏览器扩展 MVP；下一条产品主线已收缩为 v0.5.1 DOCX 文档翻译 MVP，PDF 延后到独立版本。详细步骤、审计要求和退出门槛见：
 
 - [v0.5.1 DOCX 文档翻译收尾执行计划](docs/V0.5.1_DOCX_CLOSEOUT_PLAN.md)
+- [当前开发进度与收尾审计（2026-08-14）](docs/DEVELOPMENT_AUDIT_2026-08-14.md)
 - [v0.5.x 当前开发审计与执行计划（2026-08-10）](docs/DEVELOPMENT_PLAN_2026-08-10.md)
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
 - [当前开发状态审计与执行计划（2026-07-30）](docs/DEVELOPMENT_STATUS_2026-07-30.md)
@@ -548,7 +549,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。文档翻译已完成可恢复任务契约和任务级冻结翻译快照；DOCX 安全导入检查与稳定分段正在 PR #64 收口，真实持久化、翻译队列、重建、导出和 UI 尚未完成。
+浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。v0.5.1 的 DOCX 无 UI 核心已经完成安全导入、Checkpoint 恢复、有界翻译队列、安全重试、任务所有权、译文/双语内存重建和不覆盖原子发布；剩余发布阻塞项是最小工作台 UI、贯穿重建的任务取消、真实 Word/LibreOffice 成品与故障矩阵，以及 Release 门禁对齐。该能力仍处于开发状态，尚未列入稳定版功能。
 
 Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop`，排除浏览器缺失、旧 EXE、错误注册、扩展权限扩大和桌面桥接未就绪等环境问题；该预检不会替代 Chrome / Edge 的真实交互烟雾。
 

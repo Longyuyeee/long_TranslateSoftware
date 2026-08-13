@@ -1,25 +1,24 @@
 # 开发接手说明
 
-最近更新：2026-08-13
+最近更新：2026-08-14
 
 ## 当前情况
 
 - 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- 文档任务契约和任务级冻结翻译快照已经完成；DOCX 安全导入检查与稳定分段正在 Draft PR #64 中收口，持久化、翻译队列、重建、导出和 UI 尚未实现。
+- v0.5.1 的 DOCX 无 UI 核心已经完成安全导入、Checkpoint 恢复、有界翻译队列、安全重试、任务所有权、译文/双语内存重建和不覆盖原子发布；最小工作台 UI、重建阶段取消、真实成品验收和发布收口尚未完成。
 - 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
 
 ## 接手后按顺序处理
 
-1. 完善 DOCX 安全导入检查、Relationship 解析、稳定分段、资源上限和真实夹具。
-2. 实现 Checkpoint 原子持久化、崩溃恢复和敏感文档数据边界。
-3. 实现有界翻译队列、取消、失败段重试和重建前完整性检查。
-4. 实现 DOCX 安全重建、译文/双语导出和 Word/LibreOffice round-trip 验收。
-5. 接入最小完整 UI，完成长文档、异常恢复、升级和发布候选验收。
+1. 接入最小 DOCX 工作台：系统文件选择、inspection、警告、分段预览、确认、输出模式与目标位置。
+2. 用既有任务注册表接通启动、进度、取消、恢复和只重试失败段，并把任务级取消贯穿到重建与发布前。
+3. 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版验收，并补齐磁盘、权限、占用、取消和资源边界矩阵。
+4. 对齐普通 CI 与 Release 门禁，再统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
-当前唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
+当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 
 ## 2026-08-12 接手状态更新
 
@@ -54,7 +53,7 @@
 - PR [#71](https://github.com/Longyuyeee/long_TranslateSoftware/pull/71) 已通过完整 CI 并合并。阶段 4 第一增量建立 DOCX 重建 preflight：重新校验源指纹与完整段锚点，生成不含凭据的替换白名单并拒绝源路径覆盖；尚不写 XML 或输出文件。
 - PR [#72](https://github.com/Longyuyeee/long_TranslateSoftware/pull/72) 已通过完整 Windows CI 并合并。阶段 4 第二增量在 Rust 端以白名单反序列化、重新 inspection、SHA-256、完整锚点和资源上限独立复核计划。
 - PR [#73](https://github.com/Longyuyeee/long_TranslateSoftware/pull/73) 已通过完整 Windows CI 并合并。阶段 4 第三增量完成纯内存 DOCX 重建：按文本节点权重保留 Run 结构、双语模式追加硬换行译文、raw copy 未修改 ZIP 条目并重新打开成品验证。
-- 当前增量实现 canonical 目标父目录、同卷临时文件、写入同步、落盘复检、不覆盖原子发布和失败清理；原子发布核心完成后，下一步接 UI/任务取消并执行真实 Word/LibreOffice 成品验收。
+- PR [#74](https://github.com/Longyuyeee/long_TranslateSoftware/pull/74) 已通过完整 Windows CI 并合并。阶段 4 最后一项增量完成 canonical 目标父目录、同卷临时文件、写入同步、落盘复检、不覆盖原子发布和失败清理；当前入口转为阶段 5A 最小 DOCX 工作台，随后接阶段 5B 重建取消，再执行真实 Word/LibreOffice 成品与发布候选验收。
 
 ## 每一步的交付要求
 
