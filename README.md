@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.4.9 桌面可靠性与架构收口**：修复首次启动仅驻留托盘、重复启动和通知角标问题，改善纵向布局、多语言与主题化下拉框，并完成真实 v0.4.8 → v0.4.9 覆盖升级验证。
+> **v0.5.0 浏览器扩展 MVP**：新增 Chrome / Edge 划词翻译、桌面安全配对、翻译取消与生词本收藏；扩展不保存 API Key，也不申请持久网页访问权限。
 
 ---
 
@@ -115,14 +115,18 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.4.9 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.4.9 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64.msi) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.5.0 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.5.0 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64.msi) |
+| **Chrome / Edge** | **浏览器扩展 ZIP** | [下载 v0.5.0 扩展](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_browser_extension.zip) |
+
+浏览器扩展安装：解压 ZIP，在 `chrome://extensions` 或 `edge://extensions` 开启开发者模式并选择“加载已解压的扩展程序”，然后打开扩展弹窗完成桌面配对。当前 MVP 使用固定开发 ID；Chrome Web Store 与 Edge Add-ons 正式上架后续单独处理。
 
 <details>
 <summary>历史版本</summary>
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.4.9 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64.msi) |
 | v0.4.8 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64.msi) |
 | v0.4.7 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.7/LongTranslate_0.4.7_x64.msi) |
 | v0.4.6 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.6/LongTranslate_0.4.6_x64.msi) |
@@ -145,6 +149,26 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.5.0 — Browser Extension MVP</strong></summary>
+
+**浏览器划词翻译**
+- Chrome / Edge 共用最小 Manifest V3 扩展，用户主动启用后在当前网页显示隔离的划词翻译浮层
+- 只有点击“译”后才发送选中文字，支持复制、取消、关闭以及收藏到桌面生词本
+- 支持中英文、明暗主题、键盘操作、窄视口和 100% / 150% / 200% 页面缩放
+
+**安全桌面桥接**
+- 单 EXE Native Host 通过受认证桌面 IPC 复用现有翻译、术语表、主备模型和生词本
+- 桌面端显示真实扩展 Origin 与能力，支持批准、拒绝、撤销和重新授权
+- 扩展不保存 API Key，不声明持久网站权限或常驻 content script；收藏仅发送原文和译文
+
+**交付与稳定性**
+- Release 同时提供桌面 EXE、MSI、Updater 签名、`latest.json`、扩展 ZIP 和质量报告
+- 覆盖 Host 断开、未配对、超限、取消、翻译失败与收藏失败，不向网页暴露原始 Host 诊断
+- PDF / Word 文档翻译继续作为 v0.5.1 主线，不混入本版本
+
+</details>
+
+<details>
 <summary><strong>v0.4.9 — Desktop Reliability & Architecture</strong></summary>
 
 **桌面可靠性**
@@ -511,7 +535,7 @@
 
 ## 🛠️ 技术栈
 
-当前稳定版为 v0.4.9；后续产品主线已收敛为 v0.5.0 Chrome / Edge 浏览器扩展 MVP，以及 v0.5.1 PDF / Word 文档翻译 MVP。详细边界、风险和退出门槛见：
+当前稳定版为 v0.5.0，已交付 Chrome / Edge 浏览器扩展 MVP；下一条产品主线为 v0.5.1 PDF / Word 文档翻译 MVP。详细边界、风险和退出门槛见：
 
 - [v0.5.x 当前开发审计与执行计划（2026-08-10）](docs/DEVELOPMENT_PLAN_2026-08-10.md)
 - [开发审计与后续路线](docs/DEVELOPMENT_AUDIT_2026-07-27.md)
@@ -523,7 +547,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展目前已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。Chrome/Edge 真实交互烟雾与商店正式 ID 尚未完成。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
+浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。PDF / Word 翻译目前处于设计阶段，仓库尚无 PDF 文本层解析、DOCX 解析/重建或文档任务队列。
 
 Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop`，排除浏览器缺失、旧 EXE、错误注册、扩展权限扩大和桌面桥接未就绪等环境问题；该预检不会替代 Chrome / Edge 的真实交互烟雾。
 
@@ -539,14 +563,15 @@ Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNa
 | **TTS** | Youdao API + OpenAI TTS |
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
-| **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 开发扩展（待真实浏览器烟雾） |
+| **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 扩展 |
 | **文档翻译** | v0.5.1 规划中（DOCX 与文本型 PDF MVP） |
 
-### v0.5.0 浏览器桥接最新进度（2026-08-12）
+### v0.5.0 浏览器桥接（2026-08-13）
 
 - Native Host、桌面私有 IPC 与现有桌面核心已打通 `translate` / `cancel` / `add_word`，继续由桌面端独占 API Key、模型配置、术语表、生词本和缓存。
 - 扩展 service worker 提供带任务 ID 的内部翻译与取消入口；桌面桥接未就绪、未配对、超时、限流和服务商失败均返回结构化错误。
-- 划词浮层采用用户触发的 `activeTab` 注入，不申请持久网站访问权；收藏需要独立 `wordbook` 授权，下一步执行 Chrome / Edge 真实配对、翻译、取消与收藏烟雾。
+- 划词浮层采用用户触发的 `activeTab` 注入，不申请持久网站访问权；收藏需要独立 `wordbook` 授权。
+- 自动化与真实 Edge 运行时烟雾覆盖配对提示、翻译、取消、收藏、失败状态、隐私边界、窄视口和缩放；Chrome 正式构建的命令行加载限制保留为人工发布风险。
 
 ### 环境要求
 - [Rust](https://www.rust-lang.org/) (latest stable)
@@ -567,7 +592,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.4.6` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.5.0` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包、浏览器扩展 ZIP 和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

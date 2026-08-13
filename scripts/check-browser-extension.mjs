@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const extensionRoot = resolve(process.cwd(), "browser-extension");
 const sourceManifestPath = resolve(extensionRoot, "public/manifest.json");
 const builtManifestPath = resolve(extensionRoot, "dist/manifest.json");
+const desktopConfigPath = resolve(process.cwd(), "src-tauri/tauri.conf.json");
 const localeNames = ["en", "zh_CN"];
 const nsisHooksPath = resolve(process.cwd(), "src-tauri/windows/native-host-hooks.nsh");
 const wixFragmentPath = resolve(process.cwd(), "src-tauri/windows/native-host.wxs");
@@ -12,11 +13,17 @@ const maximumPackageBytes = 64 * 1024;
 
 const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, "utf8"));
 const builtManifest = JSON.parse(readFileSync(builtManifestPath, "utf8"));
+const desktopConfig = JSON.parse(readFileSync(desktopConfigPath, "utf8"));
 const extensionId = extensionIdFromKey(sourceManifest.key);
 const extensionOrigin = `chrome-extension://${extensionId}/`;
 
 if (sourceManifest.manifest_version !== 3) {
   throw new Error("Browser extension must use Manifest V3");
+}
+if (sourceManifest.version !== desktopConfig.version) {
+  throw new Error(
+    `Browser extension version ${sourceManifest.version} differs from desktop version ${desktopConfig.version}`,
+  );
 }
 if (
   sourceManifest.default_locale !== "en" ||
