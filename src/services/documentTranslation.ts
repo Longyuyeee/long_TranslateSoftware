@@ -188,6 +188,8 @@ export interface DocxRebuildValidation {
   replacementCount: number;
   partCount: number;
   translatedBytes: number;
+  rebuiltSizeBytes: number;
+  rebuiltFingerprint: string;
 }
 
 export interface DocxRebuildCommandError {

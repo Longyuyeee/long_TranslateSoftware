@@ -382,12 +382,16 @@ describe("DOCX rebuild preflight", () => {
       replacementCount: 1,
       partCount: 1,
       translatedBytes: 6,
+      rebuiltSizeBytes: 2048,
+      rebuiltFingerprint: "sha256:rebuilt",
     });
 
     await expect(validateDocxRebuildPlan(plan)).resolves.toEqual({
       replacementCount: 1,
       partCount: 1,
       translatedBytes: 6,
+      rebuiltSizeBytes: 2048,
+      rebuiltFingerprint: "sha256:rebuilt",
     });
     expect(invokeMock).toHaveBeenLastCalledWith("validate_docx_rebuild_plan", { plan });
   });
