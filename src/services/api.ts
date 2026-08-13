@@ -28,7 +28,10 @@ export {
   selectRelevantGlossary,
   startTranslationTask,
 } from "./translationTask";
-export { startDocumentTranslationQueue } from "./documentTranslationQueue";
+export {
+  prepareDocumentJobForFailedSegmentRetry,
+  startDocumentTranslationQueue,
+} from "./documentTranslationQueue";
 export type {
   DocumentSegmentExecutor,
   DocumentTranslationQueueCompletion,

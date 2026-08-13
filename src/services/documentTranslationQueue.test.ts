@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { TranslationRequestError } from "./translationProvider";
 import {
+  prepareDocumentJobForFailedSegmentRetry,
   startDocumentTranslationQueue,
   type DocumentSegmentExecutor,
 } from "./documentTranslationQueue";
@@ -138,6 +139,7 @@ describe("document translation queue", () => {
     const completion = await startDocumentTranslationQueue(job(3), execution, {
       execute,
       now: () => now,
+      waitForRetry: async () => {},
     }).done;
 
     expect(completion.status).toBe("failed");
@@ -148,6 +150,142 @@ describe("document translation queue", () => {
       error: { code: "translation-failed", retryable: true, segmentId: "segment-1" },
     });
     expect(completion.job.segments[2].status).toBe("translated");
+    expect(execute).toHaveBeenCalledTimes(5);
+  });
+
+  it("retries transient failures with bounded exponential backoff", async () => {
+    let calls = 0;
+    const delays: number[] = [];
+    const execute: DocumentSegmentExecutor = vi.fn(async (text) => {
+      calls += 1;
+      if (calls < 3) throw new TranslationRequestError("network", "Offline");
+      return { text: `translated-${text}`, model: "translate-1", cached: false, usedBackup: false };
+    });
+    const completion = await startDocumentTranslationQueue(job(1), execution, {
+      execute,
+      now: () => now,
+      retryBaseDelayMs: 250,
+      waitForRetry: async delayMs => { delays.push(delayMs); },
+    }).done;
+
+    expect(completion.status).toBe("ready-to-rebuild");
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(delays).toEqual([250, 500]);
+    expect(completion.job.segments[0]).toMatchObject({
+      status: "translated",
+      attempts: 3,
+    });
+  });
+
+  it("does not retry permanent failures", async () => {
+    const execute: DocumentSegmentExecutor = vi.fn(async () => {
+      throw new TranslationRequestError("unauthorized", "Invalid key");
+    });
+    const waitForRetry = vi.fn(async () => {});
+    const completion = await startDocumentTranslationQueue(job(1), execution, {
+      execute,
+      waitForRetry,
+      now: () => now,
+    }).done;
+
+    expect(completion.status).toBe("failed");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(waitForRetry).not.toHaveBeenCalled();
+  });
+
+  it("cancels retry backoff without starting another billable request", async () => {
+    let retrySignal: AbortSignal | undefined;
+    const execute: DocumentSegmentExecutor = vi.fn(async () => {
+      throw new TranslationRequestError("rate-limited", "Try later");
+    });
+    const task = startDocumentTranslationQueue(job(1), execution, {
+      execute,
+      now: () => now,
+      waitForRetry: (_delayMs, signal) => {
+        retrySignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () =>
+            reject(new DOMException("Cancelled", "AbortError")), { once: true });
+        });
+      },
+    });
+    await vi.waitFor(() => expect(retrySignal).toBeDefined());
+    task.cancel();
+
+    const completion = await task.done;
+    expect(completion.status).toBe("cancelled");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(completion.job.segments[0]).toMatchObject({ status: "pending", attempts: 1 });
+  });
+
+  it("prepares and executes only retryable failed segments from a recovered job", async () => {
+    const recovered = job(3);
+    recovered.phase = "failed";
+    recovered.error = {
+      code: "translation-failed",
+      message: "Two segments failed",
+      retryable: true,
+    };
+    recovered.segments = [
+      segment(0),
+      segment(1),
+      segment(2),
+    ];
+    recovered.segments[0] = {
+      ...recovered.segments[0],
+      status: "translated",
+      translatedText: "already paid",
+      attempts: 1,
+    };
+    recovered.segments[1] = {
+      ...recovered.segments[1],
+      status: "failed",
+      attempts: 2,
+      error: {
+        code: "translation-failed",
+        message: "Offline",
+        retryable: true,
+        segmentId: "segment-1",
+      },
+    };
+    recovered.segments[2] = {
+      ...recovered.segments[2],
+      status: "failed",
+      attempts: 1,
+      error: {
+        code: "translation-failed",
+        message: "Invalid format",
+        retryable: false,
+        segmentId: "segment-2",
+      },
+    };
+
+    const prepared = prepareDocumentJobForFailedSegmentRetry(recovered, now);
+    expect(prepared.phase).toBe("ready");
+    expect(prepared.error).toBeUndefined();
+    expect(prepared.segments[0]).toMatchObject({
+      status: "translated",
+      translatedText: "already paid",
+      attempts: 1,
+    });
+    expect(prepared.segments[1]).toMatchObject({ status: "pending", attempts: 2 });
+    expect(prepared.segments[2]).toMatchObject({ status: "failed", attempts: 1 });
+
+    const execute: DocumentSegmentExecutor = vi.fn(async text => ({
+      text: `translated-${text}`,
+      model: "translate-1",
+      cached: false,
+      usedBackup: false,
+    }));
+    const completion = await startDocumentTranslationQueue(prepared, execution, {
+      execute,
+      now: () => now,
+    }).done;
+    expect(completion.status).toBe("failed");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith("source-1", execution, expect.any(AbortSignal));
+    expect(completion.job.segments[0].translatedText).toBe("already paid");
+    expect(completion.job.segments[2].status).toBe("failed");
   });
 
   it("does not mistake a provider AbortError for user cancellation", async () => {

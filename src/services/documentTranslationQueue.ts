@@ -35,6 +35,9 @@ export type DocumentSegmentExecutor = (
 export interface DocumentTranslationQueueOptions {
   execute?: DocumentSegmentExecutor;
   now?: () => string;
+  maxRetriesPerSegment?: number;
+  retryBaseDelayMs?: number;
+  waitForRetry?: (delayMs: number, signal: AbortSignal) => Promise<void>;
   onJob?: (
     job: DocumentJob,
     progress: DocumentTranslationQueueProgress,
@@ -58,6 +61,10 @@ const RETRYABLE_CODES: ReadonlySet<TranslationErrorCode> = new Set([
   "server",
 ]);
 const MAX_CHECKPOINT_ERROR_BYTES = 4 * 1024;
+export const DOCUMENT_DEFAULT_RETRIES_PER_SEGMENT = 2;
+export const DOCUMENT_MAX_RETRIES_PER_SEGMENT = 3;
+export const DOCUMENT_DEFAULT_RETRY_BASE_DELAY_MS = 500;
+export const DOCUMENT_MAX_RETRY_DELAY_MS = 30_000;
 
 function boundedErrorMessage(message: string): string {
   const encoder = new TextEncoder();
@@ -110,9 +117,59 @@ function isCancellation(signal: AbortSignal): boolean {
   return signal.aborted;
 }
 
+function defaultWaitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new DOMException("Cancelled", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", cancel);
+      resolve();
+    }, delayMs);
+    const cancel = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Cancelled", "AbortError"));
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+  });
+}
+
+function retryDelay(baseDelayMs: number, retryIndex: number): number {
+  return Math.min(
+    DOCUMENT_MAX_RETRY_DELAY_MS,
+    baseDelayMs * (2 ** retryIndex),
+  );
+}
+
+/** Prepares only retryable failed segments; translated segments remain immutable. */
+export function prepareDocumentJobForFailedSegmentRetry(
+  sourceJob: DocumentJob,
+  updatedAt: string,
+): DocumentJob {
+  let job = cloneAndValidateJob(sourceJob);
+  if (job.phase !== "failed") {
+    throw new DocumentContractError(
+      "checkpoint-invalid",
+      `Failed-segment retry requires a failed job, received ${job.phase}`,
+    );
+  }
+  let retryableCount = 0;
+  const segments = job.segments.map(segment => {
+    if (segment.status !== "failed" || !segment.error?.retryable) return segment;
+    retryableCount += 1;
+    return transitionDocumentSegment(segment, "pending");
+  });
+  if (retryableCount === 0) {
+    throw new DocumentContractError(
+      "translation-failed",
+      "Document job has no retryable failed segments",
+    );
+  }
+  job = transitionDocumentJob({ ...job, segments }, "ready", updatedAt);
+  return job;
+}
+
 /**
  * Runs only the document translation stage. Reconstruction, persistence
- * throttling, retry policy and UI ownership deliberately remain outside.
+ * throttling and UI ownership deliberately remain outside.
  */
 export function startDocumentTranslationQueue(
   sourceJob: DocumentJob,
@@ -129,6 +186,29 @@ export function startDocumentTranslationQueue(
   assertSnapshotMatches(job, execution);
 
   const now = options.now ?? (() => new Date().toISOString());
+  const maxRetries = options.maxRetriesPerSegment
+    ?? DOCUMENT_DEFAULT_RETRIES_PER_SEGMENT;
+  const retryBaseDelayMs = options.retryBaseDelayMs
+    ?? DOCUMENT_DEFAULT_RETRY_BASE_DELAY_MS;
+  if (
+    !Number.isSafeInteger(maxRetries)
+    || maxRetries < 0
+    || maxRetries > DOCUMENT_MAX_RETRIES_PER_SEGMENT
+  ) {
+    throw new RangeError(
+      `Document segment retries must be between 0 and ${DOCUMENT_MAX_RETRIES_PER_SEGMENT}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(retryBaseDelayMs)
+    || retryBaseDelayMs < 0
+    || retryBaseDelayMs > DOCUMENT_MAX_RETRY_DELAY_MS
+  ) {
+    throw new RangeError(
+      `Document retry base delay must be between 0 and ${DOCUMENT_MAX_RETRY_DELAY_MS} ms`,
+    );
+  }
+  const waitForRetry = options.waitForRetry ?? defaultWaitForRetry;
   const execute = options.execute ?? ((text, snapshot, signal) =>
     executeTranslationWithSnapshot(text, snapshot, {}, signal));
   const controller = new AbortController();
@@ -159,45 +239,74 @@ export function startDocumentTranslationQueue(
       const segment = job.segments[index];
       if (segment.status !== "pending") continue;
 
-      updateSegment(index, transitionDocumentSegment(segment, "translating"));
-      active += 1;
-      emit();
-      try {
-        const result = await execute(
-          segment.sourceText,
-          execution,
-          controller.signal,
-        );
-        if (controller.signal.aborted) {
-          updateSegment(
-            index,
-            transitionDocumentSegment(job.segments[index], "pending"),
-          );
-          return;
-        }
+      let retriesUsed = 0;
+      while (!controller.signal.aborted) {
         updateSegment(
           index,
-          transitionDocumentSegment(job.segments[index], "translated", {
-            translatedText: result.text,
-          }),
+          transitionDocumentSegment(job.segments[index], "translating"),
         );
-      } catch (error) {
-        if (isCancellation(controller.signal)) {
-          updateSegment(
-            index,
-            transitionDocumentSegment(job.segments[index], "pending"),
-          );
-          return;
-        }
-        updateSegment(
-          index,
-          transitionDocumentSegment(job.segments[index], "failed", {
-            error: segmentError(error, segment.id),
-          }),
-        );
-      } finally {
-        active -= 1;
+        active += 1;
         emit();
+        let failure: DocumentError | undefined;
+        try {
+          const result = await execute(
+            segment.sourceText,
+            execution,
+            controller.signal,
+          );
+          if (controller.signal.aborted) {
+            updateSegment(
+              index,
+              transitionDocumentSegment(job.segments[index], "pending"),
+            );
+            return;
+          }
+          updateSegment(
+            index,
+            transitionDocumentSegment(job.segments[index], "translated", {
+              translatedText: result.text,
+            }),
+          );
+        } catch (error) {
+          if (isCancellation(controller.signal)) {
+            updateSegment(
+              index,
+              transitionDocumentSegment(job.segments[index], "pending"),
+            );
+            return;
+          }
+          failure = segmentError(error, segment.id);
+          updateSegment(
+            index,
+            transitionDocumentSegment(job.segments[index], "failed", {
+              error: failure,
+            }),
+          );
+        } finally {
+          active -= 1;
+          emit();
+        }
+
+        if (!failure) break;
+        if (!failure.retryable || retriesUsed >= maxRetries) break;
+        const delayMs = retryDelay(retryBaseDelayMs, retriesUsed);
+        retriesUsed += 1;
+        try {
+          await waitForRetry(delayMs, controller.signal);
+        } catch {
+          if (controller.signal.aborted) {
+            updateSegment(
+              index,
+              transitionDocumentSegment(job.segments[index], "pending"),
+            );
+            return;
+          }
+          throw new Error("Document retry wait failed unexpectedly");
+        }
+        updateSegment(
+          index,
+          transitionDocumentSegment(job.segments[index], "pending"),
+        );
       }
     }
   };
