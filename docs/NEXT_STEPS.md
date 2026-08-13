@@ -52,7 +52,8 @@
 - PR [#69](https://github.com/Longyuyeee/long_TranslateSoftware/pull/69) 已通过完整 CI 并合并。当前增量实现恢复后只选择可重试失败段、单次运行最多 2 次自动重试、可取消指数退避以及永久错误快速失败；成功段不会重发或覆盖。
 - PR [#70](https://github.com/Longyuyeee/long_TranslateSoftware/pull/70) 已通过完整 CI 并合并，阶段 3 无 UI 核心收口。最后补齐任务注册表、重复启动拒绝、多任务隔离和统一 `cancelAll`；长文档、强制结束和恢复提示继续作为 UI 接入后的人工发布门禁。
 - PR [#71](https://github.com/Longyuyeee/long_TranslateSoftware/pull/71) 已通过完整 CI 并合并。阶段 4 第一增量建立 DOCX 重建 preflight：重新校验源指纹与完整段锚点，生成不含凭据的替换白名单并拒绝源路径覆盖；尚不写 XML 或输出文件。
-- 当前阶段 4 第二增量在 Rust 端以白名单反序列化、重新 inspection、SHA-256、完整锚点和资源上限独立复核计划；下一步才执行内存 XML 改写和未修改 ZIP 部件保留。
+- PR [#72](https://github.com/Longyuyeee/long_TranslateSoftware/pull/72) 已通过完整 Windows CI 并合并。阶段 4 第二增量在 Rust 端以白名单反序列化、重新 inspection、SHA-256、完整锚点和资源上限独立复核计划。
+- 当前增量继续完成纯内存 DOCX 重建：按文本节点权重保留 Run 结构、双语模式追加硬换行译文、raw copy 未修改 ZIP 条目并重新打开成品验证；下一步单独处理同卷临时文件、路径别名和原子发布。
 
 ## 每一步的交付要求
 

@@ -1088,20 +1088,27 @@ pub fn inspect_docx_path(path: &Path) -> ImportResult<DocxInspection> {
             "DOCX input must be a non-empty file",
         ));
     }
-    let fingerprint = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
-    let actual_size = bytes.len() as u64;
-    let archive = ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| {
-        DocxImportError::parse_failed(format!("Invalid DOCX ZIP container: {error}"))
-    })?;
-    inspect_archive(
-        archive,
-        fingerprint,
+    inspect_docx_bytes(
+        &bytes,
         path.file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("document.docx")
             .to_string(),
-        actual_size,
     )
+}
+
+pub(crate) fn inspect_docx_bytes(bytes: &[u8], file_name: String) -> ImportResult<DocxInspection> {
+    if bytes.is_empty() || bytes.len() as u64 > MAX_DOCX_BYTES {
+        return Err(DocxImportError::input_too_large(
+            "DOCX in-memory package size is invalid",
+        ));
+    }
+    let fingerprint = format!("sha256:{}", hex::encode(Sha256::digest(bytes)));
+    let actual_size = bytes.len() as u64;
+    let archive = ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| {
+        DocxImportError::parse_failed(format!("Invalid DOCX ZIP container: {error}"))
+    })?;
+    inspect_archive(archive, fingerprint, file_name, actual_size)
 }
 
 #[tauri::command]
