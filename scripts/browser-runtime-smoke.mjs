@@ -374,6 +374,9 @@ async function inspectSelectionOverlay(port, pageUrl) {
   const oversizedSelection = await inspectOversizedSelection(
     pageTarget.webSocketDebuggerUrl,
   );
+  const viewportPositioning = await inspectViewportPositioning(
+    pageTarget.webSocketDebuggerUrl,
+  );
   return {
     productionBundleLoaded: true,
     launcher: launcher.launcher,
@@ -382,6 +385,7 @@ async function inspectSelectionOverlay(port, pageUrl) {
     removedAfterRefresh: true,
     successfulTranslation,
     oversizedSelection,
+    viewportPositioning,
   };
 }
 
@@ -535,6 +539,119 @@ async function inspectOversizedSelection(webSocketUrl) {
     );
   }
   return { blocked: true, messageSent: false };
+}
+
+async function inspectViewportPositioning(webSocketUrl) {
+  await sendDevToolsCommand(webSocketUrl, "Emulation.setDeviceMetricsOverride", {
+    width: 420,
+    height: 320,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await evaluatePage(webSocketUrl, "location.reload(); true");
+  const ready = await poll(async () =>
+    evaluatePage(
+      webSocketUrl,
+      "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+      100,
+    ),
+  );
+  if (!ready) throw new Error("Edge viewport positioning page did not become ready");
+  await evaluatePage(
+    webSocketUrl,
+    `(() => {
+      globalThis.__longTranslateSmokeMessages = [];
+      globalThis.chrome = {
+        runtime: {
+          sendMessage(message, callback) {
+            globalThis.__longTranslateSmokeMessages.push(message);
+            if (message.type === "native-translate") {
+              callback({ ok: true, result: { text: "视口内译文" } });
+            }
+          }
+        },
+        i18n: { getMessage: () => "" }
+      };
+      const source = document.getElementById("selection-source");
+      source.textContent = "Viewport edge selection";
+      source.style.cssText = "position:fixed;right:0;bottom:0;margin:0";
+      (0, eval)(${JSON.stringify(contentScriptSource)});
+      const range = document.createRange();
+      range.selectNodeContents(source.firstChild);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      return true;
+    })()`,
+  );
+  const launcher = await poll(async () => {
+    const bounds = await evaluatePage(
+      webSocketUrl,
+      `(() => {
+        const element = document.getElementById("long-translate-selection-root")?.shadowRoot?.querySelector(".launcher");
+        if (!element) return undefined;
+        const rect = element.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
+      })()`,
+    );
+    return bounds || undefined;
+  });
+  assertWithinViewport("launcher", launcher);
+  const panel = await evaluatePage(
+    webSocketUrl,
+    `(() => {
+      const root = document.getElementById("long-translate-selection-root");
+      root.shadowRoot.querySelector(".launcher").click();
+      const rect = root.shadowRoot.querySelector(".panel").getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
+    })()`,
+  );
+  assertWithinViewport("panel", panel);
+  if (panel.width > 420 || panel.height > 320) {
+    throw new Error(`Edge did not preserve the narrow viewport: ${JSON.stringify(panel)}`);
+  }
+  return { launcherContained: true, panelContained: true, viewport: `${panel.width}x${panel.height}` };
+}
+
+function assertWithinViewport(label, bounds) {
+  if (
+    !bounds ||
+    bounds.left < 0 ||
+    bounds.top < 0 ||
+    bounds.right > bounds.width ||
+    bounds.bottom > bounds.height
+  ) {
+    throw new Error(`Edge selection ${label} escaped the viewport: ${JSON.stringify(bounds)}`);
+  }
+}
+
+async function sendDevToolsCommand(webSocketUrl, method, params) {
+  return new Promise((resolveCommand, rejectCommand) => {
+    const socket = new WebSocket(webSocketUrl);
+    const timer = setTimeout(() => {
+      socket.close();
+      rejectCommand(new Error(`Browser command ${method} timed out`));
+    }, timeoutMs);
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({ id: 1, method, params }));
+    });
+    socket.addEventListener("message", (event) => {
+      const response = JSON.parse(event.data);
+      if (response.id !== 1) return;
+      clearTimeout(timer);
+      socket.close();
+      if (response.error) {
+        rejectCommand(new Error(`Browser command ${method} failed`));
+      } else {
+        resolveCommand(response.result);
+      }
+    });
+    socket.addEventListener("error", () => {
+      clearTimeout(timer);
+      rejectCommand(new Error(`Browser command ${method} failed`));
+    });
+  });
 }
 
 async function evaluatePage(webSocketUrl, expression, delayMs = 0) {
