@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -12,6 +12,10 @@ const extensionDirectory = resolve(extensionArgument || "browser-extension/dist"
 const extensionId = "imaogjlfhfohdnngppnfhapdfkaldmkn";
 const extensionOrigin = `chrome-extension://${extensionId}`;
 const popupUrl = `${extensionOrigin}/popup.html`;
+const contentScriptSource = readFileSync(
+  join(extensionDirectory, "assets/content-script.js"),
+  "utf8",
+);
 const timeoutMs = 20_000;
 
 if (!existsSync(join(extensionDirectory, "manifest.json"))) {
@@ -96,6 +100,7 @@ console.log(
 async function inspectPopup(browserName, executable, requestedLanguage) {
   const profile = mkdtempSync(join(tmpdir(), "long-translate-browser-smoke-"));
   const port = await reservePort();
+  const selectionPage = await serveSelectionPage();
   const browser = spawn(
     executable,
     [
@@ -111,7 +116,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       `--disable-extensions-except=${extensionDirectory}`,
       `--load-extension=${extensionDirectory}`,
       `--lang=${requestedLanguage}`,
-      "about:blank",
+      selectionPage.url,
     ],
     { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
   );
@@ -164,6 +169,13 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
     if (!targets) {
       throw new Error(`${browserName} ${requestedLanguage} did not expose the extension service worker`);
     }
+    let selection;
+    if (browserName === "Edge") {
+      selection = await inspectSelectionOverlay(
+        port,
+        selectionPage.url,
+      );
+    }
     let bridge;
     if (requireDesktop && browserName === "Edge") {
       await evaluatePage(
@@ -204,6 +216,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       actualLanguage,
       popupTitle: heading,
       extensionLoaded: true,
+      ...(selection ? { selectionOverlay: selection } : {}),
       ...(bridge
         ? {
             bridgeConnected: true,
@@ -219,6 +232,7 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       new Promise((done) => browser.once("close", done)),
       new Promise((done) => setTimeout(done, 2_000)),
     ]);
+    selectionPage.close();
     const resolvedProfile = resolve(profile);
     const expectedRoot = resolve(tmpdir()) + "\\";
     if (
@@ -228,6 +242,107 @@ async function inspectPopup(browserName, executable, requestedLanguage) {
       rmSync(resolvedProfile, { recursive: true, force: true, maxRetries: 3 });
     }
   }
+}
+
+async function inspectSelectionOverlay(port, pageUrl) {
+  const pageTarget = await poll(async () => {
+    const targets = await jsonRequest(`http://127.0.0.1:${port}/json/list`);
+    return targets.find((target) => target.type === "page" && target.url === pageUrl);
+  });
+  if (!pageTarget?.webSocketDebuggerUrl) {
+    throw new Error("Edge did not expose the isolated selection smoke page");
+  }
+  const pageReady = await poll(async () =>
+    evaluatePage(
+      pageTarget.webSocketDebuggerUrl,
+      "document.readyState === 'complete' && Boolean(document.getElementById('selection-source'))",
+    ),
+  );
+  if (!pageReady) throw new Error("Edge selection smoke page did not become ready");
+  await evaluatePage(
+    pageTarget.webSocketDebuggerUrl,
+    `(() => {
+      globalThis.__longTranslateSmokeMessages = [];
+      globalThis.chrome = {
+        runtime: {
+          sendMessage(message, callback) {
+            globalThis.__longTranslateSmokeMessages.push(message);
+            callback({ ok: false, error: "pairing_required" });
+          }
+        },
+        i18n: { getMessage: () => "" }
+      };
+      (0, eval)(${JSON.stringify(contentScriptSource)});
+      return Boolean(document.getElementById("long-translate-selection-root"));
+    })()`,
+  );
+  const launcher = await poll(async () => {
+    const state = await evaluatePage(
+      pageTarget.webSocketDebuggerUrl,
+      `(() => {
+        const source = document.getElementById("selection-source");
+        const text = source?.firstChild;
+        if (!text) return { root: false, launcher: "", panel: false, messages: -1 };
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        const root = document.getElementById("long-translate-selection-root");
+        return {
+          root: Boolean(root),
+          launcher: root?.shadowRoot?.querySelector(".launcher")?.textContent || "",
+          panel: Boolean(root?.shadowRoot?.querySelector(".panel")),
+          messages: globalThis.__longTranslateSmokeMessages?.length || 0,
+        };
+      })()`,
+    );
+    return state.launcher ? state : undefined;
+  });
+  if (!launcher?.root || launcher.panel || launcher.messages !== 0) {
+    throw new Error(
+      `Edge selection overlay failed its pre-click privacy state: ${JSON.stringify(launcher)}`,
+    );
+  }
+  const translated = await evaluatePage(
+    pageTarget.webSocketDebuggerUrl,
+    `(() => {
+      const root = document.getElementById("long-translate-selection-root");
+      root.shadowRoot.querySelector(".launcher").click();
+      const message = globalThis.__longTranslateSmokeMessages[0];
+      return {
+        panel: Boolean(root.shadowRoot.querySelector(".panel")),
+        messageType: message?.type,
+        selectedText: message?.input?.text,
+      };
+    })()`,
+  );
+  if (
+    !translated?.panel ||
+    translated.messageType !== "native-translate" ||
+    translated.selectedText !== "Hello from the isolated selection smoke page."
+  ) {
+    throw new Error("Edge selection overlay did not defer the selected text until launcher click");
+  }
+  await evaluatePage(pageTarget.webSocketDebuggerUrl, "location.reload(); true");
+  const removedAfterRefresh = await poll(async () => {
+    const state = await evaluatePage(
+      pageTarget.webSocketDebuggerUrl,
+      "({ready: document.readyState === 'complete', root: Boolean(document.getElementById('long-translate-selection-root'))})",
+      100,
+    );
+    return state.ready ? !state.root : undefined;
+  });
+  if (!removedAfterRefresh) {
+    throw new Error("Edge selection overlay remained injected after page refresh");
+  }
+  return {
+    productionBundleLoaded: true,
+    launcher: launcher.launcher,
+    translationDeferredUntilClick: true,
+    removedAfterRefresh: true,
+  };
 }
 
 async function evaluatePage(webSocketUrl, expression, delayMs = 0) {
@@ -247,7 +362,15 @@ async function evaluatePage(webSocketUrl, expression, delayMs = 0) {
     socket.addEventListener("message", (event) => {
       const response = JSON.parse(event.data);
       if (response.id === 1) {
-        setTimeout(() => send("Runtime.evaluate", { expression, returnByValue: true }), delayMs);
+        setTimeout(
+          () =>
+            send("Runtime.evaluate", {
+              expression,
+              returnByValue: true,
+              awaitPromise: true,
+            }),
+          delayMs,
+        );
       } else if (response.id === 2) {
         clearTimeout(timer);
         socket.close();
@@ -297,6 +420,34 @@ function reservePort() {
         return;
       }
       server.close(() => resolvePort(address.port));
+    });
+  });
+}
+
+function serveSelectionPage() {
+  return new Promise((resolveServer, rejectServer) => {
+    const server = createServer((socket) => {
+      socket.on("error", () => undefined);
+      const body = "<!doctype html><html><head><title>Long Translate selection smoke</title></head><body><p id=\"selection-source\">Hello from the isolated selection smoke page.</p></body></html>";
+      socket.end(
+        `HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+      );
+    });
+    server.unref();
+    server.on("error", rejectServer);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        rejectServer(new Error("Could not open the isolated selection smoke page"));
+        return;
+      }
+      resolveServer({
+        url: `http://127.0.0.1:${address.port}/`,
+        close: () => {
+          server.close();
+        },
+      });
     });
   });
 }

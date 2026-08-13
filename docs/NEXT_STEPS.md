@@ -31,6 +31,7 @@
 - 扩展 Manifest、弹窗、划词浮层、无障碍标签和固定状态提示已接入 Chromium i18n，随浏览器语言提供英文与简体中文；弹窗和浮层均跟随系统浅色/深色主题，语言键引用、语言包完整性、主题契约和构建产物一致性纳入 64 KiB 扩展审计。
 - 隔离浏览器运行时烟雾已在真实 Edge 中加载固定 ID 的 MV3 扩展，验证 service worker、英文/简体中文弹窗 DOM 和主要控件，并已加入 Windows CI；正式 Chrome 137+ 的命令行加载限制会被识别并保留为 `chrome://extensions` 人工验收，不把 `ERR_BLOCKED_BY_CLIENT` 误记为通过。
 - 运行时烟雾可通过显式 `--require-desktop` 点击真实 Edge 弹窗的连接检查，验证浏览器 → Native Host → 受认证桌面 IPC 的 `hello` / `ping` 闭环，并核对桌面版本、配对状态和往返耗时；默认模式仍不隐式依赖桌面进程。
+- Edge 运行时烟雾已在隔离普通 HTTP 页面执行生产 content script，验证 Shadow DOM 浮层、点击“译”前不发送所选正文、点击后才创建翻译请求，以及刷新后注入消失；工具栏点击产生的 `activeTab` 临时授权无法由调试接口真实复现，继续作为发布候选人工门槛，不为自动化扩大 manifest 权限。
 
 ## 每一步的交付要求
 
