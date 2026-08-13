@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use unicode_segmentation::UnicodeSegmentation;
+use zip::result::ZipError;
 use zip::ZipArchive;
 
 const MAX_DOCX_BYTES: u64 = 50 * 1024 * 1024;
@@ -750,8 +751,11 @@ fn validate_archive<R: Read + Seek>(archive: &mut ZipArchive<R>) -> ImportResult
     let mut unique_names = HashSet::with_capacity(archive.len());
     let mut total_uncompressed = 0u64;
     for index in 0..archive.len() {
-        let entry = archive.by_index(index).map_err(|error| {
-            DocxImportError::parse_failed(format!("Cannot inspect DOCX archive: {error}"))
+        let entry = archive.by_index(index).map_err(|error| match error {
+            ZipError::UnsupportedArchive(reason) if reason == ZipError::PASSWORD_REQUIRED => {
+                DocxImportError::invalid_input("Encrypted DOCX files are not supported")
+            }
+            error => DocxImportError::parse_failed(format!("Cannot inspect DOCX archive: {error}")),
         })?;
         if entry.encrypted() {
             return Err(DocxImportError::invalid_input(
@@ -1604,5 +1608,82 @@ mod tests {
         let error = inspect_docx_path(Path::new("legacy.doc")).unwrap_err();
         assert_eq!(error.code, DocxImportErrorCode::UnsupportedFormat);
         assert!(error.message.contains("Only .docx"));
+    }
+
+    #[test]
+    #[ignore = "requires an explicitly generated and visually reviewed DOCX corpus"]
+    fn validates_rendered_docx_corpus_manifest() {
+        let manifest_path = std::env::var("DOCX_VALIDATION_MANIFEST")
+            .expect("DOCX_VALIDATION_MANIFEST must point to the reviewed corpus manifest");
+        let manifest_path = Path::new(&manifest_path);
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(manifest_path).expect("validation manifest must be readable"),
+        )
+        .expect("validation manifest must contain valid JSON");
+        let cases = manifest["cases"]
+            .as_array()
+            .expect("validation manifest must contain a cases array");
+        let corpus_dir = manifest_path
+            .parent()
+            .expect("validation manifest must have a parent directory")
+            .join("docs");
+
+        assert!(
+            cases.len() >= 5,
+            "manual validation requires at least five DOCX cases"
+        );
+        for case in cases {
+            let file_name = case["file"]
+                .as_str()
+                .expect("each validation case must name a file");
+            let path = corpus_dir.join(file_name);
+            let before = std::fs::read(&path).expect("validation DOCX must be readable");
+            let inspection = inspect_docx_path(&path).expect("validation DOCX must be inspectable");
+            let after = std::fs::read(&path).expect("validation DOCX must remain readable");
+            assert_eq!(before, after, "inspection changed source file {file_name}");
+
+            let actual_text = inspection
+                .segments
+                .iter()
+                .map(|segment| segment.source_text.as_str())
+                .collect::<Vec<_>>();
+            let expected_text = case["expectedSourceText"]
+                .as_array()
+                .expect("each validation case must define expectedSourceText")
+                .iter()
+                .map(|value| value.as_str().expect("expected text must be a string"))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual_text, expected_text,
+                "visible reading order differs for {file_name}"
+            );
+
+            let actual_warnings = inspection
+                .warnings
+                .iter()
+                .map(|warning| warning.code.as_str())
+                .collect::<Vec<_>>();
+            let expected_warnings = case["expectedWarnings"]
+                .as_array()
+                .expect("each validation case must define expectedWarnings")
+                .iter()
+                .map(|value| value.as_str().expect("expected warning must be a string"))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual_warnings, expected_warnings,
+                "warning set differs for {file_name}"
+            );
+        }
+
+        let encrypted_file = manifest["encryptedFile"]
+            .as_str()
+            .expect("validation manifest must name an encrypted DOCX");
+        let encrypted_error = inspect_docx_path(&corpus_dir.join(encrypted_file))
+            .expect_err("encrypted validation DOCX must be rejected");
+        assert_eq!(encrypted_error.code, DocxImportErrorCode::InvalidInput);
+        assert_eq!(
+            encrypted_error.message,
+            "Encrypted DOCX files are not supported"
+        );
     }
 }
