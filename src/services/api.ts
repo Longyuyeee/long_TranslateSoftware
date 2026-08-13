@@ -36,6 +36,16 @@ export type {
   DocumentTranslationQueueProgress,
   DocumentTranslationQueueTask,
 } from "./documentTranslationQueue";
+export {
+  createDocumentCheckpointWriter,
+  startPersistentDocumentTranslationQueue,
+} from "./documentTranslationPersistence";
+export type {
+  DocumentCheckpointSink,
+  DocumentCheckpointWriter,
+  DocumentCheckpointWriterOptions,
+  PersistentDocumentTranslationQueueOptions,
+} from "./documentTranslationPersistence";
 export type {
   GlossaryEntry,
   TranslationExecutionCallbacks,
