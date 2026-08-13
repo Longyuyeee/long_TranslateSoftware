@@ -104,20 +104,23 @@ function installSelectionOverlay(
     if (save) save.textContent = message("saveToWordbook", "收藏到生词本");
     if (copy) copy.textContent = message("copyTranslation", "复制译文");
     if (close) close.setAttribute("aria-label", message("close", "关闭"));
-    position(
-      panel,
-      rect.left,
-      rect.bottom + 10,
-      Math.min(340, window.innerWidth - 24),
-      220,
-    );
+    const placePanel = () =>
+      position(
+        panel,
+        rect.left,
+        rect.bottom + 10,
+        Math.min(340, window.innerWidth - 24),
+        220,
+      );
     const source = panel.querySelector<HTMLElement>(".source");
     if (source) source.textContent = selectedText;
+    placePanel();
     cancel?.addEventListener("click", () => {
       if (!taskId) return;
       runtime.sendMessage({ type: "native-cancel", taskId }, () => undefined);
       taskId = undefined;
       setResult(panel, message("cancelled", "已取消"), "muted");
+      placePanel();
     });
     panel.querySelector(".close")?.addEventListener("click", () => hide(true));
     panel.addEventListener("keydown", (event) => {
@@ -147,6 +150,7 @@ function installSelectionOverlay(
             friendlyError(runtimeError || reply?.error, message),
             "error",
           );
+          placePanel();
           return;
         }
         setResult(panel, translated, "success");
@@ -197,6 +201,7 @@ function installSelectionOverlay(
             { once: true },
           );
         }
+        placePanel();
       },
     );
   };
@@ -302,13 +307,31 @@ function position(
   height: number,
 ): void {
   const margin = 12;
+  const viewport = window.visualViewport;
+  const viewportLeft = viewport?.offsetLeft ?? 0;
+  const viewportTop = viewport?.offsetTop ?? 0;
+  const viewportWidth = viewport?.width ?? window.innerWidth;
+  const viewportHeight = viewport?.height ?? window.innerHeight;
+  const availableWidth = Math.max(0, viewportWidth - margin * 2);
+  const availableHeight = Math.max(0, viewportHeight - margin * 2);
+  element.style.maxWidth = `${availableWidth}px`;
+  element.style.maxHeight = `${availableHeight}px`;
+  const bounds = element.getBoundingClientRect();
+  const renderedWidth = bounds.width || Math.min(width, availableWidth);
+  const renderedHeight = bounds.height || Math.min(height, availableHeight);
   const left = Math.max(
-    margin,
-    Math.min(x, window.innerWidth - width - margin),
+    viewportLeft + margin,
+    Math.min(
+      x,
+      viewportLeft + viewportWidth - renderedWidth - margin,
+    ),
   );
   const top = Math.max(
-    margin,
-    Math.min(y, window.innerHeight - height - margin),
+    viewportTop + margin,
+    Math.min(
+      y,
+      viewportTop + viewportHeight - renderedHeight - margin,
+    ),
   );
   element.style.left = `${left}px`;
   element.style.top = `${top}px`;
@@ -332,7 +355,7 @@ const overlayStyles = `
   footer button { min-height: 30px; border: 0; border-radius: 8px; padding: 0 10px; background: #e8eef9; color: #34425a; cursor: pointer; }
   footer .copy, footer .save { background: #5b7cfa; color: #fff; }
   footer .close { width: 30px; padding: 0; font-size: 18px; }
-  .notice { position: fixed; min-width: 220px; border-radius: 10px; background: #172033; color: #fff; box-shadow: 0 10px 30px rgb(15 23 42 / 24%); padding: 11px 13px; font: 12px/1.4 Inter, "Segoe UI", sans-serif; }
+  .notice { position: fixed; width: min(260px, calc(100vw - 24px)); border-radius: 10px; background: #172033; color: #fff; box-shadow: 0 10px 30px rgb(15 23 42 / 24%); padding: 11px 13px; font: 12px/1.4 Inter, "Segoe UI", sans-serif; }
   @media (prefers-color-scheme: dark) {
     .panel { border-color: #33415d; background: #111a2b; color: #eaf0fb; }
     .source { background: #1c2940; color: #aebbd0; }

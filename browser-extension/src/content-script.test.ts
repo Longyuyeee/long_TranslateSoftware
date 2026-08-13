@@ -137,6 +137,28 @@ describe("selection translation overlay", () => {
     expect(shadow.querySelector(".notice")?.textContent).toContain("32 KiB");
   });
 
+  it("keeps the launcher and panel inside an offset visual viewport", async () => {
+    vi.stubGlobal("visualViewport", {
+      offsetLeft: 100,
+      offsetTop: 50,
+      width: 280,
+      height: 213,
+    });
+    const shadow = await install((_message, callback) => {
+      callback({ ok: true, result: { text: "你好，世界" } });
+    });
+    const launcher = shadow.querySelector<HTMLElement>(".launcher");
+    expect(launcher?.style.left).toBe("168px");
+    expect(launcher?.style.top).toBe("78px");
+
+    launcher?.click();
+    const panel = shadow.querySelector<HTMLElement>(".panel");
+    expect(panel?.style.maxWidth).toBe("256px");
+    expect(panel?.style.maxHeight).toBe("189px");
+    expect(panel?.style.left).toBe("112px");
+    expect(panel?.style.top).toBe("62px");
+  });
+
   it("localizes the selection launcher and dialog without page permissions", async () => {
     const messages: unknown[] = [];
     const shadow = await install(
