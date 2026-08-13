@@ -368,12 +368,110 @@ async function inspectSelectionOverlay(port, pageUrl) {
   if (!removedAfterRefresh) {
     throw new Error("Edge selection overlay remained injected after page refresh");
   }
+  const successfulTranslation = await inspectSuccessfulSelection(
+    pageTarget.webSocketDebuggerUrl,
+  );
   return {
     productionBundleLoaded: true,
     launcher: launcher.launcher,
     translationDeferredUntilClick: true,
     cancellationCorrelated: true,
     removedAfterRefresh: true,
+    successfulTranslation,
+  };
+}
+
+async function inspectSuccessfulSelection(webSocketUrl) {
+  await evaluatePage(
+    webSocketUrl,
+    `(() => {
+      globalThis.__longTranslateSmokeMessages = [];
+      globalThis.chrome = {
+        runtime: {
+          sendMessage(message, callback) {
+            globalThis.__longTranslateSmokeMessages.push(message);
+            if (message.type === "native-translate") {
+              callback({ ok: true, result: { text: "你好，隔离页面。" } });
+            } else if (message.type === "native-add-word") {
+              callback({ ok: true, result: { id: "smoke-word" } });
+            }
+          }
+        },
+        i18n: { getMessage: () => "" }
+      };
+      (0, eval)(${JSON.stringify(contentScriptSource)});
+      const source = document.getElementById("selection-source");
+      const range = document.createRange();
+      range.selectNodeContents(source.firstChild);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      return true;
+    })()`,
+  );
+  const translated = await poll(async () => {
+    const state = await evaluatePage(
+      webSocketUrl,
+      `(() => {
+        const root = document.getElementById("long-translate-selection-root");
+        const launcher = root?.shadowRoot?.querySelector(".launcher");
+        if (launcher) launcher.click();
+        return {
+          result: root?.shadowRoot?.querySelector(".result")?.textContent || "",
+          saveHidden: root?.shadowRoot?.querySelector(".save")?.hidden ?? true,
+          copyHidden: root?.shadowRoot?.querySelector(".copy")?.hidden ?? true,
+          messages: globalThis.__longTranslateSmokeMessages?.length || 0,
+        };
+      })()`,
+    );
+    return state.result === "你好，隔离页面。" ? state : undefined;
+  });
+  if (
+    !translated ||
+    translated.saveHidden ||
+    translated.copyHidden ||
+    translated.messages !== 1
+  ) {
+    throw new Error(
+      `Edge selection overlay failed its successful translation state: ${JSON.stringify(translated)}`,
+    );
+  }
+  const saved = await evaluatePage(
+    webSocketUrl,
+    `(() => {
+      const root = document.getElementById("long-translate-selection-root");
+      root.shadowRoot.querySelector(".save").click();
+      const messages = globalThis.__longTranslateSmokeMessages;
+      const save = messages[1];
+      return {
+        messageCount: messages.length,
+        messageType: save?.type,
+        input: save?.input,
+        label: root.shadowRoot.querySelector(".save")?.textContent || "",
+        saved: root.shadowRoot.querySelector(".save")?.dataset.saved || "",
+      };
+    })()`,
+  );
+  if (
+    saved?.messageCount !== 2 ||
+    saved.messageType !== "native-add-word" ||
+    JSON.stringify(saved.input) !==
+      JSON.stringify({
+        word: "Hello from the isolated selection smoke page.",
+        translation: "你好，隔离页面。",
+      }) ||
+    saved.label !== "已收藏" ||
+    saved.saved !== "true"
+  ) {
+    throw new Error(
+      `Edge selection overlay failed its wordbook privacy state: ${JSON.stringify(saved)}`,
+    );
+  }
+  return {
+    resultRendered: true,
+    actionsVisibleAfterSuccess: true,
+    wordbookPayloadMinimal: true,
   };
 }
 
