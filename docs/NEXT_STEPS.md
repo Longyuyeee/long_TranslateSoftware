@@ -43,7 +43,7 @@
 - 当前开发分支为 `codex/docx-import-segmentation`，对应 Draft PR [#64](https://github.com/Longyuyeee/long_TranslateSoftware/pull/64)。该 PR 只完成 DOCX Open XML 的安全只读导入检查、稳定分段、结构锚点和包级夹具，不包含 Checkpoint 持久化、翻译队列、重建、导出、PDF 或 UI。
 - Rust 导入命令覆盖正文、标题、列表、表格单元格、超链接、多节页眉页脚和自定义部件名；验证 OPC 内容类型与 Relationship，只读取被引用部件。单文件上限 50 MiB、单段 32 KiB、总文本 24 MiB、最多 20,000 段、检查结果最多 48 MiB，并限制 ZIP 路径、重复 Entry、条目数、展开体积、XML 大小和压缩比。
 - 错误使用稳定的 `unsupported-format`、`input-too-large`、`invalid-input` 和 `parse-failed` 结构化代码；分段保留段落、字节、Run 和文本节点范围，Unicode grapheme 优先保持完整。批注、图片、嵌入对象、修订、公式、文本框和字段产生明确降级警告。
-- 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime，浏览器 Runtime Smoke 和强制质量报告由 GitHub Windows CI 最终裁决，不降低门禁。
+- 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime；GitHub Windows CI [run 31709683033](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/31709683033) 已通过真实 Edge Smoke、Windows 生命周期、Rust、Clippy、强制 Runtime 质量报告和报告上传，门禁没有降低。
 - PR #64 在远端 CI 全绿且完成匿名真实 DOCX 人工顺序复核后再转为可审阅并合并；随后严格进入阶段 2 Checkpoint 持久化，不提前开发队列、重建或 UI。
 
 ## 每一步的交付要求
