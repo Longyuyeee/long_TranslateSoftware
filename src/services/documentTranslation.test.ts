@@ -16,6 +16,7 @@ import {
   deleteDocumentCheckpoint,
   cleanupDocumentCheckpoints,
   createDocxRebuildPlan,
+  validateDocxRebuildPlan,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   transitionDocumentSegment,
@@ -368,6 +369,27 @@ describe("DOCX rebuild preflight", () => {
       }],
     });
     expect(JSON.stringify(plan)).not.toContain("apiKey");
+  });
+
+  it("passes the closed plan to the Rust validation boundary", async () => {
+    const { rebuilding, inspection } = rebuildingFixture();
+    const plan = createDocxRebuildPlan(
+      rebuilding,
+      inspection,
+      "C:\\docs\\translated.docx",
+    );
+    invokeMock.mockResolvedValueOnce({
+      replacementCount: 1,
+      partCount: 1,
+      translatedBytes: 6,
+    });
+
+    await expect(validateDocxRebuildPlan(plan)).resolves.toEqual({
+      replacementCount: 1,
+      partCount: 1,
+      translatedBytes: 6,
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith("validate_docx_rebuild_plan", { plan });
   });
 
   it("rejects changed sources, anchors, incomplete translations, and source overwrite", () => {

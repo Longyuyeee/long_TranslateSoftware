@@ -9,6 +9,7 @@ pub mod desktop_ipc;
 mod diagnostics;
 mod document;
 mod document_checkpoint;
+mod document_rebuild;
 mod glossary;
 mod history;
 mod lifecycle;
@@ -160,6 +161,7 @@ pub fn run() {
             document_checkpoint::load_document_checkpoint,
             document_checkpoint::delete_document_checkpoint,
             document_checkpoint::cleanup_document_checkpoints,
+            document_rebuild::validate_docx_rebuild_plan,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,
