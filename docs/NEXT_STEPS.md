@@ -46,6 +46,7 @@
 - 本地审计通过前端 242 项测试、Rust 113+2+7+2 项测试、Clippy、桌面/扩展构建、235.96 KiB 桌面主 chunk、34.33 KiB 扩展包、npm 0 漏洞和非强制 Runtime 质量报告。本机缺少 Edge 与 `en-US` OCR Runtime；GitHub Windows CI [run 31710587063](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/31710587063) 已通过真实 Edge Smoke、Windows 生命周期、Rust、Clippy、强制 Runtime 质量报告和报告上传，门禁没有降低。
 - 5 份匿名真实 DOCX 已由 LibreOffice 26.2.5.2 渲染为 7 页并逐页复核；正文、超链接、列表、表格/嵌套表格、多节页眉页脚、Unicode、图片和字段的可见顺序与产品解析结果一致，源文件不变。页眉页脚作为独立部件流按引用顺序追加且去重，不按每页重复翻译。AES 加密 DOCX 也已验证为稳定的 `invalid-input` 拒绝。
 - 阶段 2 已实现 v1 白名单 Checkpoint、每任务私有目录、受限原子保存/读取/删除、崩溃状态回退、损坏隔离、未来版本保留拒绝、终态保留期和过期临时文件清理；并发、磁盘写满、权限拒绝与真实 Windows 文件独占均证明旧文件不被破坏。存储子系统通过后进入有界翻译队列；“翻译中强制结束应用并恢复”和 UI 删除动作在队列/UI 接通后执行端到端人工验收。
+- PR [#66](https://github.com/Longyuyeee/long_TranslateSoftware/pull/66) 已通过 CI 并合并。阶段 3A 当前只推进无 UI 的有界调度核心：冻结快照、并发上限、精确取消、失败隔离、可持久化错误和重建前完整性门禁已落地；下一增量接 Checkpoint 节流、恢复与只重试失败段，之后才接 UI 和端到端强制退出验收。
 
 ## 每一步的交付要求
 
