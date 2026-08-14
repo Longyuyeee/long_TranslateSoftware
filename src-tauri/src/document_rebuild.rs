@@ -1077,12 +1077,6 @@ pub fn pick_docx_output(
     Ok(Some(display_path(&output)))
 }
 
-#[cfg(windows)]
-fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> {
-    fs::rename(temp, output)
-}
-
-#[cfg(not(windows))]
 fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> {
     fs::hard_link(temp, output)?;
     if let Err(error) = fs::remove_file(temp) {
@@ -1092,16 +1086,40 @@ fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> 
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PublishFaultPoint {
+    CreateTemp,
+    WriteTemp,
+    SyncTemp,
+    PublishAtomically,
+}
+
 fn publish_rebuilt_package_with_cancel(
     plan: &DocxRebuildPlan,
     validation: &DocxRebuildValidation,
     rebuilt: &[u8],
     cancellation: &RebuildCancellation,
 ) -> RebuildResult<DocxRebuildResult> {
+    publish_rebuilt_package_with_faults(plan, validation, rebuilt, cancellation, |_, _, _| Ok(()))
+}
+
+fn publish_rebuilt_package_with_faults<F>(
+    plan: &DocxRebuildPlan,
+    validation: &DocxRebuildValidation,
+    rebuilt: &[u8],
+    cancellation: &RebuildCancellation,
+    mut check_fault: F,
+) -> RebuildResult<DocxRebuildResult>
+where
+    F: FnMut(PublishFaultPoint, &Path, &Path) -> std::io::Result<()>,
+{
     cancellation.check()?;
     let (canonical_parent, output) = canonical_output_path(plan)?;
     let temp = canonical_parent.join(format!(".long-translate-{}.docx.tmp", uuid::Uuid::new_v4()));
     let mut guard = TempFileGuard::new(temp.clone());
+    check_fault(PublishFaultPoint::CreateTemp, &temp, &output).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot create DOCX temporary file: {error}"))
+    })?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1109,6 +1127,9 @@ fn publish_rebuilt_package_with_cancel(
         .map_err(|error| {
             DocxRebuildError::rebuild(format!("Cannot create DOCX temporary file: {error}"))
         })?;
+    check_fault(PublishFaultPoint::WriteTemp, &temp, &output).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot write DOCX temporary file: {error}"))
+    })?;
     for chunk in rebuilt.chunks(64 * 1024) {
         cancellation.check()?;
         file.write_all(chunk).map_err(|error| {
@@ -1116,6 +1137,9 @@ fn publish_rebuilt_package_with_cancel(
         })?;
     }
     cancellation.check()?;
+    check_fault(PublishFaultPoint::SyncTemp, &temp, &output).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot sync DOCX temporary file: {error}"))
+    })?;
     file.sync_all().map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot sync DOCX temporary file: {error}"))
     })?;
@@ -1148,6 +1172,9 @@ fn publish_rebuilt_package_with_cancel(
             "DOCX output directory changed during publication",
         ));
     }
+    check_fault(PublishFaultPoint::PublishAtomically, &temp, &output).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot publish DOCX temporary file: {error}"))
+    })?;
     cancellation.begin_publish()?;
     publish_without_overwrite(&temp, &output).map_err(|error| {
         DocxRebuildError::rebuild(format!(
@@ -1370,6 +1397,73 @@ mod tests {
         }
     }
 
+    struct PublishFailureFixture {
+        source_bytes: Vec<u8>,
+        directory: PathBuf,
+        source_path: PathBuf,
+        output_path: PathBuf,
+        plan: DocxRebuildPlan,
+        validation: DocxRebuildValidation,
+        rebuilt: Vec<u8>,
+        cancellation: RebuildCancellation,
+    }
+
+    impl PublishFailureFixture {
+        fn new(label: &str) -> Self {
+            let source_bytes = fixture_package();
+            let directory =
+                std::env::temp_dir().join(format!("docx-publish-{label}-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&directory).unwrap();
+            let source_path = directory.join("source.docx");
+            let output_path = directory.join("translated.docx");
+            std::fs::write(&source_path, &source_bytes).unwrap();
+            let plan = fixture_plan_for_paths(&source_path, &output_path, &source_bytes);
+            let cancellation = RebuildCancellation::new();
+            let (validation, rebuilt) =
+                prepare_rebuilt_package_with_cancel(&plan, Some(&cancellation)).unwrap();
+            Self {
+                source_bytes,
+                directory,
+                source_path,
+                output_path,
+                plan,
+                validation,
+                rebuilt,
+                cancellation,
+            }
+        }
+
+        fn publish_with<F>(&self, check_fault: F) -> RebuildResult<DocxRebuildResult>
+        where
+            F: FnMut(PublishFaultPoint, &Path, &Path) -> std::io::Result<()>,
+        {
+            publish_rebuilt_package_with_faults(
+                &self.plan,
+                &self.validation,
+                &self.rebuilt,
+                &self.cancellation,
+                check_fault,
+            )
+        }
+
+        fn assert_source_unchanged_and_no_temp(&self) {
+            assert_eq!(std::fs::read(&self.source_path).unwrap(), self.source_bytes);
+            assert!(std::fs::read_dir(&self.directory).unwrap().all(|entry| {
+                !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".long-translate-")
+            }));
+        }
+    }
+
+    impl Drop for PublishFailureFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
+    }
+
     #[test]
     fn validates_a_closed_rebuild_plan() {
         assert_eq!(
@@ -1566,6 +1660,84 @@ mod tests {
         std::fs::remove_file(output_path).unwrap();
         std::fs::remove_file(source_path).unwrap();
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn permission_denied_before_temp_creation_preserves_the_source() {
+        let fixture = PublishFailureFixture::new("permission-denied");
+        let error = fixture
+            .publish_with(|point, _, _| {
+                if point == PublishFaultPoint::CreateTemp {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "simulated permission denial",
+                    ))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code, DocxRebuildErrorCode::RebuildFailed);
+        assert!(!fixture.output_path.exists());
+        fixture.assert_source_unchanged_and_no_temp();
+    }
+
+    #[test]
+    fn disk_write_failure_removes_the_temporary_file() {
+        let fixture = PublishFailureFixture::new("disk-write-failure");
+        let error = fixture
+            .publish_with(|point, _, _| {
+                if point == PublishFaultPoint::WriteTemp {
+                    Err(std::io::Error::other("simulated disk full"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code, DocxRebuildErrorCode::RebuildFailed);
+        assert!(!fixture.output_path.exists());
+        fixture.assert_source_unchanged_and_no_temp();
+    }
+
+    #[test]
+    fn sync_failure_removes_the_temporary_file() {
+        let fixture = PublishFailureFixture::new("sync-failure");
+        let error = fixture
+            .publish_with(|point, _, _| {
+                if point == PublishFaultPoint::SyncTemp {
+                    Err(std::io::Error::other("simulated sync failure"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code, DocxRebuildErrorCode::RebuildFailed);
+        assert!(!fixture.output_path.exists());
+        fixture.assert_source_unchanged_and_no_temp();
+    }
+
+    #[test]
+    fn target_created_at_commit_is_never_overwritten() {
+        const COMPETING_CONTENT: &[u8] = b"created by a competing writer";
+        let fixture = PublishFailureFixture::new("target-race");
+        let error = fixture
+            .publish_with(|point, _, output| {
+                if point == PublishFaultPoint::PublishAtomically {
+                    std::fs::write(output, COMPETING_CONTENT)?;
+                }
+                Ok(())
+            })
+            .unwrap_err();
+
+        assert_eq!(error.code, DocxRebuildErrorCode::RebuildFailed);
+        assert_eq!(
+            std::fs::read(&fixture.output_path).unwrap(),
+            COMPETING_CONTENT
+        );
+        fixture.assert_source_unchanged_and_no_temp();
     }
 
     #[test]
