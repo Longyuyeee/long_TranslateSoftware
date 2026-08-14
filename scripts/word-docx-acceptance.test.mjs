@@ -14,11 +14,12 @@ describe("Microsoft Word DOCX acceptance runner", () => {
       "-ExecutionPolicy", "Bypass",
       "-File", runnerPath,
       "-SelfTest",
-    ], { encoding: "utf8" });
+    ], { encoding: "utf8", timeout: 15_000 });
 
+    expect(result.error, result.stderr || result.stdout).toBeUndefined();
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(result.stdout).toContain("Word DOCX acceptance self-test passed.");
-  });
+  }, 20_000);
 
   it("keeps engine identity, source hashes, isolated sessions, and review evidence mandatory", () => {
     const source = readFileSync(runnerPath, "utf8");
