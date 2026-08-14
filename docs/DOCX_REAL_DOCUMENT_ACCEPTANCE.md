@@ -52,7 +52,7 @@ $env:DOCX_ROUNDTRIP_OUTPUT_DIR = Join-Path $acceptanceRoot ("outputs-" + (Get-Da
 cargo test --manifest-path src-tauri/Cargo.toml round_trips_real_validation_corpus_for_visual_review -- --ignored --nocapture
 ```
 
-第二条测试要求输出目录尚不存在，并为每份语料生成 `*-translated.docx` 与 `*-bilingual.docx`。它会重新打开成品、核对段数/部件/结构、验证译文占位内容，并确认源文件字节不变；不会删除输出，也不会自动填写人工结论。
+第二条测试要求输出目录尚不存在，并为每份语料生成 `*-translated.docx` 与 `*-bilingual.docx`。它会重新打开成品、核对段数/部件/结构、在保留 Word 制表符和换行等布局控制的前提下验证译文占位内容，并确认源文件字节不变；不会删除输出，也不会自动填写人工结论。
 
 ## 3. Word 与 LibreOffice 逐页检查
 

@@ -1993,14 +1993,18 @@ mod tests {
                 {
                     assert_eq!(rebuilt.part, source.part);
                     assert_eq!(rebuilt.structure, source.structure);
+                    let translated_content = rebuilt
+                        .source_text
+                        .chars()
+                        .filter(|character| !matches!(character, '\r' | '\n' | '\t'))
+                        .collect::<String>();
                     match output_mode {
-                        DocxOutputMode::Translated => assert_eq!(
-                            rebuilt.source_text.trim_end_matches(['\r', '\n']),
-                            translation
-                        ),
+                        DocxOutputMode::Translated => {
+                            assert_eq!(translated_content, *translation)
+                        }
                         DocxOutputMode::Bilingual => {
                             assert!(rebuilt.source_text.contains(&source.source_text));
-                            assert!(rebuilt.source_text.contains(translation));
+                            assert!(translated_content.contains(translation));
                         }
                     }
                 }
