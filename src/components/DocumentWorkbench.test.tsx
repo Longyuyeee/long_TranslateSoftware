@@ -39,6 +39,15 @@ vi.mock("../hooks/useDocumentTranslationRun", () => ({
   useDocumentTranslationRun: runHookMock,
 }));
 
+async function chooseOutputDestination(): Promise<void> {
+  const button = await screen.findByRole("button", {
+    name: translations.en.documentOutputChoose,
+  });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  await screen.findByText("fixture-translated.docx");
+}
+
 describe("DocumentWorkbench", () => {
   beforeEach(() => {
     runHookMock.mockReturnValue({
@@ -133,8 +142,7 @@ describe("DocumentWorkbench", () => {
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
     expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
-    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
 
     expect(await screen.findByText(translations.en.documentPreparedTitle)).toBeInTheDocument();
@@ -150,8 +158,7 @@ describe("DocumentWorkbench", () => {
     const view = render(<DocumentWorkbench labels={translations.en} />);
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
     await screen.findByText("fixture.docx");
-    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
-    await screen.findByText("fixture-translated.docx");
+    await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
     await screen.findByText(translations.en.documentPreparedTitle);
 
@@ -183,8 +190,7 @@ describe("DocumentWorkbench", () => {
     render(<DocumentWorkbench labels={translations.en} />);
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
     expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
-    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
