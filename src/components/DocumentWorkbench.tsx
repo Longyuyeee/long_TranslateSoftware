@@ -6,18 +6,22 @@ import {
   FileOutput,
   FolderOpen,
   Languages,
+  LoaderCircle,
   ShieldCheck,
+  XCircle,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
   documentImportErrorText,
   documentPreparationErrorText,
+  documentRunErrorText,
   documentStructureText,
   documentWarningText,
   type TranslationCatalog,
 } from "../i18n";
 import { useDocumentImport } from "../hooks/useDocumentImport";
 import { useDocumentPreparation } from "../hooks/useDocumentPreparation";
+import { useDocumentTranslationRun } from "../hooks/useDocumentTranslationRun";
 
 const PREVIEW_SEGMENT_LIMIT = 100;
 
@@ -68,7 +72,21 @@ export default function DocumentWorkbench({
     pickerTitle: labels.documentOutputPickerTitle,
     pickerFilterName: labels.documentPickerFilter,
   });
-  const isBusy = isImportBusy || isPreparationBusy;
+  const {
+    phase: runPhase,
+    job: runJob,
+    progress: runProgress,
+    errorCode: runErrorCode,
+    start: startTranslation,
+    cancel: cancelTranslation,
+  } = useDocumentTranslationRun(preparedTask);
+  const isRunActive = runPhase === "checkpointing"
+    || runPhase === "translating"
+    || runPhase === "cancelling";
+  const isBusy = isImportBusy || isPreparationBusy || isRunActive;
+  const canStartPreparedTask = Boolean(preparedTask) && !isRunActive && (
+    runPhase === "idle" || runJob?.id !== preparedTask?.job.id
+  );
   const preview = inspection?.segments.slice(0, PREVIEW_SEGMENT_LIMIT) ?? [];
   const sourceBytes = useMemo(() => {
     if (!inspection) return 0;
@@ -81,6 +99,20 @@ export default function DocumentWorkbench({
   const busyLabel = phase === "selecting"
     ? labels.documentSelecting
     : labels.documentInspecting;
+  const progressPercent = runProgress && runProgress.total > 0
+    ? Math.round(((runProgress.completed + runProgress.failed) / runProgress.total) * 100)
+    : 0;
+  const runTitle = runPhase === "checkpointing"
+    ? labels.documentCheckpointing
+    : runPhase === "translating"
+      ? labels.documentTranslationRunning
+      : runPhase === "cancelling"
+        ? labels.documentCancelling
+        : runPhase === "ready-to-rebuild"
+          ? labels.documentReadyToRebuildTitle
+          : runPhase === "cancelled"
+            ? labels.documentCancelledTitle
+            : labels.documentRunErrorTitle;
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4" aria-labelledby="document-workbench-title">
@@ -138,6 +170,83 @@ export default function DocumentWorkbench({
               <p className="mt-1 text-[11px] font-medium">
                 {documentPreparationErrorText(labels, preparationErrorCode ?? undefined)}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {runPhase !== "idle" && (
+        <div
+          role={runPhase === "failed" ? "alert" : "status"}
+          aria-live="polite"
+          className={`glass-card shrink-0 rounded-[24px] border p-4 ${
+            runPhase === "failed"
+              ? "border-red-500/20"
+              : runPhase === "ready-to-rebuild"
+                ? "border-emerald-500/20"
+                : "border-accent/15"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {runPhase === "failed" ? (
+              <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-500" aria-hidden="true" />
+            ) : runPhase === "ready-to-rebuild" ? (
+              <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-500" aria-hidden="true" />
+            ) : runPhase === "cancelled" ? (
+              <XCircle size={18} className="mt-0.5 shrink-0 text-zinc-400" aria-hidden="true" />
+            ) : (
+              <LoaderCircle size={18} className="mt-0.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-xs font-black text-zinc-800 dark:text-zinc-100">
+                  {runTitle}
+                </h3>
+                {(runPhase === "checkpointing" || runPhase === "translating" || runPhase === "cancelling") && (
+                  <button
+                    type="button"
+                    onClick={cancelTranslation}
+                    disabled={runPhase === "cancelling"}
+                    className="rounded-xl border border-red-500/15 bg-red-500/5 px-3 py-1.5 text-[9px] font-black text-red-600 disabled:opacity-45 dark:text-red-300"
+                  >
+                    {runPhase === "cancelling"
+                      ? labels.documentCancelling
+                      : labels.documentCancelTranslation}
+                  </button>
+                )}
+              </div>
+              {runProgress && isRunActive && (
+                <>
+                  <p className="mt-1 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
+                    {labels.documentProgressSummary
+                      .replace("{completed}", String(runProgress.completed))
+                      .replace("{total}", String(runProgress.total))
+                      .replace("{failed}", String(runProgress.failed))
+                      .replace("{active}", String(runProgress.active))}
+                  </p>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/5 dark:bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-accent transition-[width] duration-300"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                </>
+              )}
+              {runPhase === "ready-to-rebuild" && (
+                <p className="mt-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  {labels.documentReadyToRebuildDescription}
+                </p>
+              )}
+              {runPhase === "cancelled" && (
+                <p className="mt-1 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
+                  {labels.documentCancelledDescription}
+                </p>
+              )}
+              {runPhase === "failed" && (
+                <p className="mt-1 text-[10px] font-semibold text-red-700 dark:text-red-300">
+                  {documentRunErrorText(labels, runErrorCode ?? undefined)}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -320,6 +429,16 @@ export default function DocumentWorkbench({
                       </dd>
                     </div>
                   </dl>
+                  {canStartPreparedTask && (
+                    <button
+                      type="button"
+                      onClick={() => void startTranslation()}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2.5 text-[10px] font-black text-white shadow-lg shadow-emerald-500/15"
+                    >
+                      <Languages size={13} aria-hidden="true" />
+                      {labels.documentStartTranslation}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

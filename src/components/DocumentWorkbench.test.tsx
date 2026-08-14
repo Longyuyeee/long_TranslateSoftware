@@ -7,11 +7,22 @@ import { translations } from "../i18n";
 import { TranslationRequestError } from "../services/translationProvider";
 import DocumentWorkbench from "./DocumentWorkbench";
 
-const { inspectMock, loadSnapshotMock, pickMock, pickOutputMock } = vi.hoisted(() => ({
+const {
+  cancelRunMock,
+  inspectMock,
+  loadSnapshotMock,
+  pickMock,
+  pickOutputMock,
+  runHookMock,
+  startRunMock,
+} = vi.hoisted(() => ({
+  cancelRunMock: vi.fn(),
   inspectMock: vi.fn(),
   loadSnapshotMock: vi.fn(),
   pickMock: vi.fn(),
   pickOutputMock: vi.fn(),
+  runHookMock: vi.fn(),
+  startRunMock: vi.fn(),
 }));
 
 vi.mock("../services/documentTranslation", async (importOriginal) => ({
@@ -24,9 +35,29 @@ vi.mock("../services/translationTask", async (importOriginal) => ({
   ...await importOriginal<typeof import("../services/translationTask")>(),
   loadTranslationExecutionSnapshot: loadSnapshotMock,
 }));
+vi.mock("../hooks/useDocumentTranslationRun", () => ({
+  useDocumentTranslationRun: runHookMock,
+}));
+
+async function chooseOutputDestination(): Promise<void> {
+  const button = await screen.findByRole("button", {
+    name: translations.en.documentOutputChoose,
+  });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  await screen.findByText("fixture-translated.docx");
+}
 
 describe("DocumentWorkbench", () => {
   beforeEach(() => {
+    runHookMock.mockReturnValue({
+      phase: "idle",
+      job: null,
+      progress: null,
+      errorCode: null,
+      start: startRunMock,
+      cancel: cancelRunMock,
+    });
     pickMock.mockResolvedValue("C:\\private\\fixture.docx");
     inspectMock.mockResolvedValue({
       fingerprint: "sha256:fixture",
@@ -111,8 +142,7 @@ describe("DocumentWorkbench", () => {
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
     expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
-    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
 
     expect(await screen.findByText(translations.en.documentPreparedTitle)).toBeInTheDocument();
@@ -124,6 +154,35 @@ describe("DocumentWorkbench", () => {
     expect(screen.queryByText("private-key")).not.toBeInTheDocument();
   });
 
+  it("starts only after explicit confirmation and renders bounded task progress", async () => {
+    const view = render(<DocumentWorkbench labels={translations.en} />);
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
+    await screen.findByText("fixture.docx");
+    await chooseOutputDestination();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
+    await screen.findByText(translations.en.documentPreparedTitle);
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentStartTranslation }));
+    expect(startRunMock).toHaveBeenCalledOnce();
+
+    runHookMock.mockReturnValue({
+      phase: "translating",
+      job: null,
+      progress: { completed: 2, failed: 1, total: 5, active: 1 },
+      errorCode: null,
+      start: startRunMock,
+      cancel: cancelRunMock,
+    });
+    view.rerender(<DocumentWorkbench labels={translations.en} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Completed 2 of 5 · Failed 1 · Active 1",
+    );
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentCancelTranslation }));
+    expect(cancelRunMock).toHaveBeenCalledOnce();
+  });
+
   it("shows a localized configuration error without leaking its message", async () => {
     loadSnapshotMock.mockRejectedValue(
       new TranslationRequestError("missing-api-key", "private API configuration"),
@@ -131,8 +190,7 @@ describe("DocumentWorkbench", () => {
     render(<DocumentWorkbench labels={translations.en} />);
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
     expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
-    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
