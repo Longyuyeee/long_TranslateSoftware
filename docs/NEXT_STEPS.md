@@ -1,24 +1,24 @@
 # 开发接手说明
 
-最近更新：2026-08-14
+最近更新：2026-08-15
 
 ## 当前情况
 
 - 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；发布故障矩阵与 Release 自动化门禁均已收口。Microsoft Word 已检查 5 份合成双语成品和 1 份纯译文代表样本，当前仍剩匿名真实文档视觉验收和版本发布。
-- 最新复审基线为 `master` / `c186cf3`（PR #90）：真实 DOCX 双模式验收入口及 Word 布局控制断言修正均已合并，PR 与合并后 master CI 全绿。前端 303 项测试、Rust 全量测试、严格 Clippy、生产构建、npm 官方 registry 依赖审计、Edge 中英文 Runtime Smoke 和强制质量报告全部通过。正式 Chrome 的两种已知命令行自动化限制保持为 `chrome://extensions` 人工门槛，其他浏览器错误仍会阻断 CI。
+- v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；发布故障矩阵与 Release 自动化门禁均已收口。2026-08-15 又使用 5 份可公开复核的真实政府 DOCX 完成双模式 round-trip 与 LibreOffice 逐页验收，并修复译文跨原始 Run/控件边界时拆开拉丁单词的问题；当前只剩 Microsoft Word 真实文档逐页验收和版本发布。
+- 最新已合并复审基线为 `master` / `a32bdd8`（PR #91）；本轮单词边界修复仍按独立增量等待 PR 与 CI。Rust 全量门禁为 149 项单元测试通过、2 项显式视觉语料测试忽略，另有 2 项生命周期、7 项 Native Host 进程和 2 项注册测试通过；严格 Clippy 通过。全仓 `cargo fmt --check` 仍会被既有 `db.rs`、`ocr.rs` 格式差异阻断，本轮只格式化所改文件，不夹带无关改动。
 - 当前包体仍在门槛内：最大桌面 JavaScript chunk 251.25 KiB / 300 KiB，浏览器扩展 34.33 KiB / 64 KiB。Browserslist 数据已约 6 个月未更新，作为 P2 维护项在 DOCX 发布门槛之后处理；新增功能必须继续复核主包增长。
 - 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
 
 ## 接手后按顺序处理
 
-1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版逐页视觉验收；已通过的合成语料 Word 检查和自动化语料不能替代该门槛。
+1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 在 Microsoft Word 中完成本轮 5 份真实 DOCX 的译文版与双语版逐页视觉验收；LibreOffice 侧已经完成，不能替代 Word 门槛。
 2. 视觉门槛通过后统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
-当前执行前置检查：`.docx-acceptance/docs` 已建立但真实 DOCX 数量为 0；本机 `Word.Application` COM 指向 WPS Office，且 PATH/标准安装位置未发现 Microsoft Word 或 LibreOffice。进入第 1 步前需要补齐真实匿名语料和两个明确可识别的验收引擎，不能用 WPS 或合成样本替代。
+当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX；LibreOffice 26.2.5.2 已通过便携式管理提取就绪并完成验收。本机仍未发现 Microsoft Word，`Word.Application` COM 指向 WPS Office；不能用 WPS 替代剩余 Word 门槛。
 
 当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 

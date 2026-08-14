@@ -608,6 +608,9 @@ fn collect_paragraph_text_nodes_with_cancel(
 fn distribute_by_source_weight(text: &str, weights: &[usize]) -> Vec<String> {
     let graphemes = text.graphemes(true).collect::<Vec<_>>();
     let total_weight = weights.iter().sum::<usize>();
+    let has_whitespace_boundaries = graphemes
+        .iter()
+        .any(|grapheme| grapheme.chars().all(char::is_whitespace));
     let mut previous = 0usize;
     let mut cumulative = 0usize;
     weights
@@ -615,10 +618,23 @@ fn distribute_by_source_weight(text: &str, weights: &[usize]) -> Vec<String> {
         .enumerate()
         .map(|(index, weight)| {
             cumulative += weight;
-            let end = if index + 1 == weights.len() {
+            let weighted_end = if index + 1 == weights.len() {
                 graphemes.len()
             } else {
                 graphemes.len() * cumulative / total_weight
+            };
+            let end = if *weight == 0 || weighted_end <= previous {
+                previous
+            } else if index + 1 == weights.len() || !has_whitespace_boundaries {
+                weighted_end
+            } else {
+                ((previous + 1)..=graphemes.len())
+                    .filter(|candidate| {
+                        *candidate == graphemes.len()
+                            || graphemes[*candidate - 1].chars().all(char::is_whitespace)
+                    })
+                    .min_by_key(|candidate| candidate.abs_diff(weighted_end))
+                    .unwrap_or(weighted_end)
             };
             let value = graphemes[previous..end].concat();
             previous = end;
@@ -1556,6 +1572,29 @@ mod tests {
             nodes.get(&0).unwrap(),
             &vec!["你".to_string(), "好".to_string()]
         );
+    }
+
+    #[test]
+    fn translated_latin_words_are_not_split_across_run_boundaries() {
+        let distributed = distribute_by_source_weight("Validation translation 3.11", &[2, 8, 5]);
+
+        assert_eq!(
+            distributed,
+            vec![
+                "Validation ".to_string(),
+                "translation ".to_string(),
+                "3.11".to_string()
+            ]
+        );
+        assert_eq!(distributed.concat(), "Validation translation 3.11");
+    }
+
+    #[test]
+    fn word_boundary_distribution_remains_monotonic_with_many_runs() {
+        let distributed = distribute_by_source_weight("one two", &[1, 1, 1, 1, 1, 1, 1, 1]);
+
+        assert_eq!(distributed.concat(), "one two");
+        assert_eq!(distributed.len(), 8);
     }
 
     #[test]
