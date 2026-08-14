@@ -5,6 +5,7 @@ import {
   FileText,
   FileOutput,
   FolderOpen,
+  History,
   Languages,
   LoaderCircle,
   ShieldCheck,
@@ -21,6 +22,7 @@ import {
 } from "../i18n";
 import { useDocumentImport } from "../hooks/useDocumentImport";
 import { useDocumentPreparation } from "../hooks/useDocumentPreparation";
+import { useDocumentRecovery } from "../hooks/useDocumentRecovery";
 import { useDocumentTranslationRun } from "../hooks/useDocumentTranslationRun";
 
 const PREVIEW_SEGMENT_LIMIT = 100;
@@ -80,6 +82,7 @@ export default function DocumentWorkbench({
     start: startTranslation,
     cancel: cancelTranslation,
   } = useDocumentTranslationRun(preparedTask);
+  const recovery = useDocumentRecovery();
   const isRunActive = runPhase === "checkpointing"
     || runPhase === "translating"
     || runPhase === "cancelling";
@@ -146,6 +149,80 @@ export default function DocumentWorkbench({
         <div className="mt-4 flex items-start gap-2 rounded-2xl border border-accent/10 bg-accent/5 px-4 py-3 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
           <ShieldCheck size={15} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
           <span>{labels.documentPrivacyNotice}</span>
+        </div>
+      </div>
+
+      <div className="glass-card shrink-0 rounded-[24px] border border-accent/10 p-4">
+        <div className="flex items-start gap-3">
+          <History size={17} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-xs font-black text-zinc-800 dark:text-zinc-100">
+              {labels.documentRecoveryTitle}
+            </h3>
+            <p className="mt-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+              {labels.documentRecoveryDescription}
+            </p>
+
+            {recovery.errorCode ? (
+              <div role="alert" className="mt-3 rounded-2xl border border-red-500/15 bg-red-500/5 p-3 text-red-700 dark:text-red-300">
+                <p className="text-[10px] font-black">{labels.documentRecoveryErrorTitle}</p>
+                <p className="mt-1 text-[9px] font-semibold">
+                  {(labels as unknown as Record<string, string>)[`documentRecoveryError_${recovery.errorCode}`]
+                    ?? labels.documentRecoveryError_unknown}
+                </p>
+              </div>
+            ) : recovery.isListing ? (
+              <p role="status" className="mt-3 text-[10px] font-semibold text-zinc-400">
+                {labels.documentRecoveryScanning}
+              </p>
+            ) : recovery.summaries.length === 0 ? (
+              <p className="mt-3 text-[10px] font-semibold text-zinc-400">
+                {labels.documentRecoveryEmpty}
+              </p>
+            ) : (
+              <ul className="custom-scrollbar mt-3 grid max-h-52 gap-2 overflow-y-auto pr-1 lg:grid-cols-2">
+                {recovery.summaries.map(summary => (
+                  <li key={summary.jobId} className="rounded-2xl border border-black/5 bg-black/[0.02] p-3 dark:border-white/5 dark:bg-white/[0.025]">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] font-black text-zinc-800 dark:text-zinc-100">
+                          {summary.fileName}
+                        </p>
+                        <p className="mt-1 text-[9px] font-semibold text-zinc-400">
+                          {(labels as unknown as Record<string, string>)[`documentRecoveryPhase_${summary.phase}`]}
+                          {" · "}
+                          {labels.documentRecoveryUpdated.replace("{time}", new Date(summary.updatedAt).toLocaleString())}
+                        </p>
+                        <p className="mt-1 text-[9px] font-semibold text-zinc-500 dark:text-zinc-400">
+                          {labels.documentRecoveryProgress
+                            .replace("{completed}", String(summary.completedSegments))
+                            .replace("{failed}", String(summary.failedSegments))
+                            .replace("{total}", String(summary.totalSegments))}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void recovery.load(summary.jobId)}
+                        disabled={recovery.loadingJobId !== null}
+                        className="shrink-0 rounded-xl bg-accent/10 px-3 py-2 text-[9px] font-black text-accent disabled:opacity-45"
+                      >
+                        {recovery.loadingJobId === summary.jobId
+                          ? labels.documentRecoveryLoading
+                          : labels.documentRecoveryLoad}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {recovery.checkpoint && (
+              <div role="status" className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-emerald-800 dark:text-emerald-300">
+                <p className="text-[10px] font-black">{labels.documentRecoveryLoadedTitle}</p>
+                <p className="mt-1 text-[9px] font-semibold">{labels.documentRecoveryLoadedDescription}</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

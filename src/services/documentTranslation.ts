@@ -158,6 +158,17 @@ export interface DocumentCheckpointCleanupReport {
   removedQuarantinedFiles: number;
 }
 
+export interface DocumentCheckpointSummary {
+  jobId: string;
+  fileName: string;
+  phase: "ready" | "translating" | "failed";
+  outputMode: DocumentOutputMode;
+  completedSegments: number;
+  failedSegments: number;
+  totalSegments: number;
+  updatedAt: string;
+}
+
 export interface DocxInspection {
   fingerprint: string;
   fileName: string;
@@ -241,6 +252,14 @@ export async function loadDocumentCheckpoint(jobId: string): Promise<DocumentChe
     jobId,
   });
   return parseDocumentCheckpoint(checkpoint);
+}
+
+export async function listDocumentCheckpoints(): Promise<DocumentCheckpointSummary[]> {
+  const summaries = await invoke<unknown>("list_document_checkpoints");
+  if (!Array.isArray(summaries) || summaries.length > 100) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary list");
+  }
+  return summaries.map(parseDocumentCheckpointSummary);
 }
 
 export async function deleteDocumentCheckpoint(jobId: string): Promise<void> {
@@ -601,6 +620,40 @@ function requireString(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) {
     throw new DocumentContractError("checkpoint-invalid", `Invalid ${label}`);
   }
+}
+
+export function parseDocumentCheckpointSummary(value: unknown): DocumentCheckpointSummary {
+  if (!isRecord(value)) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary");
+  }
+  requireKeys(
+    value,
+    ["jobId", "fileName", "phase", "outputMode", "completedSegments", "failedSegments", "totalSegments", "updatedAt"],
+    ["jobId", "fileName", "phase", "outputMode", "completedSegments", "failedSegments", "totalSegments", "updatedAt"],
+  );
+  requireString(value.jobId, "checkpoint summary job ID");
+  requireString(value.fileName, "checkpoint summary file name");
+  requireString(value.updatedAt, "checkpoint summary update time");
+  if (!/^[A-Za-z0-9_-]{1,64}$/u.test(value.jobId) || value.fileName.length > 1024) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary identity");
+  }
+  if (!["ready", "translating", "failed"].includes(String(value.phase))) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary phase");
+  }
+  if (value.outputMode !== "translated" && value.outputMode !== "bilingual") {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary output mode");
+  }
+  const counts = [value.completedSegments, value.failedSegments, value.totalSegments];
+  if (
+    counts.some(count => !Number.isSafeInteger(count) || Number(count) < 0)
+    || Number(value.totalSegments) < 1
+    || Number(value.totalSegments) > DOCUMENT_MAX_SEGMENTS
+    || Number(value.completedSegments) + Number(value.failedSegments) > Number(value.totalSegments)
+    || !Number.isFinite(Date.parse(value.updatedAt))
+  ) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid checkpoint summary values");
+  }
+  return value as unknown as DocumentCheckpointSummary;
 }
 
 function validateProvider(value: unknown): asserts value is DocumentProviderSnapshot {

@@ -160,6 +160,7 @@ pub fn run() {
             document::inspect_docx_document,
             document_checkpoint::save_document_checkpoint,
             document_checkpoint::load_document_checkpoint,
+            document_checkpoint::list_document_checkpoints,
             document_checkpoint::delete_document_checkpoint,
             document_checkpoint::cleanup_document_checkpoints,
             document_rebuild::validate_docx_rebuild_plan,

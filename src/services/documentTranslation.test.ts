@@ -16,12 +16,14 @@ import {
   pickDocxOutput,
   saveDocumentCheckpoint,
   loadDocumentCheckpoint,
+  listDocumentCheckpoints,
   deleteDocumentCheckpoint,
   cleanupDocumentCheckpoints,
   createDocxRebuildPlan,
   validateDocxRebuildPlan,
   rebuildDocxDocument,
   parseDocumentCheckpoint,
+  parseDocumentCheckpointSummary,
   transitionDocumentJob,
   transitionDocumentSegment,
   type DocumentCheckpoint,
@@ -342,6 +344,29 @@ describe("document checkpoints", () => {
     invokeMock.mockResolvedValueOnce(cleanup);
     await expect(cleanupDocumentCheckpoints()).resolves.toEqual(cleanup);
     expect(invokeMock).toHaveBeenLastCalledWith("cleanup_document_checkpoints");
+  });
+
+  it("lists only allow-listed recovery summaries", async () => {
+    const summary = {
+      jobId: "job-1",
+      fileName: "input.docx",
+      phase: "ready",
+      outputMode: "translated",
+      completedSegments: 2,
+      failedSegments: 0,
+      totalSegments: 5,
+      updatedAt: now,
+    } as const;
+    invokeMock.mockResolvedValueOnce([summary]);
+    await expect(listDocumentCheckpoints()).resolves.toEqual([summary]);
+    expect(invokeMock).toHaveBeenLastCalledWith("list_document_checkpoints");
+
+    expect(() => parseDocumentCheckpointSummary({ ...summary, sourcePath: "C:\\private.docx" }))
+      .toThrow("unknown fields");
+    expect(() => parseDocumentCheckpointSummary({ ...summary, completedSegments: 6 }))
+      .toThrow("summary values");
+    expect(() => parseDocumentCheckpointSummary({ ...summary, phase: "completed" }))
+      .toThrow("summary phase");
   });
 
   it("redacts runtime credentials from the persisted snapshot", () => {
