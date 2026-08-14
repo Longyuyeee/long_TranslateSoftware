@@ -1018,9 +1018,10 @@ mod tests {
         let output = directory.join("translated.docx");
         std::fs::write(&source, b"source").unwrap();
 
-        let (_, validated) =
+        let (canonical_parent, validated) =
             canonical_output_destination(source.to_str().unwrap(), &output).unwrap();
-        assert_eq!(display_path(&validated), output.to_string_lossy());
+        assert_eq!(canonical_parent, std::fs::canonicalize(&directory).unwrap());
+        assert_eq!(validated, canonical_parent.join("translated.docx"));
         assert_eq!(
             canonical_output_destination(source.to_str().unwrap(), &source)
                 .unwrap_err()
