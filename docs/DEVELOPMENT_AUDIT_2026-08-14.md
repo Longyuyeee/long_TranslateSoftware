@@ -16,7 +16,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 - `master` 已同步到 `e8ff344`；工作区中的用户本地修改不纳入、不修改。
 - `package.json`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本均为 `0.5.0`，与尚未通过 `v0.5.1` 发布门槛的状态一致。
-- 前端 59 个测试文件、303 项测试全部通过；Rust 147 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，1 项显式依赖人工视觉语料的测试继续忽略；严格 Clippy 通过。
+- 前端 59 个测试文件、303 项测试全部通过；Rust 147 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖私有语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
 - Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；PR #87 将正式 Chrome 的 `ERR_BLOCKED_BY_CLIENT` 与“不开放自动化调试端口”两种已知官方限制统一保留为 `chrome://extensions` 人工门槛，其他 Chrome 错误仍会使 CI 失败。PR 与合并后 `master` CI 均全绿。
 - 本轮未发现新的 P0/P1 代码回归。维护风险为 Browserslist 数据已约 6 个月未更新，以及最大桌面 chunk 已使用约 84% 门槛；两项均记录为 P2，不阻断 DOCX 验收，但后续功能增量不得继续无审计扩大主包。
@@ -52,6 +52,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 - 使用至少 5 份匿名真实 DOCX，对译文版和双语版逐页检查文本完整性、顺序、表格、列表、链接、图片、页眉页脚和明显格式降级。
 - 自动化语料、LibreOffice 可打开证据和本轮合成语料 Word 检查均不能代替真实文档结论；完成前不得宣称 Word 全面兼容。
+- [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 已固定私有语料目录、清单格式、双模式成品生成、源哈希复核和 Word/LibreOffice 记录矩阵；入口已用合成夹具模拟验证，但真实语料和人工结论仍未完成。
 
 ### 已完成：Release 门禁对齐
 
