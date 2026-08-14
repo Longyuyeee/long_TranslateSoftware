@@ -10,7 +10,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 本轮发布故障审计补齐权限拒绝、磁盘写入失败、文件同步失败和提交时目标竞争。审计发现 Windows `rename` 会在竞争窗口覆盖刚出现的目标文件，因此最终提交改为同卷硬链接创建目标名：目标存在时原子失败；临时名删除失败时回滚目标链接。失败路径均验证源文件逐字节不变、既有目标不变且无 `.long-translate-*` 临时文件残留。
 
-当前仍不是可发布的 `v0.5.1` 候选版。剩余阻塞项是 Microsoft Word 逐页视觉验收，以及 Release 工作流与普通 CI 的门禁对齐；版本源继续保持 `0.5.0`。
+当前仍不是可发布的 `v0.5.1` 候选版。Release 工作流已经与普通 CI 对齐，剩余阻塞项是 Microsoft Word 逐页视觉验收；版本源继续保持 `0.5.0`。
 
 ## 已完成范围
 
@@ -41,10 +41,11 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 使用至少 5 份匿名真实 DOCX，对译文版和双语版逐页检查文本完整性、顺序、表格、列表、链接、图片、页眉页脚和明显格式降级。
 - 自动化语料和 LibreOffice 可打开证据不能代替 Microsoft Word 的人工结论；完成前不得宣称 Word 兼容。
 
-### P0：Release 门禁与版本收口
+### 已完成：Release 门禁对齐
 
-- 让 `release.yml` 显式执行普通 CI 同等级的浏览器 Runtime Smoke、Windows 生命周期和扩展包审计。
-- 门禁对齐后再统一提升 `package.json`、Cargo 和 Tauri 配置到 `0.5.1`，更新 Release Notes，构建 NSIS/MSI，并验证 v0.5.0 原位升级、Updater 与资产完整性。
+- `ci.yml` 和 `release.yml` 现在显式执行相同的前端测试、依赖审计、生产构建、包体/扩展审计、浏览器 Runtime Smoke、Windows 生命周期、Rust 全量、严格 Clippy 和强制质量报告。
+- 工作流契约测试固定这些命令必须存在，并要求 Release 的全部质量门禁和报告上传发生在签名发布之前。
+- Microsoft Word 视觉门槛通过后，再统一提升 `package.json`、Cargo 和 Tauri 配置到 `0.5.1`，更新 Release Notes，构建 NSIS/MSI，并验证 v0.5.0 原位升级、Updater 与资产完整性。
 
 ### P1：后续质量工作
 
@@ -53,4 +54,4 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 下一步入口
 
-先完成真实 DOCX 的 Microsoft Word/LibreOffice 逐页视觉验收；若当前环境无法提供 Word，则直接进入 Release 工作流门禁对齐，但保留 Word 验收为版本发布阻塞项。两项都完成后才能提升 `0.5.1`、构建并发布。
+完成真实 DOCX 的 Microsoft Word/LibreOffice 逐页视觉验收；该门槛通过后才能提升 `0.5.1`、构建并发布。

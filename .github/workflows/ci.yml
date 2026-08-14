@@ -54,6 +54,9 @@ jobs:
       - name: Audit frontend bundle size
         run: npm run audit:bundle
 
+      - name: Audit browser extension package
+        run: npm run audit:extension
+
       - name: Smoke test browser extension runtime
         run: npm run smoke:browser:runtime
 
