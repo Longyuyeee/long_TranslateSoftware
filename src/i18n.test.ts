@@ -7,6 +7,7 @@ import {
   contextSourceText,
   documentImportErrorText,
   documentPreparationErrorText,
+  documentRunErrorText,
   documentStructureText,
   documentWarningText,
   getPreferredLanguage,
@@ -140,6 +141,9 @@ describe("translation catalog", () => {
     );
     expect(documentPreparationErrorText(translations.en, "missing-api-key")).toBe(
       translations.en["documentPreparationError_missing-api-key"],
+    );
+    expect(documentRunErrorText(translations.zh, "storage")).toBe(
+      translations.zh.documentRunError_storage,
     );
     expect(documentWarningText(translations.zh, "text-boxes-unsupported")).toBe(
       translations.zh["documentWarning_text-boxes-unsupported"],

@@ -4,15 +4,14 @@ import {
   createReadyDocumentJob,
   pickDocxOutput,
   type DocxInspection,
-  type DocumentJob,
   type DocumentOutputMode,
 } from "../services/documentTranslation";
 import {
   createRequestId,
   loadTranslationExecutionSnapshot,
-  type TranslationExecutionSnapshot,
 } from "../services/translationTask";
 import { normalizeTranslationError } from "../services/translationProvider";
+import type { PreparedDocumentTask } from "../services/documentTranslationRuntime";
 
 export type DocumentPreparationPhase =
   | "idle"
@@ -26,11 +25,6 @@ export type DocumentPreparationErrorCode =
   | "missing-api-key"
   | "invalid-task"
   | "unknown";
-
-export interface PreparedDocumentTask {
-  job: DocumentJob;
-  execution: TranslationExecutionSnapshot;
-}
 
 interface DocumentPreparationState {
   phase: DocumentPreparationPhase;

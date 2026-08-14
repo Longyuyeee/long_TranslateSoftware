@@ -45,9 +45,24 @@ const zh = {
     documentConfirmTask: "确认任务",
     documentPreparingTask: "正在冻结任务配置…",
     documentPreparedTitle: "任务已确认，尚未开始",
-    documentPreparedDescription: "当前模型、语言、提示词和术语表已冻结。下一阶段接入启动与进度。",
+    documentPreparedDescription: "当前模型、语言、提示词和术语表已冻结。开始后，正文将发送到已配置的模型服务商。",
     documentPreparedModel: "模型",
     documentPreparedLanguages: "语言",
+    documentStartTranslation: "开始翻译",
+    documentCheckpointing: "正在保存初始任务…",
+    documentTranslationRunning: "正在翻译文档",
+    documentCancelling: "正在安全取消…",
+    documentCancelTranslation: "取消翻译",
+    documentProgressSummary: "已完成 {completed} / {total} 段 · 失败 {failed} 段 · 正在处理 {active} 段",
+    documentReadyToRebuildTitle: "翻译完成，等待重建",
+    documentReadyToRebuildDescription: "所有分段译文已安全保存。下一增量将接通 DOCX 重建与最终导出。",
+    documentCancelledTitle: "任务已取消",
+    documentCancelledDescription: "已停止新的翻译请求并保存取消状态，不会创建最终输出文件。",
+    documentRunErrorTitle: "文档翻译未能完成",
+    "documentRunError_storage": "无法安全保存任务进度，翻译已停止。请检查磁盘空间和目录权限。",
+    "documentRunError_invalid-task": "任务状态已经失效，请重新选择文档并确认。",
+    "documentRunError_translation-failed": "部分分段翻译失败。失败段重试将在下一增量接通。",
+    documentRunError_unknown: "文档翻译意外停止，请重新打开文档后再试。",
     documentPreparationErrorTitle: "无法确认这个任务",
     "documentPreparationError_output-invalid": "输出位置必须是不存在的新 .docx 文件，且不能覆盖源文件。",
     "documentPreparationError_missing-api-key": "请先在模型配置中填写并保存 API Key。",
@@ -469,9 +484,24 @@ const en: TranslationCatalog = {
     documentConfirmTask: "Confirm task",
     documentPreparingTask: "Freezing task settings…",
     documentPreparedTitle: "Task confirmed, not started",
-    documentPreparedDescription: "The current model, languages, prompt, and glossary are frozen. Starting and progress arrive in the next stage.",
+    documentPreparedDescription: "The current model, languages, prompt, and glossary are frozen. Starting sends document text to the configured model provider.",
     documentPreparedModel: "Model",
     documentPreparedLanguages: "Languages",
+    documentStartTranslation: "Start translation",
+    documentCheckpointing: "Saving the initial task…",
+    documentTranslationRunning: "Translating document",
+    documentCancelling: "Cancelling safely…",
+    documentCancelTranslation: "Cancel translation",
+    documentProgressSummary: "Completed {completed} of {total} · Failed {failed} · Active {active}",
+    documentReadyToRebuildTitle: "Translation complete, ready to rebuild",
+    documentReadyToRebuildDescription: "Every translated segment is safely checkpointed. DOCX reconstruction and final export arrive in the next increment.",
+    documentCancelledTitle: "Task cancelled",
+    documentCancelledDescription: "New translation requests stopped and the cancelled state was saved. No final output file was created.",
+    documentRunErrorTitle: "Document translation did not finish",
+    "documentRunError_storage": "Progress could not be saved safely, so translation stopped. Check disk space and folder permissions.",
+    "documentRunError_invalid-task": "The task state is stale. Choose the document again and reconfirm.",
+    "documentRunError_translation-failed": "Some segments failed to translate. Failed-segment retry arrives in the next increment.",
+    documentRunError_unknown: "Document translation stopped unexpectedly. Reopen the document and try again.",
     documentPreparationErrorTitle: "This task could not be confirmed",
     "documentPreparationError_output-invalid": "Choose a new, unused .docx destination that does not overwrite the source.",
     "documentPreparationError_missing-api-key": "Add and save an API key in Model settings first.",
@@ -865,6 +895,7 @@ function translatedCode(
     | "contextSource_"
     | "documentImportError_"
     | "documentPreparationError_"
+    | "documentRunError_"
     | "documentWarning_"
     | "documentStructure_",
   code: string | undefined,
@@ -896,6 +927,14 @@ export function documentPreparationErrorText(
 ): string {
   return translatedCode(catalog, "documentPreparationError_", code)
     ?? catalog.documentPreparationError_unknown;
+}
+
+export function documentRunErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "documentRunError_", code)
+    ?? catalog.documentRunError_unknown;
 }
 
 export function documentStructureText(
