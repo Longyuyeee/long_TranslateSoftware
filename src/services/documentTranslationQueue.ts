@@ -90,7 +90,7 @@ function cloneAndValidateJob(job: DocumentJob): DocumentJob {
   return parseDocumentCheckpoint(checkpoint).job;
 }
 
-function assertSnapshotMatches(
+export function assertDocumentExecutionSnapshotMatches(
   job: DocumentJob,
   execution: TranslationExecutionSnapshot,
 ): void {
@@ -183,7 +183,7 @@ export function startDocumentTranslationQueue(
       `Document translation requires a ready job, received ${job.phase}`,
     );
   }
-  assertSnapshotMatches(job, execution);
+  assertDocumentExecutionSnapshotMatches(job, execution);
 
   const now = options.now ?? (() => new Date().toISOString());
   const maxRetries = options.maxRetriesPerSegment

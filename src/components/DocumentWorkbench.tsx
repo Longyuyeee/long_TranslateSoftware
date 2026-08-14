@@ -165,7 +165,11 @@ export default function DocumentWorkbench({
 
             {recovery.errorCode ? (
               <div role="alert" className="mt-3 rounded-2xl border border-red-500/15 bg-red-500/5 p-3 text-red-700 dark:text-red-300">
-                <p className="text-[10px] font-black">{labels.documentRecoveryErrorTitle}</p>
+                <p className="text-[10px] font-black">
+                  {recovery.errorSource === "action"
+                    ? labels.documentRecoveryActionErrorTitle
+                    : labels.documentRecoveryErrorTitle}
+                </p>
                 <p className="mt-1 text-[9px] font-semibold">
                   {(labels as unknown as Record<string, string>)[`documentRecoveryError_${recovery.errorCode}`]
                     ?? labels.documentRecoveryError_unknown}
@@ -219,7 +223,25 @@ export default function DocumentWorkbench({
             {recovery.checkpoint && (
               <div role="status" className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-emerald-800 dark:text-emerald-300">
                 <p className="text-[10px] font-black">{labels.documentRecoveryLoadedTitle}</p>
-                <p className="mt-1 text-[9px] font-semibold">{labels.documentRecoveryLoadedDescription}</p>
+                <p className="mt-1 text-[9px] font-semibold">
+                  {recovery.checkpoint.job.phase === "translating"
+                    ? labels.documentRecoveryAwaitingRebuild
+                    : labels.documentRecoveryLoadedDescription}
+                </p>
+                {(recovery.checkpoint.job.phase === "ready" || recovery.checkpoint.job.phase === "failed") && (
+                  <button
+                    type="button"
+                    onClick={() => void recovery.resume()}
+                    disabled={isRunActive || recovery.isResuming}
+                    className="mt-3 rounded-xl bg-emerald-600 px-3 py-2 text-[9px] font-black text-white shadow-lg shadow-emerald-500/15 disabled:opacity-45"
+                  >
+                    {recovery.isResuming
+                      ? labels.documentRecoveryCheckingSettings
+                      : recovery.checkpoint.job.phase === "failed"
+                        ? labels.documentRecoveryRetryFailed
+                        : labels.documentRecoveryContinue}
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -151,4 +151,97 @@ describe("document translation runtime", () => {
     expect(runtime.getSnapshot()).toMatchObject({ phase: "failed", errorCode: "storage" });
     expect(runtime.getSnapshot()).not.toHaveProperty("message");
   });
+
+  it("validates current settings before saving or resuming a checkpoint", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const registry = {
+      start: vi.fn((_job: DocumentJob) => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const runtime = new DocumentTranslationRuntime(registry, saves, () => now);
+    const prepared = preparedTask();
+    const checkpoint = { schemaVersion: 1 as const, job: prepared.job };
+    const mismatched = {
+      ...prepared.execution,
+      primary: { ...prepared.execution.primary, model: "changed-model" },
+    };
+
+    await expect(runtime.resume(checkpoint, mismatched)).rejects.toThrow(
+      "do not match the frozen document snapshot",
+    );
+    expect(saves).not.toHaveBeenCalled();
+    expect(registry.start).not.toHaveBeenCalled();
+    expect(checkpoint.job.phase).toBe("ready");
+
+    await expect(runtime.resume(checkpoint, prepared.execution)).resolves.toBe(true);
+    expect(saves).toHaveBeenCalledOnce();
+    expect(registry.start).toHaveBeenCalledOnce();
+    expect(JSON.stringify(saves.mock.calls[0][0])).not.toContain("runtime-secret");
+  });
+
+  it("prepares only retryable failed segments before re-entering the existing queue", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const registry = {
+      start: vi.fn((_job: DocumentJob) => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const runtime = new DocumentTranslationRuntime(registry, saves, () => now);
+    const prepared = preparedTask();
+    const translated = {
+      ...prepared.job.segments[0],
+      id: "translated",
+      status: "translated" as const,
+      translatedText: "Done",
+    };
+    const retryable = {
+      ...prepared.job.segments[0],
+      id: "retryable",
+      location: { ...prepared.job.segments[0].location, order: 1 },
+      status: "failed" as const,
+      error: {
+        code: "translation-failed" as const,
+        message: "timeout detail",
+        retryable: true,
+        segmentId: "retryable",
+      },
+    };
+    const permanent = {
+      ...prepared.job.segments[0],
+      id: "permanent",
+      location: { ...prepared.job.segments[0].location, order: 2 },
+      status: "failed" as const,
+      error: {
+        code: "translation-failed" as const,
+        message: "permanent detail",
+        retryable: false,
+        segmentId: "permanent",
+      },
+    };
+    const failedJob: DocumentJob = {
+      ...prepared.job,
+      phase: "failed",
+      segments: [translated, retryable, permanent],
+      error: { code: "translation-failed", message: "private failure", retryable: true },
+    };
+
+    await expect(runtime.resume(
+      { schemaVersion: 1, job: failedJob },
+      prepared.execution,
+    )).resolves.toBe(true);
+
+    const resumed = registry.start.mock.calls[0][0];
+    expect(resumed.phase).toBe("ready");
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.segments.map(segment => segment.status)).toEqual([
+      "translated",
+      "pending",
+      "failed",
+    ]);
+    expect(resumed.segments[0].translatedText).toBe("Done");
+    expect(resumed.segments[2].error?.retryable).toBe(false);
+    expect(failedJob.phase).toBe("failed");
+    expect(saves.mock.calls[0][0].job).toEqual(resumed);
+  });
 });
