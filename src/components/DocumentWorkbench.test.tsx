@@ -10,6 +10,8 @@ import DocumentWorkbench from "./DocumentWorkbench";
 const {
   cancelRunMock,
   inspectMock,
+  listCheckpointsMock,
+  loadCheckpointMock,
   loadSnapshotMock,
   pickMock,
   pickOutputMock,
@@ -18,6 +20,8 @@ const {
 } = vi.hoisted(() => ({
   cancelRunMock: vi.fn(),
   inspectMock: vi.fn(),
+  listCheckpointsMock: vi.fn(),
+  loadCheckpointMock: vi.fn(),
   loadSnapshotMock: vi.fn(),
   pickMock: vi.fn(),
   pickOutputMock: vi.fn(),
@@ -28,6 +32,8 @@ const {
 vi.mock("../services/documentTranslation", async (importOriginal) => ({
   ...await importOriginal<typeof import("../services/documentTranslation")>(),
   inspectDocxDocument: inspectMock,
+  listDocumentCheckpoints: listCheckpointsMock,
+  loadDocumentCheckpoint: loadCheckpointMock,
   pickDocxDocument: pickMock,
   pickDocxOutput: pickOutputMock,
 }));
@@ -50,6 +56,7 @@ async function chooseOutputDestination(): Promise<void> {
 
 describe("DocumentWorkbench", () => {
   beforeEach(() => {
+    listCheckpointsMock.mockResolvedValue([]);
     runHookMock.mockReturnValue({
       phase: "idle",
       job: null,
@@ -85,6 +92,29 @@ describe("DocumentWorkbench", () => {
       customPrompt: "",
       glossary: [],
     });
+  });
+
+  it("discovers and loads a redacted checkpoint without exposing private payloads", async () => {
+    listCheckpointsMock.mockResolvedValue([{
+      jobId: "job-1",
+      fileName: "recover.docx",
+      phase: "ready",
+      outputMode: "translated",
+      completedSegments: 2,
+      failedSegments: 0,
+      totalSegments: 5,
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    }]);
+    loadCheckpointMock.mockResolvedValue({ schemaVersion: 1, job: { id: "job-1" } });
+
+    render(<DocumentWorkbench labels={translations.en} />);
+    expect(await screen.findByText("recover.docx")).toBeInTheDocument();
+    expect(screen.getByText("Completed 2 of 5 · Failed 0")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentRecoveryLoad }));
+
+    expect(await screen.findByText(translations.en.documentRecoveryLoadedTitle)).toBeInTheDocument();
+    expect(loadCheckpointMock).toHaveBeenCalledWith("job-1");
+    expect(screen.queryByText(/sourcePath|api\.example|private/iu)).not.toBeInTheDocument();
   });
 
   afterEach(() => {

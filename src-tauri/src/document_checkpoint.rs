@@ -25,6 +25,8 @@ const COMPLETED_RETENTION_DAYS: i64 = 30;
 const CANCELLED_FAILED_RETENTION_DAYS: i64 = 14;
 const TEMPORARY_RETENTION_HOURS: i64 = 24;
 const QUARANTINE_RETENTION_DAYS: i64 = 30;
+const MAX_RECOVERY_SUMMARIES: usize = 100;
+const MAX_CHECKPOINT_SCAN_ENTRIES: usize = 10_000;
 
 static STORAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -66,6 +68,19 @@ pub struct DocumentCheckpointCleanupReport {
     removed_jobs: usize,
     removed_temporary_files: usize,
     removed_quarantined_files: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentCheckpointSummary {
+    job_id: String,
+    file_name: String,
+    phase: DocumentJobPhase,
+    output_mode: DocumentOutputMode,
+    completed_segments: usize,
+    failed_segments: usize,
+    total_segments: usize,
+    updated_at: String,
 }
 
 #[derive(Debug)]
@@ -734,6 +749,87 @@ fn load_at(root: &Path, job_id: &str) -> CheckpointResult<DocumentCheckpoint> {
     Ok(checkpoint.recover())
 }
 
+fn list_at(root: &Path) -> CheckpointResult<Vec<DocumentCheckpointSummary>> {
+    let _guard = storage_lock()?;
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let canonical_root = fs::canonicalize(root)
+        .map_err(|_| DocumentCheckpointError::storage("Cannot resolve document checkpoint root"))?;
+    let entries = fs::read_dir(&canonical_root)
+        .map_err(|_| DocumentCheckpointError::storage("Cannot inspect document checkpoint root"))?;
+    let mut summaries = Vec::new();
+    for entry in entries.take(MAX_CHECKPOINT_SCAN_ENTRIES) {
+        let entry = entry.map_err(|_| {
+            DocumentCheckpointError::storage("Cannot inspect document checkpoint root")
+        })?;
+        let directory = entry.path();
+        let metadata = match fs::symlink_metadata(&directory) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            continue;
+        }
+        let directory = match validate_job_directory(&canonical_root, &directory) {
+            Ok(directory) => directory,
+            Err(_) => continue,
+        };
+        let job_id = match directory.file_name().and_then(|name| name.to_str()) {
+            Some(job_id) if valid_job_id(job_id) => job_id,
+            _ => continue,
+        };
+        let bytes = match read_bounded(&directory.join(CHECKPOINT_FILE)) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let checkpoint = match parse_checkpoint(&bytes) {
+            Ok(checkpoint) if checkpoint.job.id == job_id => checkpoint.recover(),
+            _ => continue,
+        };
+        if checkpoint.job.input.format != DocumentFormat::Docx {
+            continue;
+        }
+        if !matches!(
+            checkpoint.job.phase,
+            DocumentJobPhase::Ready | DocumentJobPhase::Translating | DocumentJobPhase::Failed
+        ) {
+            continue;
+        }
+        let completed_segments = checkpoint
+            .job
+            .segments
+            .iter()
+            .filter(|segment| segment.status == DocumentSegmentStatus::Translated)
+            .count();
+        let failed_segments = checkpoint
+            .job
+            .segments
+            .iter()
+            .filter(|segment| segment.status == DocumentSegmentStatus::Failed)
+            .count();
+        summaries.push(DocumentCheckpointSummary {
+            job_id: checkpoint.job.id,
+            file_name: checkpoint.job.input.file_name,
+            phase: checkpoint.job.phase,
+            output_mode: checkpoint.job.output_mode,
+            completed_segments,
+            failed_segments,
+            total_segments: checkpoint.job.segments.len(),
+            updated_at: checkpoint.job.updated_at,
+        });
+    }
+    summaries.sort_by(|left, right| {
+        let left_updated = DateTime::parse_from_rfc3339(&left.updated_at).ok();
+        let right_updated = DateTime::parse_from_rfc3339(&right.updated_at).ok();
+        right_updated
+            .cmp(&left_updated)
+            .then_with(|| left.job_id.cmp(&right.job_id))
+    });
+    summaries.truncate(MAX_RECOVERY_SUMMARIES);
+    Ok(summaries)
+}
+
 fn older_than(modified: std::time::SystemTime, now: DateTime<Utc>, age: Duration) -> bool {
     DateTime::<Utc>::from(modified) <= now - age
 }
@@ -873,6 +969,13 @@ pub fn load_document_checkpoint(
 }
 
 #[tauri::command]
+pub fn list_document_checkpoints(
+    app: AppHandle,
+) -> CheckpointResult<Vec<DocumentCheckpointSummary>> {
+    list_at(&checkpoint_root(&app)?)
+}
+
+#[tauri::command]
 pub fn delete_document_checkpoint(app: AppHandle, job_id: String) -> CheckpointResult<()> {
     delete_at(&checkpoint_root(&app)?, &job_id)
 }
@@ -973,6 +1076,69 @@ mod tests {
         assert_eq!(recovered.job.segments[0].translated_text, None);
         assert_eq!(recovered.job.segments[0].error, None);
         assert!(!stale.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lists_only_recoverable_jobs_as_bounded_redacted_summaries() {
+        let root = test_root();
+        let interrupted = checkpoint();
+        save_at(&root, &interrupted).unwrap();
+
+        let mut failed = checkpoint();
+        failed.job.id = "failed-job".to_string();
+        failed.job.phase = DocumentJobPhase::Failed;
+        failed.job.updated_at = "2026-08-13T00:03:00.000Z".to_string();
+        failed.job.segments[0].status = DocumentSegmentStatus::Failed;
+        failed.job.segments[0].translated_text = None;
+        save_at(&root, &failed).unwrap();
+
+        let mut completed = checkpoint();
+        completed.job.id = "completed-job".to_string();
+        completed.job.phase = DocumentJobPhase::Completed;
+        completed.job.output_path = Some(r"C:\docs\output.docx".to_string());
+        completed.job.segments[0].status = DocumentSegmentStatus::Translated;
+        completed.job.segments[0].translated_text = Some("translated secret".to_string());
+        completed.job.segments[0].error = None;
+        save_at(&root, &completed).unwrap();
+
+        let summaries = list_at(&root).unwrap();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].job_id, "failed-job");
+        assert_eq!(summaries[0].failed_segments, 1);
+        assert_eq!(summaries[1].job_id, "job-1");
+        assert_eq!(summaries[1].phase, DocumentJobPhase::Ready);
+        assert_eq!(summaries[1].completed_segments, 0);
+        assert_eq!(summaries[1].failed_segments, 0);
+
+        let serialized = serde_json::to_string(&summaries).unwrap();
+        for private_value in [
+            r"C:\docs\input.docx",
+            "https://api.example.com/v1",
+            "Translate",
+            "Hello",
+            "partial",
+            "interrupted",
+            "translated secret",
+        ] {
+            assert!(!serialized.contains(private_value));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovery_skips_invalid_entries_without_mutating_them() {
+        let root = test_root();
+        save_at(&root, &checkpoint()).unwrap();
+        let invalid_dir = root.join("invalid-job");
+        fs::create_dir_all(&invalid_dir).unwrap();
+        let invalid_path = invalid_dir.join(CHECKPOINT_FILE);
+        fs::write(&invalid_path, b"not-json").unwrap();
+
+        let summaries = list_at(&root).unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert!(invalid_path.exists());
+        assert_eq!(fs::read_dir(&invalid_dir).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
     }
 
