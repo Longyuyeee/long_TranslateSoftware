@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { removeTemporaryBrowserProfile } from "./browser-smoke-cleanup.mjs";
+import { manualChromeRuntimeReason } from "./browser-runtime-policy.mjs";
 
 const requireDesktop = process.argv.includes("--require-desktop");
 const extensionArgument = process.argv
@@ -80,18 +81,16 @@ for (const candidate of browserCandidates) {
         await inspectPopup(candidate.name, executable, language),
       );
     } catch (error) {
-      if (
-        candidate.name === "Chrome" &&
-        error instanceof Error &&
-        error.message.includes("ERR_BLOCKED_BY_CLIENT")
-      ) {
+      const manualReason = candidate.name === "Chrome"
+        ? manualChromeRuntimeReason(error)
+        : null;
+      if (manualReason) {
         results.push({
           browser: candidate.name,
           executable: basename(executable),
           language: "manual",
           extensionLoaded: false,
-          reason:
-            "Official Chrome builds disable command-line extension loading; use chrome://extensions for the release smoke.",
+          reason: manualReason,
         });
         break;
       }
