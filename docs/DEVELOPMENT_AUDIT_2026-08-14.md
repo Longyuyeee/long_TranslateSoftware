@@ -78,3 +78,11 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 修复后重新执行完整真实语料 round-trip 和 LibreOffice 批量渲染。61 个双语页与修复前逐像素一致，变化仅落在纯译文路径；纯译文单词保持完整。窄表格列仍可能按原列宽自然换行，不通过扩列改变原模板布局。
 - 本地 Rust 全量门禁通过：149 项单元测试通过、2 项显式视觉语料测试忽略，另有 2 项生命周期、7 项 Native Host 进程和 2 项注册测试通过；`cargo clippy --all-targets --all-features -- -D warnings` 通过。全仓 `cargo fmt --check` 被既有 `db.rs`、`ocr.rs` 格式差异阻断，本增量所改 Rust 文件已单独格式化。
 - LibreOffice 验收门槛在本轮语料上记为通过。Microsoft Word 仍未安装，`Word.Application` COM 指向 WPS Office，因此 Word 门槛保持 P0 未完成，不提升版本、不创建标签或 Release。
+
+## 2026-08-15 WPS 补充兼容审计
+
+- 使用 WPS Office 12.1.0.28043 打开同一批 10 份真实文档双模式成品并导出 PDF；10/10 导出成功，输入 DOCX 在每次导出前后 SHA-256 不变。
+- 10 份 PDF 共 96 页，全部渲染为 PNG 并通过 16 组联系表逐页检查；未发现空白页、黑块、正文截断、新增结构破坏或拉丁单词跨 Run 拆分。
+- WPS 与 LibreOffice 的唯一明显分页差异出现在战略计划双语版：WPS 为 5 页，LibreOffice 为 6 页；可见内容完整，归类为排版引擎分页差异，不视为数据丢失。
+- WPS 的单个批量 COM 会话在导出第一份后返回 `RPC server unavailable`；改为每份文档独立 COM 会话后 10/10 成功。该差异记录为 WPS 自动化稳定性限制，不影响应用生成的 DOCX，也不转化为新的产品功能范围。
+- WPS 验收是新增适配性证据，不是 Microsoft Word 的替代证据。P0、版本 `0.5.0` 与“不创建 Release”的决策保持不变。

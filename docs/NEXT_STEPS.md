@@ -18,7 +18,7 @@
 1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 在 Microsoft Word 中完成本轮 5 份真实 DOCX 的译文版与双语版逐页视觉验收；LibreOffice 侧已经完成，不能替代 Word 门槛。
 2. 视觉门槛通过后统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
-当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX；LibreOffice 26.2.5.2 已通过便携式管理提取就绪并完成验收。本机仍未发现 Microsoft Word，`Word.Application` COM 指向 WPS Office；不能用 WPS 替代剩余 Word 门槛。
+当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX；LibreOffice 26.2.5.2 与 WPS Office 12.1.0.28043 均已完成双模式逐页验收。本机仍未发现 Microsoft Word，`Word.Application` COM 指向 WPS Office；WPS 结论只扩大兼容性证据，不能替代剩余 Word 门槛。
 
 当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 
