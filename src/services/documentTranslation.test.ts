@@ -22,6 +22,7 @@ import {
   createDocxRebuildPlan,
   validateDocxRebuildPlan,
   rebuildDocxDocument,
+  cancelDocxRebuild,
   parseDocumentCheckpoint,
   parseDocumentCheckpointSummary,
   transitionDocumentJob,
@@ -553,11 +554,20 @@ describe("DOCX rebuild preflight", () => {
       fingerprint: "sha256:rebuilt",
     });
 
-    await expect(rebuildDocxDocument(plan)).resolves.toMatchObject({
+    await expect(rebuildDocxDocument(rebuilding.id, plan)).resolves.toMatchObject({
       outputPath: "C:\\docs\\translated.docx",
       replacementCount: 1,
     });
-    expect(invokeMock).toHaveBeenLastCalledWith("rebuild_docx_document", { plan });
+    expect(invokeMock).toHaveBeenLastCalledWith("rebuild_docx_document", {
+      jobId: rebuilding.id,
+      plan,
+    });
+
+    invokeMock.mockResolvedValueOnce(true);
+    await expect(cancelDocxRebuild(rebuilding.id)).resolves.toBe(true);
+    expect(invokeMock).toHaveBeenLastCalledWith("cancel_docx_rebuild", {
+      jobId: rebuilding.id,
+    });
   });
 
   it("rejects changed sources, anchors, incomplete translations, and source overwrite", () => {

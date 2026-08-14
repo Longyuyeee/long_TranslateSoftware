@@ -32,7 +32,7 @@ function preparedTask(): PreparedDocumentTask {
     concurrency: 1,
     segments: [{
       id: "segment-1",
-      location: { order: 0, part: "word/document.xml" },
+      location: { order: 0, part: "word/document.xml", sourcePosition: "p:0" },
       structure: "paragraph",
       sourceText: "Hello",
       status: "pending",
@@ -67,6 +67,36 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function inspection() {
+  return {
+    fingerprint: "sha256:runtime",
+    fileName: "source.docx",
+    sizeBytes: 1024,
+    warnings: [],
+    segments: [{
+      id: "segment-1",
+      order: 0,
+      part: "word/document.xml",
+      sourcePosition: "p:0",
+      structure: "paragraph" as const,
+      sourceText: "Hello",
+    }],
+  };
+}
+
+function translatedJob(): DocumentJob {
+  const source = preparedTask().job;
+  return {
+    ...source,
+    phase: "rebuilding",
+    segments: source.segments.map(segment => ({
+      ...segment,
+      status: "translated" as const,
+      translatedText: "你好",
+    })),
+  };
+}
+
 describe("document translation runtime", () => {
   it("durably saves the ready job before starting and publishes progress across subscribers", async () => {
     const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
@@ -79,7 +109,34 @@ describe("document translation runtime", () => {
       }),
       cancel: vi.fn(() => true),
     };
-    const runtime = new DocumentTranslationRuntime(registry, saves, () => now);
+    const inspect = vi.fn(async () => ({
+      fingerprint: "sha256:runtime",
+      fileName: "source.docx",
+      sizeBytes: 1024,
+      warnings: [],
+      segments: [{
+        id: "segment-1",
+        order: 0,
+        part: "word/document.xml",
+        sourcePosition: "p:0",
+        structure: "paragraph" as const,
+        sourceText: "Hello",
+      }],
+    }));
+    const rebuild = vi.fn(async () => ({
+      outputPath: "C:\\private\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:output",
+    }));
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      inspect,
+      rebuild,
+      vi.fn(async () => true),
+    );
     const prepared = preparedTask();
     const listener = vi.fn();
     const unsubscribe = runtime.subscribe(listener);
@@ -110,7 +167,16 @@ describe("document translation runtime", () => {
     };
     completion.resolve({ status: "ready-to-rebuild", job: rebuilding });
     await completion.promise;
-    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("ready-to-rebuild"));
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("completed"));
+    expect(inspect).toHaveBeenCalledWith("C:\\private\\source.docx");
+    expect(rebuild).toHaveBeenCalledWith("document-runtime", expect.objectContaining({
+      outputPath: "C:\\private\\translated.docx",
+    }));
+    expect(saves.mock.calls.map(call => call[0].job.phase)).toEqual([
+      "ready",
+      "exporting",
+      "completed",
+    ]);
     expect(remountedListener).toHaveBeenCalled();
   });
 
@@ -135,6 +201,125 @@ describe("document translation runtime", () => {
     expect(saves).toHaveBeenCalledTimes(2);
     expect(saves.mock.calls[1][0].job.phase).toBe("cancelled");
     expect(runtime.getSnapshot().phase).toBe("cancelled");
+  });
+
+  it("cancels during rebuild inspection without creating an output", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const inspectionResult = deferred<ReturnType<typeof inspection>>();
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const rebuild = vi.fn();
+    const registry = {
+      start: vi.fn(() => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      () => inspectionResult.promise,
+      rebuild,
+      vi.fn(async () => true),
+    );
+
+    await runtime.start(preparedTask());
+    completion.resolve({ status: "ready-to-rebuild", job: translatedJob() });
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("rebuilding"));
+    expect(runtime.cancel()).toBe(true);
+    inspectionResult.resolve(inspection());
+
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("cancelled"));
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(saves.mock.calls[saves.mock.calls.length - 1]?.[0].job.phase).toBe("cancelled");
+  });
+
+  it("keeps a successful atomic publication when cancellation arrives after commit", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const rebuilt = deferred<{ outputPath: string; replacementCount: number; sizeBytes: number; fingerprint: string }>();
+    const cancelRebuild = vi.fn(async () => false);
+    const registry = {
+      start: vi.fn(() => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      async () => inspection(),
+      () => rebuilt.promise,
+      cancelRebuild,
+    );
+
+    await runtime.start(preparedTask());
+    completion.resolve({ status: "ready-to-rebuild", job: translatedJob() });
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("exporting"));
+    expect(runtime.cancel()).toBe(true);
+    await vi.waitFor(() => expect(cancelRebuild).toHaveBeenCalledWith("document-runtime"));
+    rebuilt.resolve({
+      outputPath: "C:\\private\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:output",
+    });
+
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("completed"));
+    expect(saves.mock.calls[saves.mock.calls.length - 1]?.[0].job.phase).toBe("completed");
+  });
+
+  it("resumes a translated checkpoint directly into rebuild without API credentials", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const rebuild = vi.fn(async () => ({
+      outputPath: "C:\\private\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:output",
+    }));
+    const registry = { start: vi.fn(), cancel: vi.fn(() => true) };
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      async () => inspection(),
+      rebuild,
+      vi.fn(async () => true),
+    );
+    const interrupted: DocumentJob = { ...translatedJob(), phase: "translating" };
+
+    await expect(runtime.resumeRebuild({ schemaVersion: 1, job: interrupted })).resolves.toBe(true);
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("completed"));
+
+    expect(registry.start).not.toHaveBeenCalled();
+    expect(saves.mock.calls.map(call => call[0].job.phase)).toEqual([
+      "rebuilding",
+      "exporting",
+      "completed",
+    ]);
+  });
+
+  it("reports rebuild failures through a stable code without exposing backend details", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const registry = {
+      start: vi.fn(() => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      async () => inspection(),
+      async () => { throw new Error("C:\\private\\secret-output.docx"); },
+      vi.fn(async () => false),
+    );
+
+    await runtime.start(preparedTask());
+    completion.resolve({ status: "ready-to-rebuild", job: translatedJob() });
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("failed"));
+
+    expect(runtime.getSnapshot()).toMatchObject({ errorCode: "rebuild-failed" });
+    expect(JSON.stringify(runtime.getSnapshot())).not.toContain("secret-output");
+    expect(saves.mock.calls[saves.mock.calls.length - 1]?.[0].job.error?.message)
+      .toBe("DOCX rebuild or export failed");
   });
 
   it("fails closed when the initial checkpoint cannot be saved", async () => {

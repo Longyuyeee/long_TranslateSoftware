@@ -1,10 +1,17 @@
 import {
+  cancelDocxRebuild,
+  createDocxRebuildPlan,
   DOCUMENT_CHECKPOINT_VERSION,
   DocumentContractError,
+  inspectDocxDocument,
+  rebuildDocxDocument,
   saveDocumentCheckpoint,
   parseDocumentCheckpoint,
   transitionDocumentJob,
   type DocumentCheckpoint,
+  type DocxInspection,
+  type DocxRebuildPlan,
+  type DocxRebuildResult,
   type DocumentJob,
 } from "./documentTranslation";
 import { DocumentTranslationTaskRegistry } from "./documentTranslationRegistry";
@@ -28,8 +35,10 @@ export type DocumentRunPhase =
   | "idle"
   | "checkpointing"
   | "translating"
+  | "rebuilding"
+  | "exporting"
   | "cancelling"
-  | "ready-to-rebuild"
+  | "completed"
   | "failed"
   | "cancelled";
 
@@ -37,6 +46,7 @@ export type DocumentRunErrorCode =
   | "storage"
   | "invalid-task"
   | "translation-failed"
+  | "rebuild-failed"
   | "unknown";
 
 export interface DocumentRunSnapshot {
@@ -47,6 +57,9 @@ export interface DocumentRunSnapshot {
 }
 
 type DocumentCheckpointSink = (checkpoint: DocumentCheckpoint) => Promise<void>;
+type DocumentInspectionSource = (path: string) => Promise<DocxInspection>;
+type DocumentRebuildSink = (jobId: string, plan: DocxRebuildPlan) => Promise<DocxRebuildResult>;
+type DocumentRebuildCancellation = (jobId: string) => Promise<boolean>;
 type Listener = () => void;
 
 interface DocumentTaskRegistry {
@@ -66,7 +79,9 @@ const EMPTY_SNAPSHOT: DocumentRunSnapshot = Object.freeze({
 });
 
 function runPhase(job: DocumentJob): DocumentRunPhase {
-  if (job.phase === "rebuilding") return "ready-to-rebuild";
+  if (job.phase === "rebuilding") return "rebuilding";
+  if (job.phase === "exporting") return "exporting";
+  if (job.phase === "completed") return "completed";
   if (job.phase === "cancelling") return "cancelling";
   if (job.phase === "cancelled") return "cancelled";
   if (job.phase === "failed") return "failed";
@@ -89,11 +104,15 @@ export class DocumentTranslationRuntime {
   private readonly listeners = new Set<Listener>();
   private activeJobId: string | null = null;
   private cancelBeforeStart = false;
+  private rebuildCancelRequested = false;
 
   constructor(
     private readonly registry: DocumentTaskRegistry = new DocumentTranslationTaskRegistry(),
     private readonly saveCheckpoint: DocumentCheckpointSink = saveDocumentCheckpoint,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly inspect: DocumentInspectionSource = inspectDocxDocument,
+    private readonly rebuild: DocumentRebuildSink = rebuildDocxDocument,
+    private readonly cancelRebuild: DocumentRebuildCancellation = cancelDocxRebuild,
   ) {}
 
   getSnapshot = (): DocumentRunSnapshot => this.snapshot;
@@ -108,11 +127,99 @@ export class DocumentTranslationRuntime {
     for (const listener of this.listeners) listener();
   }
 
+  private progress(job: DocumentJob): DocumentTranslationQueueProgress {
+    return {
+      completed: job.segments.filter(segment => segment.status === "translated").length,
+      failed: job.segments.filter(segment => segment.status === "failed").length,
+      total: job.segments.length,
+      active: 0,
+    };
+  }
+
+  private async finishCancelled(job: DocumentJob): Promise<void> {
+    const cancelling = transitionDocumentJob(job, "cancelling", this.now());
+    const cancelled = transitionDocumentJob(cancelling, "cancelled", this.now());
+    await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: cancelled });
+    if (this.activeJobId !== job.id) return;
+    this.activeJobId = null;
+    this.publish({ phase: "cancelled", job: cancelled, progress: this.progress(cancelled), errorCode: null });
+  }
+
+  private async finishRebuild(sourceJob: DocumentJob): Promise<void> {
+    const jobId = sourceJob.id;
+    try {
+      this.publish({ phase: "rebuilding", job: sourceJob, progress: this.progress(sourceJob), errorCode: null });
+      const inspection = await this.inspect(sourceJob.input.sourcePath);
+      if (this.activeJobId !== jobId) return;
+      if (this.rebuildCancelRequested) {
+        await this.finishCancelled(sourceJob);
+        return;
+      }
+      if (!sourceJob.outputPath) {
+        throw new DocumentContractError("rebuild-failed", "DOCX output path is missing");
+      }
+      const plan = createDocxRebuildPlan(sourceJob, inspection, sourceJob.outputPath);
+      const exporting = transitionDocumentJob(sourceJob, "exporting", this.now());
+      await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: exporting });
+      if (this.activeJobId !== jobId) return;
+      if (this.rebuildCancelRequested) {
+        await this.finishCancelled(exporting);
+        return;
+      }
+      this.publish({ phase: "exporting", job: exporting, progress: this.progress(exporting), errorCode: null });
+      const result = await this.rebuild(jobId, plan);
+      if (this.activeJobId !== jobId) return;
+      const completed = transitionDocumentJob(
+        { ...exporting, outputPath: result.outputPath },
+        "completed",
+        this.now(),
+      );
+      try {
+        await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: completed });
+      } catch {
+        // The atomically published output is authoritative even if final checkpoint cleanup fails.
+      }
+      if (this.activeJobId !== jobId) return;
+      this.activeJobId = null;
+      this.publish({ phase: "completed", job: completed, progress: this.progress(completed), errorCode: null });
+    } catch (error) {
+      if (this.activeJobId !== jobId) return;
+      if (
+        typeof error === "object"
+        && error !== null
+        && "code" in error
+        && String((error as { code?: unknown }).code) === "cancelled"
+      ) {
+        const current = this.snapshot.job ?? sourceJob;
+        await this.finishCancelled(current.phase === "exporting" ? current : sourceJob);
+        return;
+      }
+      const current = this.snapshot.job ?? sourceJob;
+      const failed = {
+        ...transitionDocumentJob(current, "failed", this.now()),
+        error: {
+          code: "rebuild-failed" as const,
+          message: "DOCX rebuild or export failed",
+          retryable: true,
+        },
+      };
+      try {
+        await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: failed });
+      } catch {
+        // The stable runtime error below must not expose storage or source-path details.
+      }
+      if (this.activeJobId !== jobId) return;
+      this.activeJobId = null;
+      this.publish({ phase: "failed", job: failed, progress: this.progress(failed), errorCode: "rebuild-failed" });
+    }
+  }
+
   async start(prepared: PreparedDocumentTask): Promise<void> {
     if (this.activeJobId !== null) return;
     const { job, execution } = prepared;
     this.activeJobId = job.id;
     this.cancelBeforeStart = false;
+    this.rebuildCancelRequested = false;
     this.publish({
       phase: "checkpointing",
       job,
@@ -151,8 +258,12 @@ export class DocumentTranslationRuntime {
           });
         },
       });
-      void task.done.then(completion => {
+      void task.done.then(async completion => {
         if (this.activeJobId !== job.id) return;
+        if (completion.status === "ready-to-rebuild") {
+          await this.finishRebuild(completion.job);
+          return;
+        }
         this.activeJobId = null;
         this.publish({
           phase: runPhase(completion.job),
@@ -211,12 +322,45 @@ export class DocumentTranslationRuntime {
     return true;
   }
 
+  async resumeRebuild(sourceCheckpoint: DocumentCheckpoint): Promise<boolean> {
+    if (this.activeJobId !== null) return false;
+    const checkpoint = parseDocumentCheckpoint(sourceCheckpoint);
+    if (
+      checkpoint.job.phase !== "translating"
+      || !checkpoint.job.outputPath
+      || checkpoint.job.segments.some(segment => segment.status !== "translated")
+    ) {
+      throw new DocumentContractError(
+        "checkpoint-invalid",
+        "Document checkpoint is not ready to resume rebuild",
+      );
+    }
+    const rebuilding = transitionDocumentJob(checkpoint.job, "rebuilding", this.now());
+    this.activeJobId = rebuilding.id;
+    this.rebuildCancelRequested = false;
+    try {
+      await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: rebuilding });
+    } catch (error) {
+      this.activeJobId = null;
+      throw error;
+    }
+    void this.finishRebuild(rebuilding);
+    return true;
+  }
+
   cancel(): boolean {
     const jobId = this.activeJobId;
     if (!jobId) return false;
     if (this.snapshot.phase === "checkpointing") {
       this.cancelBeforeStart = true;
       this.publish({ ...this.snapshot, phase: "cancelling" });
+      return true;
+    }
+    if (this.snapshot.phase === "rebuilding" || this.snapshot.phase === "exporting") {
+      const phase = this.snapshot.phase;
+      this.rebuildCancelRequested = true;
+      this.publish({ ...this.snapshot, phase: "cancelling" });
+      if (phase === "exporting") void this.cancelRebuild(jobId).catch(() => false);
       return true;
     }
     return this.registry.cancel(jobId);

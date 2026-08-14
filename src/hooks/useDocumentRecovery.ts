@@ -100,7 +100,7 @@ export function useDocumentRecovery() {
     const loaded = checkpoint;
     if (
       !loaded
-      || (loaded.job.phase !== "ready" && loaded.job.phase !== "failed")
+      || (loaded.job.phase !== "ready" && loaded.job.phase !== "failed" && loaded.job.phase !== "translating")
       || activeResume.current
     ) return;
     activeResume.current = true;
@@ -108,8 +108,12 @@ export function useDocumentRecovery() {
     setErrorCode(null);
     setErrorSource(null);
     try {
-      const execution = await loadTranslationExecutionSnapshot();
-      const accepted = await documentTranslationRuntime.resume(loaded, execution);
+      const accepted = loaded.job.phase === "translating"
+        ? await documentTranslationRuntime.resumeRebuild(loaded)
+        : await documentTranslationRuntime.resume(
+            loaded,
+            await loadTranslationExecutionSnapshot(),
+          );
       if (mounted.current && accepted) setCheckpoint(null);
     } catch (error) {
       if (mounted.current) {

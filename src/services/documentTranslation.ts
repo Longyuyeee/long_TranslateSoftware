@@ -211,7 +211,7 @@ export interface DocxRebuildResult {
 }
 
 export interface DocxRebuildCommandError {
-  code: "invalid-plan" | "stale-source" | "rebuild-failed";
+  code: "invalid-plan" | "stale-source" | "rebuild-failed" | "cancelled";
   message: string;
 }
 
@@ -445,9 +445,14 @@ export async function validateDocxRebuildPlan(
 }
 
 export async function rebuildDocxDocument(
+  jobId: string,
   plan: DocxRebuildPlan,
 ): Promise<DocxRebuildResult> {
-  return invoke<DocxRebuildResult>("rebuild_docx_document", { plan });
+  return invoke<DocxRebuildResult>("rebuild_docx_document", { jobId, plan });
+}
+
+export async function cancelDocxRebuild(jobId: string): Promise<boolean> {
+  return invoke<boolean>("cancel_docx_rebuild", { jobId });
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */

@@ -85,6 +85,8 @@ export default function DocumentWorkbench({
   const recovery = useDocumentRecovery();
   const isRunActive = runPhase === "checkpointing"
     || runPhase === "translating"
+    || runPhase === "rebuilding"
+    || runPhase === "exporting"
     || runPhase === "cancelling";
   const isBusy = isImportBusy || isPreparationBusy || isRunActive;
   const canStartPreparedTask = Boolean(preparedTask) && !isRunActive && (
@@ -111,8 +113,12 @@ export default function DocumentWorkbench({
       ? labels.documentTranslationRunning
       : runPhase === "cancelling"
         ? labels.documentCancelling
-        : runPhase === "ready-to-rebuild"
+        : runPhase === "rebuilding"
           ? labels.documentReadyToRebuildTitle
+          : runPhase === "exporting"
+            ? labels.documentExportingTitle
+            : runPhase === "completed"
+              ? labels.documentCompletedTitle
           : runPhase === "cancelled"
             ? labels.documentCancelledTitle
             : labels.documentRunErrorTitle;
@@ -228,7 +234,9 @@ export default function DocumentWorkbench({
                     ? labels.documentRecoveryAwaitingRebuild
                     : labels.documentRecoveryLoadedDescription}
                 </p>
-                {(recovery.checkpoint.job.phase === "ready" || recovery.checkpoint.job.phase === "failed") && (
+                {(recovery.checkpoint.job.phase === "ready"
+                  || recovery.checkpoint.job.phase === "failed"
+                  || recovery.checkpoint.job.phase === "translating") && (
                   <button
                     type="button"
                     onClick={() => void recovery.resume()}
@@ -239,6 +247,8 @@ export default function DocumentWorkbench({
                       ? labels.documentRecoveryCheckingSettings
                       : recovery.checkpoint.job.phase === "failed"
                         ? labels.documentRecoveryRetryFailed
+                        : recovery.checkpoint.job.phase === "translating"
+                          ? labels.documentRecoveryContinueExport
                         : labels.documentRecoveryContinue}
                   </button>
                 )}
@@ -281,7 +291,7 @@ export default function DocumentWorkbench({
           className={`glass-card shrink-0 rounded-[24px] border p-4 ${
             runPhase === "failed"
               ? "border-red-500/20"
-              : runPhase === "ready-to-rebuild"
+              : runPhase === "completed"
                 ? "border-emerald-500/20"
                 : "border-accent/15"
           }`}
@@ -289,7 +299,7 @@ export default function DocumentWorkbench({
           <div className="flex items-start gap-3">
             {runPhase === "failed" ? (
               <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-500" aria-hidden="true" />
-            ) : runPhase === "ready-to-rebuild" ? (
+            ) : runPhase === "completed" ? (
               <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-500" aria-hidden="true" />
             ) : runPhase === "cancelled" ? (
               <XCircle size={18} className="mt-0.5 shrink-0 text-zinc-400" aria-hidden="true" />
@@ -301,7 +311,11 @@ export default function DocumentWorkbench({
                 <h3 className="text-xs font-black text-zinc-800 dark:text-zinc-100">
                   {runTitle}
                 </h3>
-                {(runPhase === "checkpointing" || runPhase === "translating" || runPhase === "cancelling") && (
+                {(runPhase === "checkpointing"
+                  || runPhase === "translating"
+                  || runPhase === "rebuilding"
+                  || runPhase === "exporting"
+                  || runPhase === "cancelling") && (
                   <button
                     type="button"
                     onClick={cancelTranslation}
@@ -310,7 +324,9 @@ export default function DocumentWorkbench({
                   >
                     {runPhase === "cancelling"
                       ? labels.documentCancelling
-                      : labels.documentCancelTranslation}
+                      : runPhase === "rebuilding" || runPhase === "exporting"
+                        ? labels.documentCancelTask
+                        : labels.documentCancelTranslation}
                   </button>
                 )}
               </div>
@@ -331,9 +347,19 @@ export default function DocumentWorkbench({
                   </div>
                 </>
               )}
-              {runPhase === "ready-to-rebuild" && (
+              {runPhase === "rebuilding" && (
                 <p className="mt-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
                   {labels.documentReadyToRebuildDescription}
+                </p>
+              )}
+              {runPhase === "exporting" && (
+                <p className="mt-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  {labels.documentExportingDescription}
+                </p>
+              )}
+              {runPhase === "completed" && runJob?.outputPath && (
+                <p className="mt-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                  {labels.documentCompletedDescription.replace("{file}", displayFileName(runJob.outputPath))}
                 </p>
               )}
               {runPhase === "cancelled" && (
