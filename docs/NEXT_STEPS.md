@@ -8,7 +8,7 @@
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
 - v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；发布故障矩阵与 Release 自动化门禁均已收口。Microsoft Word 已检查 5 份合成双语成品和 1 份纯译文代表样本，当前仍剩匿名真实文档视觉验收和版本发布。
-- 最新复审基线为 `master` / `ef37c92`（PR #85）：前端 301 项测试、Rust 全量测试、严格 Clippy、生产构建、npm 官方 registry 依赖审计、Edge 中英文 Runtime Smoke 和强制质量报告全部通过；GitHub 没有开放的 PR 或 Issue。
+- 最新复审基线为 `master` / `e8ff344`（PR #87）：前端 303 项测试、Rust 全量测试、严格 Clippy、生产构建、npm 官方 registry 依赖审计、Edge 中英文 Runtime Smoke 和强制质量报告全部通过。正式 Chrome 的两种已知命令行自动化限制保持为 `chrome://extensions` 人工门槛，其他浏览器错误仍会阻断 CI。
 - 当前包体仍在门槛内：最大桌面 JavaScript chunk 251.25 KiB / 300 KiB，浏览器扩展 34.33 KiB / 64 KiB。Browserslist 数据已约 6 个月未更新，作为 P2 维护项在 DOCX 发布门槛之后处理；新增功能必须继续复核主包增长。
 - 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。

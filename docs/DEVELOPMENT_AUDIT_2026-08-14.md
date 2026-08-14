@@ -1,6 +1,6 @@
 # 2026-08-14 开发进度与收尾审计
 
-审计基线：`master` / `ef37c92`（PR #85）
+审计基线：`master` / `e8ff344`（PR #87）
 
 目标版本：`v0.5.1` DOCX-only MVP
 
@@ -14,11 +14,11 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 当前复审快照
 
-- `master` 已同步到 `ef37c92`，GitHub 当前没有开放的 PR 或 Issue；工作区仅有历史 `releases/` 安装包与签名文件未跟踪，本次审计不纳入、不修改。
+- `master` 已同步到 `e8ff344`；工作区中的用户本地修改不纳入、不修改。
 - `package.json`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本均为 `0.5.0`，与尚未通过 `v0.5.1` 发布门槛的状态一致。
-- 前端 58 个测试文件、301 项测试全部通过；Rust 147 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，1 项显式依赖人工视觉语料的测试继续忽略；严格 Clippy 通过。
+- 前端 59 个测试文件、303 项测试全部通过；Rust 147 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，1 项显式依赖人工视觉语料的测试继续忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
-- Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；正式 Chrome 仍因官方版本禁用命令行扩展加载而保留 `chrome://extensions` 人工门槛。
+- Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；PR #87 将正式 Chrome 的 `ERR_BLOCKED_BY_CLIENT` 与“不开放自动化调试端口”两种已知官方限制统一保留为 `chrome://extensions` 人工门槛，其他 Chrome 错误仍会使 CI 失败。PR 与合并后 `master` CI 均全绿。
 - 本轮未发现新的 P0/P1 代码回归。维护风险为 Browserslist 数据已约 6 个月未更新，以及最大桌面 chunk 已使用约 84% 门槛；两项均记录为 P2，不阻断 DOCX 验收，但后续功能增量不得继续无审计扩大主包。
 - 发布决策不变：不提升版本、不创建标签或 Release。先完成真实 DOCX 视觉门槛，再进入 `0.5.1` 版本、安装器、原位升级、Updater 与资产完整性收口。
 
