@@ -1,6 +1,6 @@
 # 2026-08-14 开发进度与收尾审计
 
-审计基线：`master` / `e8ff344`（PR #87）
+审计基线：`master` / `c186cf3`（PR #90）
 
 目标版本：`v0.5.1` DOCX-only MVP
 
@@ -14,7 +14,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 当前复审快照
 
-- `master` 已同步到 `e8ff344`；工作区中的用户本地修改不纳入、不修改。
+- `master` 已同步到 `c186cf3`；工作区中的用户本地修改不纳入、不修改。
 - `package.json`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本均为 `0.5.0`，与尚未通过 `v0.5.1` 发布门槛的状态一致。
 - 前端 59 个测试文件、303 项测试全部通过；Rust 147 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖私有语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
@@ -53,6 +53,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 使用至少 5 份匿名真实 DOCX，对译文版和双语版逐页检查文本完整性、顺序、表格、列表、链接、图片、页眉页脚和明显格式降级。
 - 自动化语料、LibreOffice 可打开证据和本轮合成语料 Word 检查均不能代替真实文档结论；完成前不得宣称 Word 全面兼容。
 - [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 已固定私有语料目录、清单格式、双模式成品生成、源哈希复核和 Word/LibreOffice 记录矩阵；入口已用合成夹具模拟验证，但真实语料和人工结论仍未完成。
+- 2026-08-14 当前执行环境复核：`.docx-acceptance/docs` 已准备但真实 DOCX 数量为 0；PATH、标准安装目录与卸载注册项未发现 Microsoft Word 或 LibreOffice，`Word.Application` COM 当前指向 WPS Office。历史合成语料的 Word/LibreOffice 记录继续作为历史证据保留，但不得据此宣称当前环境具备双引擎验收条件。
 
 ### 已完成：Release 门禁对齐
 
@@ -67,4 +68,4 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 下一步入口
 
-完成真实 DOCX 的 Microsoft Word/LibreOffice 逐页视觉验收；该门槛通过后才能提升 `0.5.1`、构建并发布。
+先向 `.docx-acceptance/docs` 放入至少 5 份已匿名化真实 DOCX，并准备可明确识别的 Microsoft Word 与 LibreOffice；随后按验收清单完成双模式逐页视觉检查。该门槛通过后才能提升 `0.5.1`、构建并发布。
