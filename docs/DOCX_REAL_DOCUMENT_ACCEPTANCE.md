@@ -56,6 +56,21 @@ cargo test --manifest-path src-tauri/Cargo.toml round_trips_real_validation_corp
 
 ## 3. Word 与 LibreOffice 逐页检查
 
+先在装有 Microsoft Word 16.x/365 桌面版的 Windows 电脑上运行 Word 专用执行器：
+
+```powershell
+npm run audit:docx:word -- -ProbeOnly
+
+$wordOutput = Join-Path (Resolve-Path '.docx-acceptance').Path ("word-render-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+npm run audit:docx:word -- `
+  -InputDirectory $env:DOCX_ROUNDTRIP_OUTPUT_DIR `
+  -OutputDirectory $wordOutput
+```
+
+执行器要求至少 5 个文档名称分别具有 `-translated.docx` 与 `-bilingual.docx` 成对输出。它会同时校验 COM 名称、Word 16.x 版本、`WINWORD.EXE` 文件身份、Microsoft 公司信息和有效 Authenticode 签名，因此 WPS/Kingsoft 对 `Word.Application` 的兼容注册不会被误记为 Microsoft Word。每份文档使用独立 Word COM 会话只读打开并导出 PDF，导出前后复核输入 SHA-256，最后在新输出目录生成不含正文和绝对路径的 `word-render-manifest.json` 与待填写 `review.md`。输出目录必须尚不存在，脚本不会覆盖历史证据。
+
+执行器会强制禁用 Office 宏、打开时链接更新和打印时字段更新。成功只证明真正的 Word 能以正常加载模式导出、页数非零且源文件未变；隐藏自动化不能证明 Word 从未给出修复提示，仍需可见打开每份 DOCX、逐页查看全部 PDF，并在 `review.md` 中完成下面的视觉矩阵。失败或未安装 Word 时不得手工把清单状态改为通过。
+
 每份源文档、译文版和双语版必须并排检查。`review.md` 至少记录以下矩阵：
 
 | 文档 | 模式 | Word 打开 | LibreOffice 打开 | 文本完整/顺序 | 表格/列表/链接 | 图片/页眉页脚 | 明显降级与结论 |
