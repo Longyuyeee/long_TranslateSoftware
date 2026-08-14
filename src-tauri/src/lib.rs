@@ -166,6 +166,7 @@ pub fn run() {
             document_rebuild::validate_docx_rebuild_plan,
             document_rebuild::pick_docx_output,
             document_rebuild::rebuild_docx_document,
+            document_rebuild::cancel_docx_rebuild,
             system_integration::hide_floating_window,
             system_integration::start_window_drag,
             system_integration::clipboard_detect,

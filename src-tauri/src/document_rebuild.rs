@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 use unicode_segmentation::UnicodeSegmentation;
@@ -18,6 +20,12 @@ const MAX_SEGMENT_BYTES: usize = 32 * 1024;
 const MAX_TRANSLATED_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DOCX_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_XML_PART_BYTES: usize = 16 * 1024 * 1024;
+const REBUILD_RUNNING: u8 = 0;
+const REBUILD_CANCELLED: u8 = 1;
+const REBUILD_PUBLISHING: u8 = 2;
+const REBUILD_COMPLETED: u8 = 3;
+
+static REBUILD_TASKS: OnceLock<Mutex<HashMap<String, Arc<RebuildCancellation>>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -25,6 +33,7 @@ pub enum DocxRebuildErrorCode {
     InvalidPlan,
     StaleSource,
     RebuildFailed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -54,9 +63,126 @@ impl DocxRebuildError {
             message: message.into(),
         }
     }
+
+    fn cancelled() -> Self {
+        Self {
+            code: DocxRebuildErrorCode::Cancelled,
+            message: "DOCX rebuild was cancelled".to_string(),
+        }
+    }
 }
 
 type RebuildResult<T> = Result<T, DocxRebuildError>;
+
+#[derive(Debug)]
+struct RebuildCancellation {
+    state: AtomicU8,
+}
+
+impl RebuildCancellation {
+    fn new() -> Self {
+        Self {
+            state: AtomicU8::new(REBUILD_RUNNING),
+        }
+    }
+
+    fn check(&self) -> RebuildResult<()> {
+        if self.state.load(Ordering::Acquire) == REBUILD_CANCELLED {
+            Err(DocxRebuildError::cancelled())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn cancel(&self) -> bool {
+        self.state
+            .compare_exchange(
+                REBUILD_RUNNING,
+                REBUILD_CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn begin_publish(&self) -> RebuildResult<()> {
+        self.state
+            .compare_exchange(
+                REBUILD_RUNNING,
+                REBUILD_PUBLISHING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .map(|_| ())
+            .map_err(|_| DocxRebuildError::cancelled())
+    }
+
+    fn complete(&self) {
+        self.state.store(REBUILD_COMPLETED, Ordering::Release);
+    }
+}
+
+fn valid_rebuild_job_id(job_id: &str) -> bool {
+    !job_id.is_empty()
+        && job_id.len() <= 64
+        && job_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn rebuild_tasks() -> &'static Mutex<HashMap<String, Arc<RebuildCancellation>>> {
+    REBUILD_TASKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct RebuildRegistration {
+    job_id: String,
+    cancellation: Arc<RebuildCancellation>,
+}
+
+impl RebuildRegistration {
+    fn register(job_id: String) -> RebuildResult<Self> {
+        if !valid_rebuild_job_id(&job_id) {
+            return Err(DocxRebuildError::invalid("Invalid DOCX rebuild job ID"));
+        }
+        let cancellation = Arc::new(RebuildCancellation::new());
+        let mut tasks = rebuild_tasks()
+            .lock()
+            .map_err(|_| DocxRebuildError::rebuild("DOCX rebuild registry is unavailable"))?;
+        if tasks.contains_key(&job_id) {
+            return Err(DocxRebuildError::invalid(
+                "DOCX rebuild job is already running",
+            ));
+        }
+        tasks.insert(job_id.clone(), Arc::clone(&cancellation));
+        Ok(Self {
+            job_id,
+            cancellation,
+        })
+    }
+}
+
+impl Drop for RebuildRegistration {
+    fn drop(&mut self) {
+        if let Ok(mut tasks) = rebuild_tasks().lock() {
+            if tasks
+                .get(&self.job_id)
+                .is_some_and(|active| Arc::ptr_eq(active, &self.cancellation))
+            {
+                tasks.remove(&self.job_id);
+            }
+        }
+    }
+}
+
+fn cancel_rebuild_job(job_id: &str) -> RebuildResult<bool> {
+    if !valid_rebuild_job_id(job_id) {
+        return Err(DocxRebuildError::invalid("Invalid DOCX rebuild job ID"));
+    }
+    let tasks = rebuild_tasks()
+        .lock()
+        .map_err(|_| DocxRebuildError::rebuild("DOCX rebuild registry is unavailable"))?;
+    Ok(tasks.get(job_id).is_some_and(|task| task.cancel()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -222,10 +348,24 @@ fn parse_anchor(value: &str) -> Option<ReplacementAnchor> {
     })
 }
 
+fn check_cancel(cancellation: Option<&RebuildCancellation>) -> RebuildResult<()> {
+    cancellation.map_or(Ok(()), RebuildCancellation::check)
+}
+
+#[cfg(test)]
 fn validate_against_inspection(
     plan: &DocxRebuildPlan,
     inspection: &DocxInspection,
 ) -> RebuildResult<DocxRebuildValidation> {
+    validate_against_inspection_with_cancel(plan, inspection, None)
+}
+
+fn validate_against_inspection_with_cancel(
+    plan: &DocxRebuildPlan,
+    inspection: &DocxInspection,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<DocxRebuildValidation> {
+    check_cancel(cancellation)?;
     validate_output_path(&plan.source_path, &plan.output_path)?;
     if plan.fingerprint != inspection.fingerprint {
         return Err(DocxRebuildError::stale(
@@ -251,6 +391,7 @@ fn validate_against_inspection(
         .zip(&inspection.segments)
         .enumerate()
     {
+        check_cancel(cancellation)?;
         if replacement.order != order
             || replacement.id != inspected.id
             || replacement.part != inspected.part
@@ -302,7 +443,11 @@ fn contains_only_xml_characters(value: &str) -> bool {
     })
 }
 
-fn read_source_bytes(path: &str) -> RebuildResult<Vec<u8>> {
+fn read_source_bytes_with_cancel(
+    path: &str,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<Vec<u8>> {
+    check_cancel(cancellation)?;
     let mut file = File::open(path.trim())
         .map_err(|error| DocxRebuildError::rebuild(format!("Cannot open DOCX source: {error}")))?;
     let metadata = file.metadata().map_err(|error| {
@@ -314,10 +459,18 @@ fn read_source_bytes(path: &str) -> RebuildResult<Vec<u8>> {
         ));
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    (&mut file)
-        .take(MAX_DOCX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| DocxRebuildError::rebuild(format!("Cannot read DOCX source: {error}")))?;
+    let mut limited = (&mut file).take(MAX_DOCX_BYTES + 1);
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        check_cancel(cancellation)?;
+        let read = limited.read(&mut chunk).map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot read DOCX source: {error}"))
+        })?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+    }
     if bytes.len() as u64 > MAX_DOCX_BYTES {
         return Err(DocxRebuildError::invalid(
             "DOCX source exceeds the 50 MiB limit",
@@ -326,11 +479,20 @@ fn read_source_bytes(path: &str) -> RebuildResult<Vec<u8>> {
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn build_rewrite_index(
     plan: &DocxRebuildPlan,
 ) -> RebuildResult<BTreeMap<String, BTreeMap<usize, ParagraphRewrite>>> {
+    build_rewrite_index_with_cancel(plan, None)
+}
+
+fn build_rewrite_index_with_cancel(
+    plan: &DocxRebuildPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<BTreeMap<String, BTreeMap<usize, ParagraphRewrite>>> {
     let mut parts = BTreeMap::<String, BTreeMap<usize, ParagraphRewrite>>::new();
     for (index, replacement) in plan.replacements.iter().enumerate() {
+        check_cancel(cancellation)?;
         if !contains_only_xml_characters(&replacement.translated_text) {
             return Err(DocxRebuildError::invalid(format!(
                 "DOCX replacement {index} contains characters forbidden by XML 1.0"
@@ -377,7 +539,15 @@ fn build_rewrite_index(
     Ok(parts)
 }
 
+#[cfg(test)]
 fn collect_paragraph_text_nodes(xml: &[u8]) -> RebuildResult<HashMap<usize, Vec<String>>> {
+    collect_paragraph_text_nodes_with_cancel(xml, None)
+}
+
+fn collect_paragraph_text_nodes_with_cancel(
+    xml: &[u8],
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<HashMap<usize, Vec<String>>> {
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().trim_text(false);
     let mut paragraphs = HashMap::new();
@@ -386,6 +556,7 @@ fn collect_paragraph_text_nodes(xml: &[u8]) -> RebuildResult<HashMap<usize, Vec<
     let mut text_nodes = Vec::new();
     let mut current_text = None::<String>;
     loop {
+        check_cancel(cancellation)?;
         match reader.read_event() {
             Ok(Event::Start(event)) if local_name(event.name().as_ref()) == b"p" => {
                 paragraph_depth += 1;
@@ -456,14 +627,16 @@ fn distribute_by_source_weight(text: &str, weights: &[usize]) -> Vec<String> {
         .collect()
 }
 
-fn paragraph_outputs(
+fn paragraph_outputs_with_cancel(
     xml: &[u8],
     rewrites: &BTreeMap<usize, ParagraphRewrite>,
     plan: &DocxRebuildPlan,
+    cancellation: Option<&RebuildCancellation>,
 ) -> RebuildResult<HashMap<usize, ParagraphOutput>> {
-    let nodes = collect_paragraph_text_nodes(xml)?;
+    let nodes = collect_paragraph_text_nodes_with_cancel(xml, cancellation)?;
     let mut outputs = HashMap::new();
     for (paragraph_index, rewrite) in rewrites {
+        check_cancel(cancellation)?;
         let text_nodes = nodes.get(paragraph_index).ok_or_else(|| {
             DocxRebuildError::stale(format!(
                 "DOCX paragraph {paragraph_index} is missing during rebuild"
@@ -553,12 +726,22 @@ fn append_bilingual_run(
         .map_err(|error| DocxRebuildError::rebuild(format!("Cannot write DOCX XML: {error}")))
 }
 
+#[cfg(test)]
 fn transform_xml_part(
     xml: &[u8],
     rewrites: &BTreeMap<usize, ParagraphRewrite>,
     plan: &DocxRebuildPlan,
 ) -> RebuildResult<Vec<u8>> {
-    let outputs = paragraph_outputs(xml, rewrites, plan)?;
+    transform_xml_part_with_cancel(xml, rewrites, plan, None)
+}
+
+fn transform_xml_part_with_cancel(
+    xml: &[u8],
+    rewrites: &BTreeMap<usize, ParagraphRewrite>,
+    plan: &DocxRebuildPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<Vec<u8>> {
+    let outputs = paragraph_outputs_with_cancel(xml, rewrites, plan, cancellation)?;
     let mut reader = Reader::from_reader(xml);
     reader.config_mut().trim_text(false);
     let mut writer = Writer::new(Cursor::new(Vec::with_capacity(xml.len())));
@@ -569,6 +752,7 @@ fn transform_xml_part(
     let mut targeted_text_written = false;
     let mut paragraph_name = Vec::new();
     loop {
+        check_cancel(cancellation)?;
         match reader.read_event() {
             Ok(Event::Start(event)) if local_name(event.name().as_ref()) == b"p" => {
                 paragraph_depth += 1;
@@ -668,13 +852,23 @@ fn transform_xml_part(
     Ok(output)
 }
 
+#[cfg(test)]
 fn rebuild_package_in_memory(source: &[u8], plan: &DocxRebuildPlan) -> RebuildResult<Vec<u8>> {
-    let rewrite_index = build_rewrite_index(plan)?;
+    rebuild_package_in_memory_with_cancel(source, plan, None)
+}
+
+fn rebuild_package_in_memory_with_cancel(
+    source: &[u8],
+    plan: &DocxRebuildPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<Vec<u8>> {
+    let rewrite_index = build_rewrite_index_with_cancel(plan, cancellation)?;
     let mut source_archive = ZipArchive::new(Cursor::new(source)).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot reopen DOCX source archive: {error}"))
     })?;
     let mut modified_parts = HashMap::new();
     for (part, rewrites) in &rewrite_index {
+        check_cancel(cancellation)?;
         let mut entry = source_archive.by_name(part).map_err(|_| {
             DocxRebuildError::stale(format!("DOCX rebuild part is missing: {part}"))
         })?;
@@ -682,12 +876,16 @@ fn rebuild_package_in_memory(source: &[u8], plan: &DocxRebuildPlan) -> RebuildRe
         entry.read_to_end(&mut xml).map_err(|error| {
             DocxRebuildError::rebuild(format!("Cannot read DOCX rebuild part {part}: {error}"))
         })?;
-        modified_parts.insert(part.clone(), transform_xml_part(&xml, rewrites, plan)?);
+        modified_parts.insert(
+            part.clone(),
+            transform_xml_part_with_cancel(&xml, rewrites, plan, cancellation)?,
+        );
     }
 
     let target = Cursor::new(Vec::with_capacity(source.len()));
     let mut writer = ZipWriter::new(target);
     for index in 0..source_archive.len() {
+        check_cancel(cancellation)?;
         let entry = source_archive.by_index(index).map_err(|error| {
             DocxRebuildError::rebuild(format!("Cannot read DOCX ZIP entry: {error}"))
         })?;
@@ -711,6 +909,7 @@ fn rebuild_package_in_memory(source: &[u8], plan: &DocxRebuildPlan) -> RebuildRe
         .finish()
         .map_err(|error| DocxRebuildError::rebuild(format!("Cannot finish DOCX ZIP: {error}")))?
         .into_inner();
+    check_cancel(cancellation)?;
     if output.len() as u64 > MAX_DOCX_BYTES {
         return Err(DocxRebuildError::invalid(
             "Rebuilt DOCX exceeds the 50 MiB package limit",
@@ -722,7 +921,14 @@ fn rebuild_package_in_memory(source: &[u8], plan: &DocxRebuildPlan) -> RebuildRe
 fn prepare_rebuilt_package(
     plan: &DocxRebuildPlan,
 ) -> RebuildResult<(DocxRebuildValidation, Vec<u8>)> {
-    let source = read_source_bytes(&plan.source_path)?;
+    prepare_rebuilt_package_with_cancel(plan, None)
+}
+
+fn prepare_rebuilt_package_with_cancel(
+    plan: &DocxRebuildPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<(DocxRebuildValidation, Vec<u8>)> {
+    let source = read_source_bytes_with_cancel(&plan.source_path, cancellation)?;
     let file_name = Path::new(plan.source_path.trim())
         .file_name()
         .and_then(|name| name.to_str())
@@ -731,11 +937,14 @@ fn prepare_rebuilt_package(
     let inspection = inspect_docx_bytes(&source, file_name.clone()).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot re-inspect DOCX source: {}", error.message))
     })?;
-    let mut validation = validate_against_inspection(plan, &inspection)?;
-    let rebuilt = rebuild_package_in_memory(&source, plan)?;
+    check_cancel(cancellation)?;
+    let mut validation = validate_against_inspection_with_cancel(plan, &inspection, cancellation)?;
+    let rebuilt = rebuild_package_in_memory_with_cancel(&source, plan, cancellation)?;
+    check_cancel(cancellation)?;
     inspect_docx_bytes(&rebuilt, file_name).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot validate rebuilt DOCX: {}", error.message))
     })?;
+    check_cancel(cancellation)?;
     validation.rebuilt_size_bytes = rebuilt.len();
     validation.rebuilt_fingerprint = format!("sha256:{}", hex::encode(Sha256::digest(&rebuilt)));
     Ok((validation, rebuilt))
@@ -883,11 +1092,13 @@ fn publish_without_overwrite(temp: &Path, output: &Path) -> std::io::Result<()> 
     Ok(())
 }
 
-fn publish_rebuilt_package(
+fn publish_rebuilt_package_with_cancel(
     plan: &DocxRebuildPlan,
     validation: &DocxRebuildValidation,
     rebuilt: &[u8],
+    cancellation: &RebuildCancellation,
 ) -> RebuildResult<DocxRebuildResult> {
+    cancellation.check()?;
     let (canonical_parent, output) = canonical_output_path(plan)?;
     let temp = canonical_parent.join(format!(".long-translate-{}.docx.tmp", uuid::Uuid::new_v4()));
     let mut guard = TempFileGuard::new(temp.clone());
@@ -898,15 +1109,19 @@ fn publish_rebuilt_package(
         .map_err(|error| {
             DocxRebuildError::rebuild(format!("Cannot create DOCX temporary file: {error}"))
         })?;
-    file.write_all(rebuilt).map_err(|error| {
-        DocxRebuildError::rebuild(format!("Cannot write DOCX temporary file: {error}"))
-    })?;
+    for chunk in rebuilt.chunks(64 * 1024) {
+        cancellation.check()?;
+        file.write_all(chunk).map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot write DOCX temporary file: {error}"))
+        })?;
+    }
+    cancellation.check()?;
     file.sync_all().map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot sync DOCX temporary file: {error}"))
     })?;
     drop(file);
 
-    let persisted = read_source_bytes(&temp.to_string_lossy())?;
+    let persisted = read_source_bytes_with_cancel(&temp.to_string_lossy(), Some(cancellation))?;
     if persisted != rebuilt {
         return Err(DocxRebuildError::rebuild(
             "DOCX temporary file verification failed",
@@ -918,13 +1133,12 @@ fn publish_rebuilt_package(
             error.message
         ))
     })?;
+    cancellation.check()?;
 
-    let current_parent = fs::canonicalize(
-        output
-            .parent()
-            .expect("canonical output always has a parent"),
-    )
-    .map_err(|error| {
+    let output_parent = output.parent().ok_or_else(|| {
+        DocxRebuildError::rebuild("Canonical DOCX output has no parent directory")
+    })?;
+    let current_parent = fs::canonicalize(output_parent).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot recheck DOCX output directory: {error}"))
     })?;
     if normalized_windows_path(&current_parent.to_string_lossy())
@@ -934,12 +1148,14 @@ fn publish_rebuilt_package(
             "DOCX output directory changed during publication",
         ));
     }
+    cancellation.begin_publish()?;
     publish_without_overwrite(&temp, &output).map_err(|error| {
         DocxRebuildError::rebuild(format!(
             "Cannot publish DOCX without overwriting an existing file: {error}"
         ))
     })?;
     guard.disarm();
+    cancellation.complete();
     Ok(DocxRebuildResult {
         output_path: display_path(&output),
         replacement_count: validation.replacement_count,
@@ -954,9 +1170,24 @@ pub fn validate_docx_rebuild_plan(plan: DocxRebuildPlan) -> RebuildResult<DocxRe
 }
 
 #[tauri::command]
-pub fn rebuild_docx_document(plan: DocxRebuildPlan) -> RebuildResult<DocxRebuildResult> {
-    let (validation, rebuilt) = prepare_rebuilt_package(&plan)?;
-    publish_rebuilt_package(&plan, &validation, &rebuilt)
+pub async fn rebuild_docx_document(
+    job_id: String,
+    plan: DocxRebuildPlan,
+) -> RebuildResult<DocxRebuildResult> {
+    let registration = RebuildRegistration::register(job_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cancellation = Arc::clone(&registration.cancellation);
+        let (validation, rebuilt) =
+            prepare_rebuilt_package_with_cancel(&plan, Some(&cancellation))?;
+        publish_rebuilt_package_with_cancel(&plan, &validation, &rebuilt, &cancellation)
+    })
+    .await
+    .map_err(|_| DocxRebuildError::rebuild("DOCX rebuild worker stopped unexpectedly"))?
+}
+
+#[tauri::command]
+pub fn cancel_docx_rebuild(job_id: String) -> RebuildResult<bool> {
+    cancel_rebuild_job(&job_id)
 }
 
 #[cfg(test)]
@@ -1005,6 +1236,12 @@ mod tests {
                 translated_text: "你好".to_string(),
             }],
         }
+    }
+
+    fn rebuild_for_test(plan: &DocxRebuildPlan) -> RebuildResult<DocxRebuildResult> {
+        let cancellation = RebuildCancellation::new();
+        let (validation, rebuilt) = prepare_rebuilt_package_with_cancel(plan, Some(&cancellation))?;
+        publish_rebuilt_package_with_cancel(plan, &validation, &rebuilt, &cancellation)
     }
 
     #[test]
@@ -1268,7 +1505,7 @@ mod tests {
         std::fs::write(&source_path, &source_bytes).unwrap();
         let plan = fixture_plan_for_paths(&source_path, &output_path, &source_bytes);
 
-        let result = rebuild_docx_document(plan.clone()).unwrap();
+        let result = rebuild_for_test(&plan).unwrap();
         let published = std::fs::read(&output_path).unwrap();
         inspect_docx_bytes(&published, "translated.docx".to_string()).unwrap();
         assert_eq!(
@@ -1286,12 +1523,54 @@ mod tests {
         }));
 
         assert_eq!(
-            rebuild_docx_document(plan).unwrap_err().code,
+            rebuild_for_test(&plan).unwrap_err().code,
             DocxRebuildErrorCode::InvalidPlan
         );
         assert_eq!(std::fs::read(&output_path).unwrap(), published);
 
         std::fs::remove_file(output_path).unwrap();
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn cancellation_is_accepted_only_before_the_atomic_publish_commit() {
+        let cancellation = RebuildCancellation::new();
+        assert!(cancellation.cancel());
+        assert!(!cancellation.cancel());
+        assert_eq!(
+            cancellation.check().unwrap_err().code,
+            DocxRebuildErrorCode::Cancelled
+        );
+
+        let publishing = RebuildCancellation::new();
+        publishing.begin_publish().unwrap();
+        assert!(!publishing.cancel());
+        publishing.complete();
+        assert!(!publishing.cancel());
+    }
+
+    #[test]
+    fn cancelled_rebuild_never_creates_an_output_or_leaks_its_registration() {
+        let source_bytes = fixture_package();
+        let directory =
+            std::env::temp_dir().join(format!("docx-cancelled-publish-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let source_path = directory.join("source.docx");
+        let output_path = directory.join("translated.docx");
+        std::fs::write(&source_path, &source_bytes).unwrap();
+        let plan = fixture_plan_for_paths(&source_path, &output_path, &source_bytes);
+        let job_id = format!("cancelled-{}", uuid::Uuid::new_v4());
+        let registration = RebuildRegistration::register(job_id.clone()).unwrap();
+
+        assert!(cancel_rebuild_job(&job_id).unwrap());
+        let error = prepare_rebuilt_package_with_cancel(&plan, Some(&registration.cancellation))
+            .unwrap_err();
+        assert_eq!(error.code, DocxRebuildErrorCode::Cancelled);
+        assert!(!output_path.exists());
+        drop(registration);
+        assert!(!cancel_rebuild_job(&job_id).unwrap());
+
         std::fs::remove_file(source_path).unwrap();
         std::fs::remove_dir(directory).unwrap();
     }
