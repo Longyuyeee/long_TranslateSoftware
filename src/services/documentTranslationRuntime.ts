@@ -1,6 +1,8 @@
 import {
   DOCUMENT_CHECKPOINT_VERSION,
+  DocumentContractError,
   saveDocumentCheckpoint,
+  parseDocumentCheckpoint,
   transitionDocumentJob,
   type DocumentCheckpoint,
   type DocumentJob,
@@ -9,6 +11,10 @@ import { DocumentTranslationTaskRegistry } from "./documentTranslationRegistry";
 import type {
   DocumentTranslationQueueProgress,
   DocumentTranslationQueueTask,
+} from "./documentTranslationQueue";
+import {
+  assertDocumentExecutionSnapshotMatches,
+  prepareDocumentJobForFailedSegmentRetry,
 } from "./documentTranslationQueue";
 import type { PersistentDocumentTranslationQueueOptions } from "./documentTranslationPersistence";
 import type { TranslationExecutionSnapshot } from "./translationTask";
@@ -179,6 +185,30 @@ export class DocumentTranslationRuntime {
         errorCode: failedCode(error),
       });
     }
+  }
+
+  /**
+   * Re-enters the existing queue from a persisted checkpoint. Current runtime
+   * credentials are accepted only when every non-secret setting still matches.
+   */
+  async resume(
+    sourceCheckpoint: DocumentCheckpoint,
+    execution: TranslationExecutionSnapshot,
+  ): Promise<boolean> {
+    if (this.activeJobId !== null) return false;
+    const checkpoint = parseDocumentCheckpoint(sourceCheckpoint);
+    assertDocumentExecutionSnapshotMatches(checkpoint.job, execution);
+    const job = checkpoint.job.phase === "failed"
+      ? prepareDocumentJobForFailedSegmentRetry(checkpoint.job, this.now())
+      : checkpoint.job;
+    if (job.phase !== "ready") {
+      throw new DocumentContractError(
+        "checkpoint-invalid",
+        `Document checkpoint cannot resume translation from ${job.phase}`,
+      );
+    }
+    await this.start({ job, execution });
+    return true;
   }
 
   cancel(): boolean {

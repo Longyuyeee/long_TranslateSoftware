@@ -16,6 +16,7 @@ const {
   pickMock,
   pickOutputMock,
   runHookMock,
+  resumeRecoveredMock,
   startRunMock,
 } = vi.hoisted(() => ({
   cancelRunMock: vi.fn(),
@@ -26,6 +27,7 @@ const {
   pickMock: vi.fn(),
   pickOutputMock: vi.fn(),
   runHookMock: vi.fn(),
+  resumeRecoveredMock: vi.fn(),
   startRunMock: vi.fn(),
 }));
 
@@ -44,6 +46,10 @@ vi.mock("../services/translationTask", async (importOriginal) => ({
 vi.mock("../hooks/useDocumentTranslationRun", () => ({
   useDocumentTranslationRun: runHookMock,
 }));
+vi.mock("../services/documentTranslationRuntime", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/documentTranslationRuntime")>(),
+  documentTranslationRuntime: { resume: resumeRecoveredMock },
+}));
 
 async function chooseOutputDestination(): Promise<void> {
   const button = await screen.findByRole("button", {
@@ -57,6 +63,7 @@ async function chooseOutputDestination(): Promise<void> {
 describe("DocumentWorkbench", () => {
   beforeEach(() => {
     listCheckpointsMock.mockResolvedValue([]);
+    resumeRecoveredMock.mockResolvedValue(true);
     runHookMock.mockReturnValue({
       phase: "idle",
       job: null,
@@ -105,7 +112,11 @@ describe("DocumentWorkbench", () => {
       totalSegments: 5,
       updatedAt: "2026-08-14T00:00:00.000Z",
     }]);
-    loadCheckpointMock.mockResolvedValue({ schemaVersion: 1, job: { id: "job-1" } });
+    const loadedCheckpoint = {
+      schemaVersion: 1,
+      job: { id: "job-1", phase: "ready" },
+    };
+    loadCheckpointMock.mockResolvedValue(loadedCheckpoint);
 
     render(<DocumentWorkbench labels={translations.en} />);
     expect(await screen.findByText("recover.docx")).toBeInTheDocument();
@@ -114,7 +125,43 @@ describe("DocumentWorkbench", () => {
 
     expect(await screen.findByText(translations.en.documentRecoveryLoadedTitle)).toBeInTheDocument();
     expect(loadCheckpointMock).toHaveBeenCalledWith("job-1");
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentRecoveryContinue }));
+    await waitFor(() => expect(resumeRecoveredMock).toHaveBeenCalledWith(
+      loadedCheckpoint,
+      expect.objectContaining({ primary: expect.objectContaining({ apiKey: "private-key" }) }),
+    ));
     expect(screen.queryByText(/sourcePath|api\.example|private/iu)).not.toBeInTheDocument();
+  });
+
+  it("keeps a recovered task intact when current settings do not match", async () => {
+    listCheckpointsMock.mockResolvedValue([{
+      jobId: "job-1",
+      fileName: "recover.docx",
+      phase: "failed",
+      outputMode: "translated",
+      completedSegments: 2,
+      failedSegments: 1,
+      totalSegments: 3,
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    }]);
+    loadCheckpointMock.mockResolvedValue({
+      schemaVersion: 1,
+      job: { id: "job-1", phase: "failed" },
+    });
+    resumeRecoveredMock.mockRejectedValue({
+      code: "checkpoint-invalid",
+      message: "private model and path mismatch",
+    });
+
+    render(<DocumentWorkbench labels={translations.en} />);
+    fireEvent.click(await screen.findByRole("button", { name: translations.en.documentRecoveryLoad }));
+    fireEvent.click(await screen.findByRole("button", { name: translations.en.documentRecoveryRetryFailed }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      translations.en["documentRecoveryError_settings-mismatch"],
+    );
+    expect(screen.getByRole("button", { name: translations.en.documentRecoveryRetryFailed })).toBeEnabled();
+    expect(screen.queryByText(/private model|path mismatch/iu)).not.toBeInTheDocument();
   });
 
   afterEach(() => {
