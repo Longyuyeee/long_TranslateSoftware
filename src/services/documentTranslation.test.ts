@@ -11,6 +11,7 @@ import {
   documentProgress,
   inspectDocumentInput,
   inspectDocxDocument,
+  pickDocxDocument,
   saveDocumentCheckpoint,
   loadDocumentCheckpoint,
   deleteDocumentCheckpoint,
@@ -85,6 +86,19 @@ describe("document input contract", () => {
 });
 
 describe("DOCX import adaptation", () => {
+  it("passes localized labels to the desktop DOCX picker", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+
+    await expect(pickDocxDocument(
+      "Choose a DOCX document",
+      "Word document (*.docx)",
+    )).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("pick_docx_document", {
+      title: "Choose a DOCX document",
+      filterName: "Word document (*.docx)",
+    });
+  });
+
   it("invokes the read-only desktop DOCX inspection command", async () => {
     const inspection = {
       fingerprint: "sha256:fixture",

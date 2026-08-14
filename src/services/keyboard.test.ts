@@ -5,7 +5,7 @@ import {
 } from "./keyboard";
 
 describe("dashboard keyboard navigation", () => {
-  it("maps Ctrl+1 through Ctrl+7 to every dashboard section", () => {
+  it("maps Ctrl+1 through Ctrl+8 to every dashboard section", () => {
     const expected = [
       "general",
       "batch",
@@ -14,6 +14,7 @@ describe("dashboard keyboard navigation", () => {
       "wordbook",
       "review",
       "history",
+      "document",
     ];
     expect(expected.map((_, index) => dashboardTabFromShortcut({
       key: String(index + 1),
@@ -37,7 +38,7 @@ describe("dashboard keyboard navigation", () => {
       metaKey: false,
     })).toBeNull();
     expect(dashboardTabFromShortcut({
-      key: "8",
+      key: "9",
       ctrlKey: true,
       altKey: false,
       metaKey: false,
@@ -45,10 +46,10 @@ describe("dashboard keyboard navigation", () => {
   });
 
   it("wraps arrow navigation and supports Home and End", () => {
-    expect(dashboardTabFromNavigation("general", "ArrowUp")).toBe("history");
-    expect(dashboardTabFromNavigation("history", "ArrowDown")).toBe("general");
+    expect(dashboardTabFromNavigation("general", "ArrowUp")).toBe("document");
+    expect(dashboardTabFromNavigation("document", "ArrowDown")).toBe("general");
     expect(dashboardTabFromNavigation("model", "Home")).toBe("general");
-    expect(dashboardTabFromNavigation("model", "End")).toBe("history");
+    expect(dashboardTabFromNavigation("model", "End")).toBe("document");
     expect(dashboardTabFromNavigation("model", "Tab")).toBeNull();
   });
 });

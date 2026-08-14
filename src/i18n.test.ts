@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cachePreferredLanguage,
   contextSourceText,
+  documentImportErrorText,
+  documentStructureText,
+  documentWarningText,
   getPreferredLanguage,
   translationErrorText,
   translations,
@@ -131,6 +134,18 @@ describe("translation catalog", () => {
       translations.en.contextSource_selection,
     );
     expect(contextSourceText(translations.en, "extension")).toBe("extension");
+    expect(documentImportErrorText(translations.en, "invalid-input")).toBe(
+      translations.en["documentImportError_invalid-input"],
+    );
+    expect(documentWarningText(translations.zh, "text-boxes-unsupported")).toBe(
+      translations.zh["documentWarning_text-boxes-unsupported"],
+    );
+    expect(documentStructureText(translations.en, "heading")).toBe(
+      translations.en.documentStructure_heading,
+    );
+    expect(documentStructureText(translations.en, "future-structure")).toBe(
+      translations.en.documentStructure_unknown,
+    );
   });
 
   it("rejects new user-facing literals in component markup", () => {

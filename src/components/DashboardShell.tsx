@@ -6,6 +6,7 @@ import {
   CheckCircle,
   Clock,
   Cpu,
+  FileText,
   Languages,
   Monitor,
   Palette,
@@ -81,6 +82,7 @@ export default function DashboardShell({
     { id: "wordbook", label: labels.wordbook, icon: Book },
     { id: "review", label: labels.review, icon: Brain },
     { id: "history", label: labels.history, icon: Clock },
+    { id: "document", label: labels.documentTranslate, icon: FileText },
   ] satisfies Array<{
     id: DashboardTabId;
     label: string;
@@ -318,7 +320,7 @@ export default function DashboardShell({
               )}
             </div>
 
-            {activeTab !== "wordbook" && activeTab !== "batch" && (
+            {activeTab !== "wordbook" && activeTab !== "batch" && activeTab !== "document" && (
               <motion.button
                 type="button"
                 whileHover={hasUnsavedChanges ? { scale: 1.02 } : undefined}

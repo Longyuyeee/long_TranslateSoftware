@@ -55,7 +55,7 @@ describe("DashboardShell", () => {
 
     const generalTab = screen.getByRole("button", { name: translations.en.general });
     fireEvent.keyDown(generalTab, { key: "ArrowUp" });
-    expect(callbacks.onTabChange).toHaveBeenCalledWith("history");
+    expect(callbacks.onTabChange).toHaveBeenCalledWith("document");
   });
 
   it("keeps notification actions and outside dismissal in the shell boundary", () => {
@@ -92,5 +92,16 @@ describe("DashboardShell", () => {
 
     expect(callbacks.onSave).toHaveBeenCalledOnce();
     expect(callbacks.onCheckUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose the settings save action in the document workspace", () => {
+    render(
+      <DashboardShell {...baseProps} activeTab="document">
+        <div>Document page</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.queryByRole("button", { name: translations.en.saveChanges }))
+      .not.toBeInTheDocument();
   });
 });
