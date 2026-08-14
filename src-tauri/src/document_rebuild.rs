@@ -1193,7 +1193,7 @@ pub fn cancel_docx_rebuild(job_id: String) -> RebuildResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::{DocxImportWarning, DocxSegment};
+    use crate::document::{inspect_docx_path, DocxImportWarning, DocxSegment};
     use zip::write::SimpleFileOptions;
 
     const DOCUMENT_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1309,6 +1309,41 @@ mod tests {
             writer.finish().unwrap();
         }
         output.into_inner()
+    }
+
+    const ROUNDTRIP_CORPUS: [(&str, &[u8]); 5] = [
+        (
+            "heading-hyperlink",
+            include_bytes!("../tests/fixtures/docx/roundtrip/01-heading-hyperlink.docx"),
+        ),
+        (
+            "lists",
+            include_bytes!("../tests/fixtures/docx/roundtrip/02-lists.docx"),
+        ),
+        (
+            "tables",
+            include_bytes!("../tests/fixtures/docx/roundtrip/03-tables.docx"),
+        ),
+        (
+            "sections",
+            include_bytes!("../tests/fixtures/docx/roundtrip/04-sections.docx"),
+        ),
+        (
+            "unicode-resources",
+            include_bytes!("../tests/fixtures/docx/roundtrip/05-unicode-resources.docx"),
+        ),
+    ];
+
+    fn package_entries(bytes: &[u8]) -> HashMap<String, Vec<u8>> {
+        let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let mut entries = HashMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            let mut payload = Vec::new();
+            entry.read_to_end(&mut payload).unwrap();
+            entries.insert(entry.name().to_string(), payload);
+        }
+        entries
     }
 
     fn fixture_plan_for_paths(
@@ -1531,6 +1566,145 @@ mod tests {
         std::fs::remove_file(output_path).unwrap();
         std::fs::remove_file(source_path).unwrap();
         std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn round_trips_the_synthetic_compatibility_corpus_in_both_output_modes() {
+        let keep_outputs =
+            std::env::var("LONG_TRANSLATE_KEEP_DOCX_CORPUS").is_ok_and(|value| value == "1");
+        let directory =
+            std::env::temp_dir().join(format!("docx-roundtrip-corpus-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let mut structures = HashSet::new();
+        let mut warning_codes = HashSet::new();
+
+        for (fixture_name, source_bytes) in ROUNDTRIP_CORPUS {
+            let source_path = directory.join(format!("{fixture_name}.docx"));
+            std::fs::write(&source_path, source_bytes).unwrap();
+            let inspection = inspect_docx_path(&source_path).unwrap();
+            assert!(!inspection.segments.is_empty(), "{fixture_name}");
+            structures.extend(
+                inspection
+                    .segments
+                    .iter()
+                    .map(|segment| segment.structure.clone()),
+            );
+            warning_codes.extend(
+                inspection
+                    .warnings
+                    .iter()
+                    .map(|warning| warning.code.clone()),
+            );
+            let rewritten_parts = inspection
+                .segments
+                .iter()
+                .map(|segment| segment.part.clone())
+                .collect::<HashSet<_>>();
+            let source_entries = package_entries(source_bytes);
+
+            for output_mode in [DocxOutputMode::Translated, DocxOutputMode::Bilingual] {
+                let mode_name = match output_mode {
+                    DocxOutputMode::Translated => "translated",
+                    DocxOutputMode::Bilingual => "bilingual",
+                };
+                let output_path = directory.join(format!("{fixture_name}-{mode_name}.docx"));
+                let translations = inspection
+                    .segments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| format!("Synthetic translation {}", index + 1))
+                    .collect::<Vec<_>>();
+                let plan = DocxRebuildPlan {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    output_path: output_path.to_string_lossy().into_owned(),
+                    fingerprint: inspection.fingerprint.clone(),
+                    output_mode,
+                    replacements: inspection
+                        .segments
+                        .iter()
+                        .zip(&translations)
+                        .map(|(segment, translated_text)| DocxRebuildReplacement {
+                            id: segment.id.clone(),
+                            order: segment.order,
+                            part: segment.part.clone(),
+                            source_position: segment.source_position.clone(),
+                            structure: segment.structure.clone(),
+                            source_text: segment.source_text.clone(),
+                            translated_text: translated_text.clone(),
+                        })
+                        .collect(),
+                };
+
+                let result = rebuild_for_test(&plan).unwrap();
+                assert_eq!(result.replacement_count, inspection.segments.len());
+                let reopened = inspect_docx_path(&output_path).unwrap();
+                assert_eq!(reopened.segments.len(), inspection.segments.len());
+                for (((source, rebuilt), translation), order) in inspection
+                    .segments
+                    .iter()
+                    .zip(&reopened.segments)
+                    .zip(&translations)
+                    .zip(0..)
+                {
+                    assert_eq!(rebuilt.order, order);
+                    assert_eq!(rebuilt.part, source.part);
+                    assert_eq!(rebuilt.structure, source.structure);
+                    match output_mode {
+                        DocxOutputMode::Translated => {
+                            assert_eq!(
+                                rebuilt.source_text.trim_end_matches(['\r', '\n']),
+                                translation
+                            )
+                        }
+                        DocxOutputMode::Bilingual => {
+                            assert!(rebuilt.source_text.contains(&source.source_text));
+                            assert!(rebuilt.source_text.contains(translation));
+                        }
+                    }
+                }
+
+                let output_bytes = std::fs::read(&output_path).unwrap();
+                let output_entries = package_entries(&output_bytes);
+                assert_eq!(output_entries.len(), source_entries.len());
+                for (name, payload) in &source_entries {
+                    if !rewritten_parts.contains(name) {
+                        assert_eq!(
+                            output_entries.get(name),
+                            Some(payload),
+                            "{fixture_name}:{name}"
+                        );
+                    }
+                }
+                assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+                if !keep_outputs {
+                    std::fs::remove_file(output_path).unwrap();
+                }
+            }
+            if !keep_outputs {
+                std::fs::remove_file(source_path).unwrap();
+            }
+        }
+
+        for required in [
+            "paragraph",
+            "heading",
+            "list-item",
+            "table-cell",
+            "header",
+            "footer",
+        ] {
+            assert!(
+                structures.contains(required),
+                "missing {required} corpus coverage"
+            );
+        }
+        assert!(warning_codes.contains("images-ignored"));
+        assert!(warning_codes.contains("fields-degraded"));
+        if keep_outputs {
+            eprintln!("DOCX_ROUNDTRIP_CORPUS_DIR={}", directory.display());
+        } else {
+            std::fs::remove_dir(directory).unwrap();
+        }
     }
 
     #[test]
