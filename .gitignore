@@ -34,3 +34,6 @@ public/logo-v*-concept.png
 
 # Generated quality reports (uploaded by CI/release workflows)
 quality-reports/
+
+# Local real-DOCX acceptance inputs, outputs, and visual review notes
+.docx-acceptance/

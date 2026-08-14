@@ -1880,6 +1880,142 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an explicit private DOCX manifest and a new output directory"]
+    fn round_trips_real_validation_corpus_for_visual_review() {
+        let manifest_path = std::env::var("DOCX_VALIDATION_MANIFEST")
+            .expect("DOCX_VALIDATION_MANIFEST must point to the private corpus manifest");
+        let output_directory = std::env::var("DOCX_ROUNDTRIP_OUTPUT_DIR")
+            .expect("DOCX_ROUNDTRIP_OUTPUT_DIR must name a new directory for review outputs");
+        let manifest_path = Path::new(&manifest_path);
+        let output_directory = Path::new(&output_directory);
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(manifest_path).expect("validation manifest must be readable"),
+        )
+        .expect("validation manifest must contain valid JSON");
+        let cases = manifest["cases"]
+            .as_array()
+            .expect("validation manifest must contain a cases array");
+        let corpus_directory = manifest_path
+            .parent()
+            .expect("validation manifest must have a parent directory")
+            .join("docs");
+
+        assert!(
+            cases.len() >= 5,
+            "visual review requires at least five DOCX cases"
+        );
+        std::fs::create_dir(output_directory)
+            .expect("DOCX_ROUNDTRIP_OUTPUT_DIR must not already exist");
+
+        for (case_index, case) in cases.iter().enumerate() {
+            let file_name = case["file"]
+                .as_str()
+                .expect("each validation case must name a file");
+            let relative_path = Path::new(file_name);
+            assert_eq!(
+                relative_path.file_name().and_then(|value| value.to_str()),
+                Some(file_name),
+                "validation case names must not contain directories"
+            );
+            assert!(
+                relative_path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("docx")),
+                "validation case must be a DOCX"
+            );
+            let source_path = corpus_directory.join(relative_path);
+            let source_bytes = std::fs::read(&source_path)
+                .unwrap_or_else(|_| panic!("validation DOCX must be readable: {file_name}"));
+            let inspection = inspect_docx_path(&source_path)
+                .unwrap_or_else(|_| panic!("validation DOCX must be inspectable: {file_name}"));
+            assert!(
+                !inspection.segments.is_empty(),
+                "{file_name} has no translatable segments"
+            );
+
+            for output_mode in [DocxOutputMode::Translated, DocxOutputMode::Bilingual] {
+                let mode_name = match output_mode {
+                    DocxOutputMode::Translated => "translated",
+                    DocxOutputMode::Bilingual => "bilingual",
+                };
+                let stem = relative_path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .expect("validation DOCX must have a Unicode file stem");
+                let output_path = output_directory.join(format!("{stem}-{mode_name}.docx"));
+                let translations = inspection
+                    .segments
+                    .iter()
+                    .enumerate()
+                    .map(|(segment_index, _)| {
+                        format!(
+                            "Validation translation {}.{}",
+                            case_index + 1,
+                            segment_index + 1
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let plan = DocxRebuildPlan {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    output_path: output_path.to_string_lossy().into_owned(),
+                    fingerprint: inspection.fingerprint.clone(),
+                    output_mode,
+                    replacements: inspection
+                        .segments
+                        .iter()
+                        .zip(&translations)
+                        .map(|(segment, translated_text)| DocxRebuildReplacement {
+                            id: segment.id.clone(),
+                            order: segment.order,
+                            part: segment.part.clone(),
+                            source_position: segment.source_position.clone(),
+                            structure: segment.structure.clone(),
+                            source_text: segment.source_text.clone(),
+                            translated_text: translated_text.clone(),
+                        })
+                        .collect(),
+                };
+
+                let result = rebuild_for_test(&plan).unwrap_or_else(|_| {
+                    panic!("real corpus rebuild failed: {file_name}:{mode_name}")
+                });
+                assert_eq!(result.replacement_count, inspection.segments.len());
+                let reopened = inspect_docx_path(&output_path).unwrap_or_else(|_| {
+                    panic!("rebuilt DOCX cannot reopen: {file_name}:{mode_name}")
+                });
+                assert_eq!(reopened.segments.len(), inspection.segments.len());
+                for ((source, rebuilt), translation) in inspection
+                    .segments
+                    .iter()
+                    .zip(&reopened.segments)
+                    .zip(&translations)
+                {
+                    assert_eq!(rebuilt.part, source.part);
+                    assert_eq!(rebuilt.structure, source.structure);
+                    match output_mode {
+                        DocxOutputMode::Translated => assert_eq!(
+                            rebuilt.source_text.trim_end_matches(['\r', '\n']),
+                            translation
+                        ),
+                        DocxOutputMode::Bilingual => {
+                            assert!(rebuilt.source_text.contains(&source.source_text));
+                            assert!(rebuilt.source_text.contains(translation));
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                std::fs::read(&source_path).unwrap(),
+                source_bytes,
+                "round-trip changed source file {file_name}"
+            );
+        }
+
+        eprintln!("DOCX_ROUNDTRIP_OUTPUT_DIR={}", output_directory.display());
+    }
+
+    #[test]
     fn cancellation_is_accepted_only_before_the_atomic_publish_commit() {
         let cancellation = RebuildCancellation::new();
         assert!(cancellation.cancel());

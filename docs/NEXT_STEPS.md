@@ -15,7 +15,7 @@
 
 ## 接手后按顺序处理
 
-1. 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版逐页视觉验收；已通过的合成语料 Word 检查和自动化语料不能替代该门槛。
+1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版逐页视觉验收；已通过的合成语料 Word 检查和自动化语料不能替代该门槛。
 2. 视觉门槛通过后统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
 当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
