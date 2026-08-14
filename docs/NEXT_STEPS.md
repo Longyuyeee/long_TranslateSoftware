@@ -15,7 +15,7 @@
 
 ## 接手后按顺序处理
 
-1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 在 Microsoft Word 中完成本轮 5 份真实 DOCX 的译文版与双语版逐页视觉验收；LibreOffice 侧已经完成，不能替代 Word 门槛。
+1. 按 [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 使用 `npm run audit:docx:word` 验证真实 Microsoft Word 身份、隔离导出本轮 5 份真实 DOCX 的译文版与双语版，并完成逐页视觉验收；LibreOffice/WPS 侧已经完成，不能替代 Word 门槛。
 2. 视觉门槛通过后统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
 当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX；LibreOffice 26.2.5.2 与 WPS Office 12.1.0.28043 均已完成双模式逐页验收。本机仍未发现 Microsoft Word，`Word.Application` COM 指向 WPS Office；WPS 结论只扩大兼容性证据，不能替代剩余 Word 门槛。
