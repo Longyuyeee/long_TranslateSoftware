@@ -215,6 +215,20 @@ export async function inspectDocxDocument(path: string): Promise<DocxInspection>
   return invoke<DocxInspection>("inspect_docx_document", { path });
 }
 
+export async function pickDocxOutput(
+  sourcePath: string,
+  suggestedFileName: string,
+  title: string,
+  filterName: string,
+): Promise<string | null> {
+  return invoke<string | null>("pick_docx_output", {
+    sourcePath,
+    suggestedFileName,
+    title,
+    filterName,
+  });
+}
+
 export async function saveDocumentCheckpoint(
   checkpoint: DocumentCheckpoint,
 ): Promise<void> {
@@ -252,6 +266,58 @@ export function documentSegmentsFromDocx(
     status: "pending",
     attempts: 0,
   }));
+}
+
+export interface ReadyDocumentJobOptions {
+  id: string;
+  sourcePath: string;
+  outputPath: string;
+  outputMode: DocumentOutputMode;
+  inspection: DocxInspection;
+  execution: TranslationExecutionSnapshot;
+  createdAt: string;
+  concurrency?: number;
+}
+
+/** Freezes one inspected DOCX into a validated ready job without starting work. */
+export function createReadyDocumentJob({
+  id,
+  sourcePath,
+  outputPath,
+  outputMode,
+  inspection,
+  execution,
+  createdAt,
+  concurrency = DOCUMENT_DEFAULT_CONCURRENCY,
+}: ReadyDocumentJobOptions): DocumentJob {
+  if (!outputPath.trim().toLocaleLowerCase().endsWith(".docx")) {
+    throw new DocumentContractError(
+      "invalid-input",
+      "DOCX output must use the .docx extension",
+    );
+  }
+  const job: DocumentJob = {
+    id,
+    phase: "ready",
+    input: {
+      sourcePath,
+      fileName: inspection.fileName,
+      sizeBytes: inspection.sizeBytes,
+      format: "docx",
+      fingerprint: inspection.fingerprint,
+    },
+    outputMode,
+    outputPath,
+    snapshot: documentSnapshotFromExecution(execution),
+    concurrency,
+    segments: documentSegmentsFromDocx(inspection),
+    createdAt,
+    updatedAt: createdAt,
+  };
+  return parseDocumentCheckpoint({
+    schemaVersion: DOCUMENT_CHECKPOINT_VERSION,
+    job,
+  }).job;
 }
 
 function normalizedWindowsPath(path: string): string {
@@ -682,6 +748,9 @@ export function parseDocumentCheckpoint(value: string | unknown): DocumentCheckp
     ["id", "phase", "input", "outputMode", "snapshot", "concurrency", "segments", "createdAt", "updatedAt"],
   );
   requireString(job.id, "document job ID");
+  if (!/^[A-Za-z0-9_-]{1,64}$/u.test(job.id as string)) {
+    throw new DocumentContractError("checkpoint-invalid", "Invalid document job ID");
+  }
   requireString(job.createdAt, "creation time");
   requireString(job.updatedAt, "update time");
   const createdAt = Date.parse(job.createdAt as string);
@@ -752,8 +821,8 @@ export function parseDocumentCheckpoint(value: string | unknown): DocumentCheckp
   if (job.error !== undefined) validateError(job.error);
   if (
     typeof job.outputPath === "string"
-    && job.outputPath.trim().toLocaleLowerCase()
-      === job.input.sourcePath.trim().toLocaleLowerCase()
+    && normalizedWindowsPath(job.outputPath)
+      === normalizedWindowsPath(job.input.sourcePath)
   ) {
     throw new DocumentContractError("checkpoint-invalid", "Document output must not overwrite its source");
   }

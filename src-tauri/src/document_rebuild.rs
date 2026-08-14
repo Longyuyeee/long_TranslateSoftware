@@ -1,4 +1,4 @@
-use crate::document::{inspect_docx_bytes, DocxInspection};
+use crate::document::{dialog_label, inspect_docx_bytes, local_dialog_path, DocxInspection};
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+use tauri::AppHandle;
+use tauri_plugin_dialog::DialogExt;
 use unicode_segmentation::UnicodeSegmentation;
 use zip::write::ZipWriter;
 use zip::ZipArchive;
@@ -770,8 +772,14 @@ fn safe_output_file_name(output: &Path) -> RebuildResult<&str> {
     Ok(name)
 }
 
-fn canonical_output_path(plan: &DocxRebuildPlan) -> RebuildResult<(PathBuf, PathBuf)> {
-    let requested = Path::new(plan.output_path.trim());
+fn canonical_output_destination(
+    source_path: &str,
+    requested: &Path,
+) -> RebuildResult<(PathBuf, PathBuf)> {
+    let requested_text = requested
+        .to_str()
+        .ok_or_else(|| DocxRebuildError::invalid("DOCX output path must be valid Unicode"))?;
+    validate_output_path(source_path, requested_text)?;
     let file_name = safe_output_file_name(requested)?;
     let parent = requested.parent().ok_or_else(|| {
         DocxRebuildError::invalid("DOCX output must have an existing parent directory")
@@ -798,7 +806,7 @@ fn canonical_output_path(plan: &DocxRebuildPlan) -> RebuildResult<(PathBuf, Path
             )))
         }
     }
-    let source = fs::canonicalize(plan.source_path.trim()).map_err(|error| {
+    let source = fs::canonicalize(source_path.trim()).map_err(|error| {
         DocxRebuildError::rebuild(format!("Cannot resolve DOCX source path: {error}"))
     })?;
     if normalized_windows_path(&source.to_string_lossy())
@@ -809,6 +817,55 @@ fn canonical_output_path(plan: &DocxRebuildPlan) -> RebuildResult<(PathBuf, Path
         ));
     }
     Ok((canonical_parent, output))
+}
+
+fn canonical_output_path(plan: &DocxRebuildPlan) -> RebuildResult<(PathBuf, PathBuf)> {
+    canonical_output_destination(&plan.source_path, Path::new(plan.output_path.trim()))
+}
+
+fn suggested_docx_file_name(value: String) -> RebuildResult<String> {
+    let value = value.trim();
+    let path = Path::new(value);
+    if value.is_empty()
+        || path.file_name().and_then(|name| name.to_str()) != Some(value)
+        || path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_none_or(|extension| !extension.eq_ignore_ascii_case("docx"))
+    {
+        return Err(DocxRebuildError::invalid(
+            "Suggested DOCX output must be a safe .docx file name",
+        ));
+    }
+    safe_output_file_name(path)?;
+    Ok(value.to_string())
+}
+
+#[tauri::command]
+pub fn pick_docx_output(
+    app: AppHandle,
+    source_path: String,
+    suggested_file_name: String,
+    title: String,
+    filter_name: String,
+) -> RebuildResult<Option<String>> {
+    let suggested_file_name = suggested_docx_file_name(suggested_file_name)?;
+    let title = dialog_label(title, "Choose a DOCX output");
+    let filter_name = dialog_label(filter_name, "Word document (*.docx)");
+    let selected = app
+        .dialog()
+        .file()
+        .set_title(title)
+        .add_filter(filter_name, &["docx"])
+        .set_file_name(suggested_file_name)
+        .blocking_save_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let selected =
+        local_dialog_path(selected).map_err(|error| DocxRebuildError::invalid(error.message))?;
+    let (_, output) = canonical_output_destination(&source_path, &selected)?;
+    Ok(Some(display_path(&output)))
 }
 
 #[cfg(windows)]
@@ -947,6 +1004,54 @@ mod tests {
                 source_text: "Hello".to_string(),
                 translated_text: "你好".to_string(),
             }],
+        }
+    }
+
+    #[test]
+    fn output_picker_contract_rejects_overwrite_and_existing_targets() {
+        let directory = std::env::temp_dir().join(format!(
+            "long-translate-output-picker-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("source.docx");
+        let output = directory.join("translated.docx");
+        std::fs::write(&source, b"source").unwrap();
+
+        let (canonical_parent, validated) =
+            canonical_output_destination(source.to_str().unwrap(), &output).unwrap();
+        assert_eq!(canonical_parent, std::fs::canonicalize(&directory).unwrap());
+        assert_eq!(validated, canonical_parent.join("translated.docx"));
+        assert_eq!(
+            canonical_output_destination(source.to_str().unwrap(), &source)
+                .unwrap_err()
+                .code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
+
+        std::fs::write(&output, b"existing").unwrap();
+        assert_eq!(
+            canonical_output_destination(source.to_str().unwrap(), &output)
+                .unwrap_err()
+                .code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn output_picker_contract_accepts_only_safe_docx_file_names() {
+        assert_eq!(
+            suggested_docx_file_name(" translated.docx ".to_string()).unwrap(),
+            "translated.docx"
+        );
+        for unsafe_name in ["", "translated.pdf", "folder/translated.docx", "CON.docx"] {
+            assert_eq!(
+                suggested_docx_file_name(unsafe_name.to_string())
+                    .unwrap_err()
+                    .code,
+                DocxRebuildErrorCode::InvalidPlan
+            );
         }
     }
 

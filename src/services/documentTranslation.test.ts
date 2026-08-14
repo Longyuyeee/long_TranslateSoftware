@@ -11,7 +11,9 @@ import {
   documentProgress,
   inspectDocumentInput,
   inspectDocxDocument,
+  createReadyDocumentJob,
   pickDocxDocument,
+  pickDocxOutput,
   saveDocumentCheckpoint,
   loadDocumentCheckpoint,
   deleteDocumentCheckpoint,
@@ -116,6 +118,23 @@ describe("DOCX import adaptation", () => {
     });
   });
 
+  it("passes a bounded DOCX output request to the desktop picker", async () => {
+    invokeMock.mockResolvedValueOnce("C:\\docs\\fixture-translated.docx");
+
+    await expect(pickDocxOutput(
+      "C:\\docs\\fixture.docx",
+      "fixture-translated.docx",
+      "Choose output",
+      "Word document (*.docx)",
+    )).resolves.toBe("C:\\docs\\fixture-translated.docx");
+    expect(invokeMock).toHaveBeenCalledWith("pick_docx_output", {
+      sourcePath: "C:\\docs\\fixture.docx",
+      suggestedFileName: "fixture-translated.docx",
+      title: "Choose output",
+      filterName: "Word document (*.docx)",
+    });
+  });
+
   it("maps inspected DOCX text into pending document segments", () => {
     expect(documentSegmentsFromDocx({
       fingerprint: "sha256:fixture",
@@ -142,6 +161,90 @@ describe("DOCX import adaptation", () => {
       status: "pending",
       attempts: 0,
     }]);
+  });
+});
+
+describe("document task preparation", () => {
+  const execution = {
+    primary: {
+      apiKey: "private-key",
+      baseUrl: "https://api.example.com/v1",
+      model: "translate-1",
+    },
+    targetLang: "Chinese",
+    sourceLang: "auto",
+    customPrompt: "Translate clearly",
+    glossary: [{ source_term: "hello", target_term: "你好" }],
+  };
+  const inspection = {
+    fingerprint: "sha256:fixture",
+    fileName: "fixture.docx",
+    sizeBytes: 2048,
+    warnings: [],
+    segments: [{
+      id: "segment-1",
+      order: 0,
+      part: "word/document.xml",
+      sourcePosition: "paragraph:0:chunk:0",
+      structure: "paragraph" as const,
+      sourceText: "Hello",
+    }],
+  };
+
+  it("creates a validated ready job without persisting runtime credentials", () => {
+    const prepared = createReadyDocumentJob({
+      id: "document-fixture",
+      sourcePath: "C:\\docs\\fixture.docx",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      outputMode: "translated",
+      inspection,
+      execution,
+      createdAt: now,
+    });
+
+    expect(prepared).toMatchObject({
+      id: "document-fixture",
+      phase: "ready",
+      outputMode: "translated",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      snapshot: {
+        sourceLanguage: "auto",
+        targetLanguage: "Chinese",
+        primary: { baseUrl: "https://api.example.com/v1", model: "translate-1" },
+      },
+      segments: [{ status: "pending", attempts: 0 }],
+    });
+    expect(JSON.stringify(prepared)).not.toContain("private-key");
+  });
+
+  it("rejects source overwrite and non-DOCX output before task creation", () => {
+    expect(() => createReadyDocumentJob({
+      id: "document-fixture",
+      sourcePath: "C:\\docs\\fixture.docx",
+      outputPath: "c:/docs/FIXTURE.DOCX",
+      outputMode: "bilingual",
+      inspection,
+      execution,
+      createdAt: now,
+    })).toThrow("must not overwrite");
+    expect(() => createReadyDocumentJob({
+      id: "document-fixture",
+      sourcePath: "C:\\docs\\fixture.docx",
+      outputPath: "C:\\docs\\fixture.pdf",
+      outputMode: "translated",
+      inspection,
+      execution,
+      createdAt: now,
+    })).toThrow(".docx extension");
+    expect(() => createReadyDocumentJob({
+      id: "../unsafe",
+      sourcePath: "C:\\docs\\fixture.docx",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      outputMode: "translated",
+      inspection,
+      execution,
+      createdAt: now,
+    })).toThrow("document job ID");
   });
 });
 

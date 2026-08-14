@@ -12,7 +12,7 @@ const zh = {
     batchTranslate: "文本翻译",
     documentTranslate: "文档翻译",
     documentWorkbenchTitle: "DOCX 文档工作台",
-    documentWorkbenchDescription: "选择 Word 文档，先检查可翻译内容和结构风险。此步骤不会发送文本或修改源文件。",
+    documentWorkbenchDescription: "选择 Word 文档，检查内容与结构风险，再确认输出方式和目标位置。",
     documentChoose: "选择 DOCX",
     documentChooseAnother: "选择其他 DOCX",
     documentPickerTitle: "选择 DOCX 文档",
@@ -29,7 +29,30 @@ const zh = {
     documentNoWarnings: "未发现需要提示的降级结构",
     documentPreview: "分段预览",
     documentPreviewCount: "显示前 {shown} / {total} 段",
-    documentPrivacyNotice: "正文仅在本机解析；确认开始翻译前不会发送给模型服务商。",
+    documentPrivacyNotice: "正文仅在本机解析；确认任务只冻结当前配置，明确开始翻译前不会发送给模型服务商。",
+    documentOutputSetup: "启动前确认",
+    documentOutputMode: "输出方式",
+    documentOutputTranslated: "译文版",
+    documentOutputTranslatedDescription: "用译文替换可翻译文本，并保留支持的文档结构。",
+    documentOutputBilingual: "双语版",
+    documentOutputBilingualDescription: "保留原文，并在对应段落后追加译文。",
+    documentOutputTarget: "输出位置",
+    documentOutputChoose: "选择输出位置",
+    documentOutputChooseAnother: "更改输出位置",
+    documentOutputSelecting: "正在打开保存对话框…",
+    documentOutputNotSelected: "尚未选择新的 .docx 文件",
+    documentOutputPickerTitle: "选择 DOCX 输出位置",
+    documentConfirmTask: "确认任务",
+    documentPreparingTask: "正在冻结任务配置…",
+    documentPreparedTitle: "任务已确认，尚未开始",
+    documentPreparedDescription: "当前模型、语言、提示词和术语表已冻结。下一阶段接入启动与进度。",
+    documentPreparedModel: "模型",
+    documentPreparedLanguages: "语言",
+    documentPreparationErrorTitle: "无法确认这个任务",
+    "documentPreparationError_output-invalid": "输出位置必须是不存在的新 .docx 文件，且不能覆盖源文件。",
+    "documentPreparationError_missing-api-key": "请先在模型配置中填写并保存 API Key。",
+    "documentPreparationError_invalid-task": "文档或任务配置已经失效，请重新选择后确认。",
+    documentPreparationError_unknown: "任务确认失败，请检查模型配置后重试。",
     documentImportErrorTitle: "无法检查这个文档",
     "documentImportError_unsupported-format": "请选择有效的 .docx 文件，旧 .doc 格式暂不支持。",
     "documentImportError_input-too-large": "文档超过安全大小或内容上限，请缩小文件后重试。",
@@ -413,7 +436,7 @@ const en: TranslationCatalog = {
     batchTranslate: "Batch",
     documentTranslate: "Documents",
     documentWorkbenchTitle: "DOCX workspace",
-    documentWorkbenchDescription: "Choose a Word document to inspect translatable content and structural risks. This step does not send text or modify the source file.",
+    documentWorkbenchDescription: "Choose a Word document, inspect its content and risks, then confirm the output mode and destination.",
     documentChoose: "Choose DOCX",
     documentChooseAnother: "Choose another DOCX",
     documentPickerTitle: "Choose a DOCX document",
@@ -430,7 +453,30 @@ const en: TranslationCatalog = {
     documentNoWarnings: "No degraded structures need attention",
     documentPreview: "Segment preview",
     documentPreviewCount: "Showing {shown} of {total} segments",
-    documentPrivacyNotice: "Text is parsed locally and is not sent to a model provider until you confirm translation.",
+    documentPrivacyNotice: "Text is parsed locally. Confirming only freezes the current settings; nothing is sent until translation is explicitly started.",
+    documentOutputSetup: "Preflight confirmation",
+    documentOutputMode: "Output mode",
+    documentOutputTranslated: "Translated",
+    documentOutputTranslatedDescription: "Replace translatable text while preserving supported document structure.",
+    documentOutputBilingual: "Bilingual",
+    documentOutputBilingualDescription: "Keep the source and append its translation to each corresponding paragraph.",
+    documentOutputTarget: "Output destination",
+    documentOutputChoose: "Choose output destination",
+    documentOutputChooseAnother: "Change output destination",
+    documentOutputSelecting: "Opening the save dialog…",
+    documentOutputNotSelected: "No new .docx file selected",
+    documentOutputPickerTitle: "Choose a DOCX output",
+    documentConfirmTask: "Confirm task",
+    documentPreparingTask: "Freezing task settings…",
+    documentPreparedTitle: "Task confirmed, not started",
+    documentPreparedDescription: "The current model, languages, prompt, and glossary are frozen. Starting and progress arrive in the next stage.",
+    documentPreparedModel: "Model",
+    documentPreparedLanguages: "Languages",
+    documentPreparationErrorTitle: "This task could not be confirmed",
+    "documentPreparationError_output-invalid": "Choose a new, unused .docx destination that does not overwrite the source.",
+    "documentPreparationError_missing-api-key": "Add and save an API key in Model settings first.",
+    "documentPreparationError_invalid-task": "The document or task settings are stale. Choose them again and reconfirm.",
+    documentPreparationError_unknown: "Task confirmation failed. Check the model settings and retry.",
     documentImportErrorTitle: "This document could not be inspected",
     "documentImportError_unsupported-format": "Choose a valid .docx file. Legacy .doc files are not supported yet.",
     "documentImportError_input-too-large": "The document exceeds a safe file or content limit. Reduce it and try again.",
@@ -818,6 +864,7 @@ function translatedCode(
     | "webdavError_"
     | "contextSource_"
     | "documentImportError_"
+    | "documentPreparationError_"
     | "documentWarning_"
     | "documentStructure_",
   code: string | undefined,
@@ -841,6 +888,14 @@ export function documentWarningText(
 ): string {
   return translatedCode(catalog, "documentWarning_", code)
     ?? catalog.documentWarning_unknown;
+}
+
+export function documentPreparationErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "documentPreparationError_", code)
+    ?? catalog.documentPreparationError_unknown;
 }
 
 export function documentStructureText(

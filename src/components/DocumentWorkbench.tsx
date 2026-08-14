@@ -1,18 +1,23 @@
 import {
   AlertCircle,
   AlertTriangle,
+  CheckCircle2,
   FileText,
+  FileOutput,
   FolderOpen,
+  Languages,
   ShieldCheck,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
   documentImportErrorText,
+  documentPreparationErrorText,
   documentStructureText,
   documentWarningText,
   type TranslationCatalog,
 } from "../i18n";
 import { useDocumentImport } from "../hooks/useDocumentImport";
+import { useDocumentPreparation } from "../hooks/useDocumentPreparation";
 
 const PREVIEW_SEGMENT_LIMIT = 100;
 
@@ -20,6 +25,15 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function displayFileName(path: string): string {
+  return path.split(/[\\/]/u).filter(Boolean).pop() ?? path;
+}
+
+function languageLabel(labels: TranslationCatalog, language: string): string {
+  if (language === "auto") return labels.autoDetect;
+  return (labels.languageNames as Record<string, string>)[language] ?? language;
 }
 
 export default function DocumentWorkbench({
@@ -30,13 +44,31 @@ export default function DocumentWorkbench({
   const {
     phase,
     inspection,
+    sourcePath,
     errorCode,
-    isBusy,
+    isBusy: isImportBusy,
     chooseDocument,
   } = useDocumentImport({
     title: labels.documentPickerTitle,
     filterName: labels.documentPickerFilter,
   });
+  const {
+    phase: preparationPhase,
+    outputMode,
+    outputPath,
+    preparedTask,
+    errorCode: preparationErrorCode,
+    isBusy: isPreparationBusy,
+    setOutputMode,
+    chooseOutput,
+    confirmTask,
+  } = useDocumentPreparation({
+    inspection,
+    sourcePath,
+    pickerTitle: labels.documentOutputPickerTitle,
+    pickerFilterName: labels.documentPickerFilter,
+  });
+  const isBusy = isImportBusy || isPreparationBusy;
   const preview = inspection?.segments.slice(0, PREVIEW_SEGMENT_LIMIT) ?? [];
   const sourceBytes = useMemo(() => {
     if (!inspection) return 0;
@@ -72,7 +104,7 @@ export default function DocumentWorkbench({
             className="flex min-w-40 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-xs font-black text-white shadow-lg shadow-accent transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
           >
             <FolderOpen size={16} aria-hidden="true" />
-            {isBusy
+            {isImportBusy
               ? busyLabel
               : inspection
                 ? labels.documentChooseAnother
@@ -92,6 +124,20 @@ export default function DocumentWorkbench({
             <div>
               <h3 className="text-xs font-black">{labels.documentImportErrorTitle}</h3>
               <p className="mt-1 text-[11px] font-medium">{documentImportErrorText(labels, errorCode ?? undefined)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {preparationPhase === "error" && (
+        <div role="alert" className="shrink-0 rounded-2xl border border-red-500/20 bg-red-50 p-4 text-red-700 dark:bg-red-500/10 dark:text-red-300">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <div>
+              <h3 className="text-xs font-black">{labels.documentPreparationErrorTitle}</h3>
+              <p className="mt-1 text-[11px] font-medium">
+                {documentPreparationErrorText(labels, preparationErrorCode ?? undefined)}
+              </p>
             </div>
           </div>
         </div>
@@ -155,6 +201,126 @@ export default function DocumentWorkbench({
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            <div className="glass-card rounded-[24px] p-5">
+              <h3 className="mb-4 flex items-center gap-2 text-xs font-black text-zinc-800 dark:text-zinc-100">
+                <FileOutput size={15} className="text-accent" aria-hidden="true" />
+                {labels.documentOutputSetup}
+              </h3>
+
+              <fieldset disabled={isBusy}>
+                <legend className="mb-2 text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+                  {labels.documentOutputMode}
+                </legend>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([
+                    [
+                      "translated",
+                      labels.documentOutputTranslated,
+                      labels.documentOutputTranslatedDescription,
+                    ],
+                    [
+                      "bilingual",
+                      labels.documentOutputBilingual,
+                      labels.documentOutputBilingualDescription,
+                    ],
+                  ] as const).map(([value, label, description]) => (
+                    <label
+                      key={value}
+                      className={`cursor-pointer rounded-2xl border p-3 transition-colors ${
+                        outputMode === value
+                          ? "border-accent/40 bg-accent/10"
+                          : "border-black/5 bg-black/[0.02] dark:border-white/5 dark:bg-white/[0.025]"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-[11px] font-black text-zinc-800 dark:text-zinc-100">
+                        <input
+                          type="radio"
+                          name="document-output-mode"
+                          value={value}
+                          checked={outputMode === value}
+                          onChange={() => setOutputMode(value)}
+                          className="accent-[var(--accent)]"
+                        />
+                        {label}
+                      </span>
+                      <span className="mt-1 block pl-5 text-[9px] leading-relaxed font-medium text-zinc-400">
+                        {description}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="mt-4">
+                <p className="mb-2 text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+                  {labels.documentOutputTarget}
+                </p>
+                <div className="flex min-w-0 items-center gap-2 rounded-2xl bg-black/[0.025] p-2.5 dark:bg-white/[0.035]">
+                  <FileOutput size={15} className="shrink-0 text-zinc-400" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-zinc-600 dark:text-zinc-300">
+                    {outputPath
+                      ? displayFileName(outputPath)
+                      : labels.documentOutputNotSelected}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void chooseOutput()}
+                    disabled={isBusy}
+                    className="shrink-0 rounded-xl border border-accent/15 bg-accent/10 px-3 py-2 text-[9px] font-black text-accent disabled:opacity-50"
+                  >
+                    {isPreparationBusy && preparationPhase === "selecting-output"
+                      ? labels.documentOutputSelecting
+                      : outputPath
+                        ? labels.documentOutputChooseAnother
+                        : labels.documentOutputChoose}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void confirmTask()}
+                disabled={!outputPath || isBusy || Boolean(preparedTask)}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-[11px] font-black text-white shadow-lg shadow-accent disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <CheckCircle2 size={15} aria-hidden="true" />
+                {preparationPhase === "preparing"
+                  ? labels.documentPreparingTask
+                  : labels.documentConfirmTask}
+              </button>
+
+              {preparedTask && (
+                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-emerald-800 dark:text-emerald-300">
+                  <p className="flex items-center gap-2 text-[10px] font-black">
+                    <CheckCircle2 size={14} aria-hidden="true" />
+                    {labels.documentPreparedTitle}
+                  </p>
+                  <p className="mt-1 text-[9px] leading-relaxed font-medium">
+                    {labels.documentPreparedDescription}
+                  </p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <dt className="text-[8px] font-bold opacity-70">{labels.documentPreparedModel}</dt>
+                      <dd className="mt-0.5 truncate text-[9px] font-black">
+                        {preparedTask.job.snapshot.primary.model}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="flex items-center gap-1 text-[8px] font-bold opacity-70">
+                        <Languages size={9} aria-hidden="true" />
+                        {labels.documentPreparedLanguages}
+                      </dt>
+                      <dd className="mt-0.5 truncate text-[9px] font-black">
+                        {languageLabel(labels, preparedTask.job.snapshot.sourceLanguage)}
+                        {" → "}
+                        {languageLabel(labels, preparedTask.job.snapshot.targetLanguage)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
               )}
             </div>
           </div>

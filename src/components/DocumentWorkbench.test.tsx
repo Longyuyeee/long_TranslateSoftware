@@ -4,16 +4,25 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { translations } from "../i18n";
+import { TranslationRequestError } from "../services/translationProvider";
 import DocumentWorkbench from "./DocumentWorkbench";
 
-const { inspectMock, pickMock } = vi.hoisted(() => ({
+const { inspectMock, loadSnapshotMock, pickMock, pickOutputMock } = vi.hoisted(() => ({
   inspectMock: vi.fn(),
+  loadSnapshotMock: vi.fn(),
   pickMock: vi.fn(),
+  pickOutputMock: vi.fn(),
 }));
 
-vi.mock("../services/documentTranslation", () => ({
+vi.mock("../services/documentTranslation", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/documentTranslation")>(),
   inspectDocxDocument: inspectMock,
   pickDocxDocument: pickMock,
+  pickDocxOutput: pickOutputMock,
+}));
+vi.mock("../services/translationTask", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../services/translationTask")>(),
+  loadTranslationExecutionSnapshot: loadSnapshotMock,
 }));
 
 describe("DocumentWorkbench", () => {
@@ -32,6 +41,18 @@ describe("DocumentWorkbench", () => {
         structure: "heading",
         sourceText: "Hello 世界",
       }],
+    });
+    pickOutputMock.mockResolvedValue("C:\\private\\fixture-translated.docx");
+    loadSnapshotMock.mockResolvedValue({
+      primary: {
+        apiKey: "private-key",
+        baseUrl: "https://api.example.com/v1",
+        model: "translate-1",
+      },
+      sourceLang: "auto",
+      targetLang: "Chinese",
+      customPrompt: "",
+      glossary: [],
     });
   });
 
@@ -83,5 +104,40 @@ describe("DocumentWorkbench", () => {
     expect(pickMock).toHaveBeenCalledOnce();
     resolvePick(null);
     await waitFor(() => expect(screen.getByRole("button", { name: translations.en.documentChoose })).toBeEnabled());
+  });
+
+  it("confirms a frozen task without exposing either selected path", async () => {
+    render(<DocumentWorkbench labels={translations.en} />);
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
+    expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
+    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
+
+    expect(await screen.findByText(translations.en.documentPreparedTitle)).toBeInTheDocument();
+    expect(screen.getByText("translate-1")).toBeInTheDocument();
+    expect(screen.getByText(`${translations.en.autoDetect} → Chinese`)).toBeInTheDocument();
+    expect(loadSnapshotMock).toHaveBeenCalledOnce();
+    expect(screen.queryByText("C:\\private\\fixture.docx")).not.toBeInTheDocument();
+    expect(screen.queryByText("C:\\private\\fixture-translated.docx")).not.toBeInTheDocument();
+    expect(screen.queryByText("private-key")).not.toBeInTheDocument();
+  });
+
+  it("shows a localized configuration error without leaking its message", async () => {
+    loadSnapshotMock.mockRejectedValue(
+      new TranslationRequestError("missing-api-key", "private API configuration"),
+    );
+    render(<DocumentWorkbench labels={translations.en} />);
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentChoose }));
+    expect(await screen.findByText("fixture.docx")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentOutputChoose }));
+    expect(await screen.findByText("fixture-translated.docx")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      translations.en["documentPreparationError_missing-api-key"],
+    );
+    expect(screen.queryByText(/private API/iu)).not.toBeInTheDocument();
   });
 });
