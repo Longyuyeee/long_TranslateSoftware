@@ -1113,7 +1113,7 @@ pub(crate) fn inspect_docx_bytes(bytes: &[u8], file_name: String) -> ImportResul
     inspect_archive(archive, fingerprint, file_name, actual_size)
 }
 
-fn local_dialog_path(path: FilePath) -> ImportResult<PathBuf> {
+pub(crate) fn local_dialog_path(path: FilePath) -> ImportResult<PathBuf> {
     match path {
         FilePath::Path(path) => Ok(path),
         FilePath::Url(url) => url.to_file_path().map_err(|_| {
@@ -1122,7 +1122,7 @@ fn local_dialog_path(path: FilePath) -> ImportResult<PathBuf> {
     }
 }
 
-fn dialog_label(value: String, fallback: &str) -> String {
+pub(crate) fn dialog_label(value: String, fallback: &str) -> String {
     let value = value
         .trim()
         .chars()
