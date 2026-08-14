@@ -7,16 +7,15 @@
 - 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- v0.5.1 的 DOCX 无 UI 核心已经完成安全导入、Checkpoint 恢复、有界翻译队列、安全重试、任务所有权、译文/双语内存重建和不覆盖原子发布；最小工作台 UI、重建阶段取消、真实成品验收和发布收口尚未完成。
+- v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；当前剩余真实 Word 视觉验收、故障矩阵和发布收口。
 - 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
 - 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
 
 ## 接手后按顺序处理
 
-1. 接入最小 DOCX 工作台：系统文件选择、inspection、警告、分段预览、确认、输出模式与目标位置。
-2. 用既有任务注册表接通启动、进度、取消、恢复和只重试失败段，并把任务级取消贯穿到重建与发布前。
-3. 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版验收，并补齐磁盘、权限、占用、取消和资源边界矩阵。
-4. 对齐普通 CI 与 Release 门禁，再统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
+1. 补齐磁盘写满、权限拒绝和目标文件占用的 DOCX 成品级故障矩阵。
+2. 使用至少 5 份匿名真实 DOCX 完成 Word/LibreOffice 译文版与双语版逐页视觉验收；自动化语料不能替代该门槛。
+3. 对齐普通 CI 与 Release 门禁，再统一提升 `0.5.1` 版本、更新发布文档并执行安装、升级、Updater 和资产完整性验收。
 
 当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 
