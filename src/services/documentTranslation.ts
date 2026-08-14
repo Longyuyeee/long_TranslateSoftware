@@ -204,6 +204,13 @@ export interface DocxRebuildCommandError {
   message: string;
 }
 
+export async function pickDocxDocument(
+  title: string,
+  filterName: string,
+): Promise<string | null> {
+  return invoke<string | null>("pick_docx_document", { title, filterName });
+}
+
 export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
   return invoke<DocxInspection>("inspect_docx_document", { path });
 }

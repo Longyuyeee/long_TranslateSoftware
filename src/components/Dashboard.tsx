@@ -39,6 +39,7 @@ const AppearanceSettingsTab = lazy(() => import("./AppearanceSettingsTab"));
 const GeneralSettingsTab = lazy(() => import("./GeneralSettingsTab"));
 const WordbookTab = lazy(() => import("./WordbookTab"));
 const BatchTranslationView = lazy(() => import("./BatchTranslationView"));
+const DocumentWorkbench = lazy(() => import("./DocumentWorkbench"));
 
 const LANGUAGES = [
   "Chinese", "English", "Japanese", "Korean", "French", "German",
@@ -523,6 +524,18 @@ export default function Dashboard() {
                                 onCancel={cancelBatchWork}
                                 onCompareModeChange={setCompareModeEnabled}
                             />
+                        </Suspense>
+                    )}
+
+                    {activeTab === "document" && (
+                        <Suspense
+                            fallback={(
+                                <div className="flex h-full items-center justify-center" role="status" aria-label={t.loading}>
+                                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-accent" />
+                                </div>
+                            )}
+                        >
+                            <DocumentWorkbench labels={t} />
                         </Suspense>
                     )}
 

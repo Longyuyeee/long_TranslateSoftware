@@ -156,6 +156,7 @@ pub fn run() {
             config::set_config_values,
             updater::updater_configured,
             diagnostics::export_diagnostics,
+            document::pick_docx_document,
             document::inspect_docx_document,
             document_checkpoint::save_document_checkpoint,
             document_checkpoint::load_document_checkpoint,

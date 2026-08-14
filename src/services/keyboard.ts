@@ -6,6 +6,7 @@ export const DASHBOARD_TAB_IDS = [
   "wordbook",
   "review",
   "history",
+  "document",
 ] as const;
 
 export type DashboardTabId = typeof DASHBOARD_TAB_IDS[number];

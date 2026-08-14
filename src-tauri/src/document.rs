@@ -8,6 +8,8 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use tauri::AppHandle;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 use unicode_segmentation::UnicodeSegmentation;
 use zip::result::ZipError;
 use zip::ZipArchive;
@@ -1111,6 +1113,52 @@ pub(crate) fn inspect_docx_bytes(bytes: &[u8], file_name: String) -> ImportResul
     inspect_archive(archive, fingerprint, file_name, actual_size)
 }
 
+fn local_dialog_path(path: FilePath) -> ImportResult<PathBuf> {
+    match path {
+        FilePath::Path(path) => Ok(path),
+        FilePath::Url(url) => url.to_file_path().map_err(|_| {
+            DocxImportError::invalid_input("The selected DOCX path is not a local file")
+        }),
+    }
+}
+
+fn dialog_label(value: String, fallback: &str) -> String {
+    let value = value
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(128)
+        .collect::<String>();
+    if value.is_empty() {
+        fallback.to_string()
+    } else {
+        value
+    }
+}
+
+#[tauri::command]
+pub fn pick_docx_document(
+    app: AppHandle,
+    title: String,
+    filter_name: String,
+) -> ImportResult<Option<String>> {
+    let title = dialog_label(title, "Select a DOCX document");
+    let filter_name = dialog_label(filter_name, "Word document (*.docx)");
+    let selected = app
+        .dialog()
+        .file()
+        .set_title(title)
+        .add_filter(filter_name, &["docx"])
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = local_dialog_path(selected)?;
+    path.to_str().map(str::to_string).map(Some).ok_or_else(|| {
+        DocxImportError::invalid_input("The selected DOCX path is not valid Unicode")
+    })
+}
+
 #[tauri::command]
 pub fn inspect_docx_document(path: String) -> ImportResult<DocxInspection> {
     inspect_docx_path(&PathBuf::from(path))
@@ -1119,11 +1167,13 @@ pub fn inspect_docx_document(path: String) -> ImportResult<DocxInspection> {
 #[cfg(test)]
 mod tests {
     use super::{
-        inspect_archive, inspect_docx_path, read_input_with_limit, DocxImportError,
-        DocxImportErrorCode, MAX_SEGMENT_BYTES,
+        dialog_label, inspect_archive, inspect_docx_path, local_dialog_path, read_input_with_limit,
+        DocxImportError, DocxImportErrorCode, MAX_SEGMENT_BYTES,
     };
     use std::io::{Cursor, Write};
     use std::path::Path;
+    use std::path::PathBuf;
+    use tauri_plugin_dialog::FilePath;
     use zip::write::SimpleFileOptions;
 
     const CONTENT_TYPES: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1691,6 +1741,34 @@ mod tests {
         assert_eq!(
             encrypted_error.message,
             "Encrypted DOCX files are not supported"
+        );
+    }
+
+    #[test]
+    fn accepts_only_local_file_picker_paths() {
+        let local = PathBuf::from(r"C:\docs\fixture.docx");
+        assert_eq!(
+            local_dialog_path(FilePath::Path(local.clone())).unwrap(),
+            local
+        );
+        assert_eq!(
+            local_dialog_path(FilePath::Url(
+                url::Url::parse("https://example.com/document.docx").unwrap()
+            ))
+            .unwrap_err()
+            .code,
+            DocxImportErrorCode::InvalidInput
+        );
+    }
+
+    #[test]
+    fn bounds_and_defaults_picker_labels() {
+        assert_eq!(dialog_label("   ".to_string(), "fallback"), "fallback");
+        assert_eq!(dialog_label("  文档  ".to_string(), "fallback"), "文档");
+        assert_eq!(dialog_label("文\n档".to_string(), "fallback"), "文档");
+        assert_eq!(
+            dialog_label("x".repeat(200), "fallback").chars().count(),
+            128
         );
     }
 }

@@ -10,6 +10,47 @@ const zh = {
     general: "通用设置",
     mainNavigation: "主功能导航",
     batchTranslate: "文本翻译",
+    documentTranslate: "文档翻译",
+    documentWorkbenchTitle: "DOCX 文档工作台",
+    documentWorkbenchDescription: "选择 Word 文档，先检查可翻译内容和结构风险。此步骤不会发送文本或修改源文件。",
+    documentChoose: "选择 DOCX",
+    documentChooseAnother: "选择其他 DOCX",
+    documentPickerTitle: "选择 DOCX 文档",
+    documentPickerFilter: "Word 文档 (*.docx)",
+    documentSelecting: "正在打开文件选择器…",
+    documentInspecting: "正在安全检查文档…",
+    documentEmptyTitle: "选择一个 DOCX 开始",
+    documentEmptyDescription: "支持未加密的 Open XML .docx 文件，最大 50 MiB。旧 .doc 文件不受支持。",
+    documentFileSize: "文件大小",
+    documentDocxFormat: "DOCX",
+    documentSegmentCount: "可翻译分段",
+    documentSourceBytes: "原文字节",
+    documentWarnings: "结构提示",
+    documentNoWarnings: "未发现需要提示的降级结构",
+    documentPreview: "分段预览",
+    documentPreviewCount: "显示前 {shown} / {total} 段",
+    documentPrivacyNotice: "正文仅在本机解析；确认开始翻译前不会发送给模型服务商。",
+    documentImportErrorTitle: "无法检查这个文档",
+    "documentImportError_unsupported-format": "请选择有效的 .docx 文件，旧 .doc 格式暂不支持。",
+    "documentImportError_input-too-large": "文档超过安全大小或内容上限，请缩小文件后重试。",
+    "documentImportError_invalid-input": "文档已加密、损坏或包含不安全的包结构。",
+    "documentImportError_parse-failed": "无法读取文档结构，请确认文件可在 Word 中正常打开。",
+    documentImportError_unknown: "文档检查失败，请重新选择文件后重试。",
+    "documentWarning_comments-ignored": "批注不会翻译。",
+    "documentWarning_images-ignored": "图片会保留，但不会发送翻译。",
+    "documentWarning_embedded-objects-unsupported": "嵌入对象不会翻译。",
+    "documentWarning_revisions-degraded": "修订内容仅按可见文本处理。",
+    "documentWarning_formulas-ignored": "公式不会翻译。",
+    "documentWarning_text-boxes-unsupported": "文本框不会翻译。",
+    "documentWarning_fields-degraded": "字段会保留，但字段指令不会翻译。",
+    documentWarning_unknown: "文档包含需要降级处理的结构。",
+    documentStructure_paragraph: "正文",
+    documentStructure_heading: "标题",
+    "documentStructure_list-item": "列表",
+    "documentStructure_table-cell": "表格",
+    documentStructure_header: "页眉",
+    documentStructure_footer: "页脚",
+    documentStructure_unknown: "文本",
     modelConfig: "模型配置",
     appearance: "外观显示",
     wordbook: "生词本",
@@ -370,6 +411,47 @@ const en: TranslationCatalog = {
     general: "General",
     mainNavigation: "Main navigation",
     batchTranslate: "Batch",
+    documentTranslate: "Documents",
+    documentWorkbenchTitle: "DOCX workspace",
+    documentWorkbenchDescription: "Choose a Word document to inspect translatable content and structural risks. This step does not send text or modify the source file.",
+    documentChoose: "Choose DOCX",
+    documentChooseAnother: "Choose another DOCX",
+    documentPickerTitle: "Choose a DOCX document",
+    documentPickerFilter: "Word document (*.docx)",
+    documentSelecting: "Opening the file picker…",
+    documentInspecting: "Inspecting the document safely…",
+    documentEmptyTitle: "Choose a DOCX to begin",
+    documentEmptyDescription: "Supports unencrypted Open XML .docx files up to 50 MiB. Legacy .doc files are not supported.",
+    documentFileSize: "File size",
+    documentDocxFormat: "DOCX",
+    documentSegmentCount: "Translatable segments",
+    documentSourceBytes: "Source bytes",
+    documentWarnings: "Structure notices",
+    documentNoWarnings: "No degraded structures need attention",
+    documentPreview: "Segment preview",
+    documentPreviewCount: "Showing {shown} of {total} segments",
+    documentPrivacyNotice: "Text is parsed locally and is not sent to a model provider until you confirm translation.",
+    documentImportErrorTitle: "This document could not be inspected",
+    "documentImportError_unsupported-format": "Choose a valid .docx file. Legacy .doc files are not supported yet.",
+    "documentImportError_input-too-large": "The document exceeds a safe file or content limit. Reduce it and try again.",
+    "documentImportError_invalid-input": "The document is encrypted, damaged, or contains an unsafe package structure.",
+    "documentImportError_parse-failed": "The document structure could not be read. Confirm that Word can open the file.",
+    documentImportError_unknown: "Document inspection failed. Choose the file again and retry.",
+    "documentWarning_comments-ignored": "Comments are not translated.",
+    "documentWarning_images-ignored": "Images are preserved but are not sent for translation.",
+    "documentWarning_embedded-objects-unsupported": "Embedded objects are not translated.",
+    "documentWarning_revisions-degraded": "Tracked revisions are handled as visible text only.",
+    "documentWarning_formulas-ignored": "Formulas are not translated.",
+    "documentWarning_text-boxes-unsupported": "Text boxes are not translated.",
+    "documentWarning_fields-degraded": "Fields are preserved, but field instructions are not translated.",
+    documentWarning_unknown: "The document contains a structure that requires degraded handling.",
+    documentStructure_paragraph: "Paragraph",
+    documentStructure_heading: "Heading",
+    "documentStructure_list-item": "List",
+    "documentStructure_table-cell": "Table",
+    documentStructure_header: "Header",
+    documentStructure_footer: "Footer",
+    documentStructure_unknown: "Text",
     modelConfig: "Model",
     appearance: "Appearance",
     wordbook: "Wordbook",
@@ -731,12 +813,42 @@ export const translations: Record<Lang, TranslationCatalog> = {
 
 function translatedCode(
   catalog: TranslationCatalog,
-  prefix: "translationError_" | "webdavError_" | "contextSource_",
+  prefix:
+    | "translationError_"
+    | "webdavError_"
+    | "contextSource_"
+    | "documentImportError_"
+    | "documentWarning_"
+    | "documentStructure_",
   code: string | undefined,
 ): string | undefined {
   if (!code) return undefined;
   const value = (catalog as unknown as Record<string, unknown>)[`${prefix}${code}`];
   return typeof value === "string" ? value : undefined;
+}
+
+export function documentImportErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "documentImportError_", code)
+    ?? catalog.documentImportError_unknown;
+}
+
+export function documentWarningText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "documentWarning_", code)
+    ?? catalog.documentWarning_unknown;
+}
+
+export function documentStructureText(
+  catalog: TranslationCatalog,
+  structure?: string,
+): string {
+  return translatedCode(catalog, "documentStructure_", structure)
+    ?? catalog.documentStructure_unknown;
 }
 
 export function translationErrorText(
