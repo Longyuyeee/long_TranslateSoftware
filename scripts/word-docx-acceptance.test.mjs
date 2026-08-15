@@ -25,6 +25,7 @@ describe("Microsoft Word DOCX acceptance runner", () => {
     const source = readFileSync(runnerPath, "utf8");
 
     expect(source).toContain("Get-AuthenticodeSignature");
+    expect(source).toContain("Microsoft.PowerShell.Utility");
     expect(source.indexOf("Join-Path $PSHOME"))
       .toBeLessThan(source.indexOf("New-Object -ComObject Word.Application"));
     expect(source).toContain("Microsoft Corporation");
@@ -32,6 +33,12 @@ describe("Microsoft Word DOCX acceptance runner", () => {
     expect(source).toContain("AutomationSecurity = 3");
     expect(source).toContain("UpdateLinksAtOpen = $false");
     expect(source).toContain("Get-FileHash");
+    expect(source).toContain("Resolve-OutputDirectoryPath $OutputDirectory");
+    expect(source).toContain("Self-test changed an absolute output path");
+    expect(source).toContain("Test-WordActivationEvidence");
+    expect(source).toContain("Microsoft Word is not activated");
+    expect(source).toContain("$wordPidsBefore");
+    expect(source).toContain("$process.MainWindowHandle -eq [IntPtr]::Zero");
     expect(source).toContain("foreach ($file in $files)");
     expect(source).toContain("$session = Open-VerifiedWord");
     expect(source).toContain("word-render-manifest.json");
