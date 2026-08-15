@@ -1,6 +1,6 @@
 # 2026-08-14 开发进度与收尾审计
 
-审计基线：`master` / `849baaf`（PR #98）
+审计基线：`v0.5.1` / `2e481fb`（PR #102，发布后文档回写除外）
 
 目标版本：`v0.5.1` DOCX-only MVP
 
@@ -10,17 +10,17 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 本轮发布故障审计补齐权限拒绝、磁盘写入失败、文件同步失败和提交时目标竞争。审计发现 Windows `rename` 会在竞争窗口覆盖刚出现的目标文件，因此最终提交改为同卷硬链接创建目标名：目标存在时原子失败；临时名删除失败时回滚目标链接。失败路径均验证源文件逐字节不变、既有目标不变且无 `.long-translate-*` 临时文件残留。
 
-Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化、LibreOffice 97 页和 WPS Office 96 页逐页验收已经完成。产品决策允许 v0.5.1 以 DOCX 预览能力进入发布候选收口；Microsoft Word 同批真实文档验收仍未完成，必须作为明确限制保留。版本源现已统一为 `0.5.1`，但正式标签仍需等待安装、升级、Updater 和资产完整性门禁通过。
+Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化、LibreOffice 97 页和 WPS Office 96 页逐页验收已经完成。v0.5.1 已以 DOCX 预览能力正式发布，安装、v0.5.0 原位升级、应用内 Updater、签名和 7 个 Release 资产均完成验收；Microsoft Word 同批真实文档验收仍未完成，必须作为明确限制保留。
 
 ## 当前复审快照
 
-- `master` 已同步到 `849baaf`；工作区中的用户本地修改不纳入、不修改。
-- `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` 与浏览器扩展 Manifest 的项目版本均已统一为 `0.5.1`；该状态只表示发布候选，不表示 Release 已发布。
-- 前端 60 个测试文件、305 项测试全部通过；Rust 149 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖真实语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
+- `v0.5.1` 标签和正式 Release 基线为 `2e481fb`；工作区中的用户本地修改不纳入、不修改。
+- `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` 与浏览器扩展 Manifest 的项目版本均为 `0.5.1`，并与标签、Release Notes、扩展包、质量报告和安装后二进制一致。
+- 前端 61 个测试文件、308 项测试全部通过；Rust 150 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖真实语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
 - Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；PR #87 将正式 Chrome 的 `ERR_BLOCKED_BY_CLIENT` 与“不开放自动化调试端口”两种已知官方限制统一保留为 `chrome://extensions` 人工门槛，其他 Chrome 错误仍会使 CI 失败。PR 与合并后 `master` CI 均全绿。
 - 本轮未发现新的 P0/P1 代码回归。维护风险为 Browserslist 数据已约 6 个月未更新，以及最大桌面 chunk 已使用约 84% 门槛；两项均记录为 P2，不阻断 DOCX 验收，但后续功能增量不得继续无审计扩大主包。
-- 发布决策已调整：WPS/LibreOffice 真实文档矩阵作为 v0.5.1 DOCX 预览版的发布证据；先完成范围声明审计，再进入 `0.5.1` 版本、安装器、原位升级、Updater 与资产完整性收口。正式标签仍必须等发布候选门禁通过。
+- 发布决策已执行：WPS/LibreOffice 真实文档矩阵作为 v0.5.1 DOCX 预览版证据；安装器、原位升级、Updater 与资产完整性收口完成后已创建正式标签。后续冻结 DOCX MVP，只处理回归，并继续保留 Word 未验证声明。
 
 ## 已完成范围
 
@@ -143,3 +143,12 @@ Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化
 - 修复后 MSI 管理员静默安装、启动、二次启动单实例、窗口恢复及静默卸载均通过。Chrome/Edge 注册统一指向 `%LOCALAPPDATA%\com.long.translate\native-messaging\com.long.translate.json`；卸载后清单、两项浏览器注册和 MSI 标记均被清理，用户词库仍存在且 SHA-256 保持 `590BA9034A09CF5C2BBEC87EAF1926050661CB5C4162CF1B8B7BFF1BA0647D7B`。
 - 同一修复重新构建 NSIS，SHA-256 为 `93A179927FC351F9170E3A1164BFE2F1423D43BC36F9F794D1FC39CDCAF0DA94`，Updater 签名验签通过；静默安装后用户目录清单与 Chrome/Edge 注册正确，旧安装目录清单不存在，词库哈希保持不变。当前本机保留该 NSIS v0.5.1 候选用于后续 Updater 验收。
 - 修复后的全量门禁通过：Vitest `61` 文件、`308` 用例；Rust 单元测试 `150` 通过、`2` 个显式人工语料测试忽略，另有生命周期 `2`、Native Host 进程 `7`、Windows 注册 `2` 项集成测试通过；Clippy 零警告，生产构建通过，生产依赖审计为 `0` 个漏洞。
+
+## 2026-08-15 v0.5.1 正式发布审计
+
+- PR #101 修复 MSI Native Host 链接与用户可写清单路径，PR #102 校正标签前/发布后的验收时序；两项 PR、各自合并后的 `master` CI 均全绿。标签 `v0.5.1` 最终指向发布基线 `2e481fb`。
+- Release workflow `31890953593` 在标签源码上再次通过前端测试、依赖/包体/扩展审计、真实 Edge Runtime、Windows 生命周期、Rust 全量、严格 Clippy 与强制质量报告，再构建、签名并发布正式资产。
+- Release 页面 7 个资产齐全且逐一下载；本地 SHA-256 与 GitHub Digest 全部一致。NSIS 为 `49425E69CFE9409FB9EF8C09FF3F11D9E0020C7531A6B5B09E505EBBF5C17D38`，MSI 为 `122731C8023753A87FAB26BD5A47CC3C88C507302C210C933D8D2946EB94C0D6`，两份 `.sig` 均使用应用内嵌公钥实际验签通过。
+- `latest.json` 版本、三项 Windows 平台映射和签名正确。Assets API URL 在 Tauri Updater 自动发送 `Accept: application/octet-stream` 时返回完整 NSIS；实下载大小 `7,996,519` 字节，哈希与 Release NSIS 相同。
+- 官方 v0.5.0 客户端真实自动发现 v0.5.1，点击应用内更新后完成在线下载、验签、安装与重启；最终安装版本为 0.5.1，Chrome/Edge Native Host 注册仍指向 LocalAppData 清单，词库 SHA-256 保持 `590BA9034A09CF5C2BBEC87EAF1926050661CB5C4162CF1B8B7BFF1BA0647D7B`。
+- v0.5.1 由此完成发布收口并冻结 DOCX MVP。Microsoft Word 同批真实文档矩阵、全新 Windows VM 双安装器覆盖、Authenticode 和浏览器商店上架继续作为 P2；README 与应用继续明确 DOCX 预览边界，不从 WPS/LibreOffice 结果推导 Word 已通过。

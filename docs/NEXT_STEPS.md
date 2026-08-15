@@ -4,21 +4,21 @@
 
 ## 当前情况
 
-- 当前稳定版收口为 `v0.5.0`，Release 应同时提供 EXE、MSI、Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告。
-- v0.5.1 的 package、Cargo、Tauri、浏览器扩展 Manifest 与锁文件版本源已统一为 `0.5.1`，版本化 Release Notes 已建立；当前仍是发布候选，未创建标签或正式 Release。
+- 当前稳定版为 `v0.5.1`。正式 Release 已提供 EXE、MSI、两个 Updater `.sig`、`latest.json`、浏览器扩展 ZIP 和质量报告，共 7 个资产。
+- `v0.5.1` 标签指向发布基线 `2e481fb`；Release workflow `31890953593` 的全量质量门禁、构建、签名与发布步骤全部通过。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
-- v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；发布故障矩阵与 Release 自动化门禁均已收口。5 份可公开复核的真实政府 DOCX 已完成双模式 round-trip、LibreOffice 97 页和 WPS Office 96 页逐页验收，并修复译文跨原始 Run/控件边界时拆开拉丁单词的问题。产品决策将该能力作为 DOCX 预览版进入发布收口，不再把未激活 Microsoft Word 的同批验收作为 v0.5.1 硬阻塞。
-- 最新已合并复审基线为 `master` / `849baaf`（PR #98）。PR #97 修复 Windows PowerShell 5.1 安全模块加载，PR #98 补齐绝对输出路径、Utility 模块、Office 激活 fail-closed 门禁和隔离 Word 进程清理；各 PR 与合并后 `master` CI 均通过。当前前端门禁为 60 个测试文件、305 项测试通过；Rust 全量门禁为 149 项单元测试通过、2 项显式视觉语料测试忽略，另有 2 项生命周期、7 项 Native Host 进程和 2 项注册测试通过；严格 Clippy 通过。全仓 `cargo fmt --check` 仍会被既有 `db.rs`、`ocr.rs` 格式差异阻断，后续增量只格式化所改文件，不夹带无关改动。
+- v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、译文/双语重建、发布前取消和不覆盖原子导出；发布故障矩阵与 Release 自动化门禁均已收口。5 份可公开复核的真实政府 DOCX 已完成双模式 round-trip、LibreOffice 97 页和 WPS Office 96 页逐页验收，并修复译文跨原始 Run/控件边界时拆开拉丁单词的问题。该能力现已作为 DOCX 预览版正式发布，Microsoft Word 同批验收仍是明确记录的 P2 兼容性工作。
+- 发布基线的前端门禁为 61 个测试文件、308 项测试通过；Rust 全量门禁为 150 项单元测试通过、2 项显式视觉语料测试忽略，另有 2 项生命周期、7 项 Native Host 进程和 2 项注册测试通过；严格 Clippy 通过。全仓 `cargo fmt --check` 仍会被既有 `db.rs`、`ocr.rs` 格式差异阻断，后续增量只格式化所改文件，不夹带无关改动。
 - 当前包体仍在门槛内：最大桌面 JavaScript chunk 251.25 KiB / 300 KiB，浏览器扩展 34.33 KiB / 64 KiB。Browserslist 数据已约 6 个月未更新，作为 P2 维护项在 DOCX 发布门槛之后处理；新增功能必须继续复核主包增长。
-- 下一条产品主线收缩为 `v0.5.1` DOCX 文档翻译 MVP；PDF、浏览器商店上架、Authenticode 和无关大型重构均不与本版本混合。
-- 2026-08-11 已实际生成 NSIS/MSI 审计包，确认两种安装器均接受 Native Host 集成；最小扩展生产包约 9.17 KiB，门槛为 64 KiB。完整测试、包体、Clippy 和质量报告仍由本增量的本地门禁与 GitHub CI 复核。
+- v0.5.1 DOCX MVP 已冻结为回归维护状态；PDF、浏览器商店上架、Authenticode 和无关大型重构不得倒灌到该版本。
+- 正式 NSIS/MSI 已完成签名验签和资产哈希复核；本机真实安装/卸载、官方 v0.5.0 原位升级及应用内自动更新均通过。Updater 最终升级到 0.5.1 后，用户词库哈希和 Chrome/Edge Native Host 注册保持不变。
 
 ## 接手后按顺序处理
 
-1. 以已经完成的 LibreOffice/WPS 真实文档矩阵作为 v0.5.1 DOCX 预览版兼容性证据，并在 README、Release Notes 和应用说明中明确 Microsoft Word 尚未完成正式兼容验收。
-2. 基于已经统一的 `0.5.1` 版本构建 NSIS/MSI，并执行安装、v0.5.0 原位升级、Updater 和资产完整性验收。
-3. 发布后保留 `npm run audit:docx:word` 作为后续兼容性门槛；只有同批真实文档通过后，才允许移除 Word 未验证声明。
+1. 冻结 v0.5.1 DOCX MVP，只处理回归、安全、隐私、数据损坏和升级阻断问题。
+2. 保留 `npm run audit:docx:word` 作为后续兼容性门槛；只有同批真实文档通过后，才允许移除 Word 未验证声明。
+3. 在全新 Windows VM 补充 NSIS/MSI 环境覆盖，并将 Authenticode、浏览器商店上架与 PDF 分别立项，不与 v0.5.1 回归维护混合。
 
 当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX，最终输入目录 `.docx-acceptance/public-outputs-word-boundary-20260815-001029` 已具备 5 组译文版/双语版共 10 份成品；LibreOffice 26.2.5.2 与 WPS Office 12.1.0.28043 均已完成双模式逐页验收。本机现已通过官方 winget 源安装 Microsoft 365 Apps for enterprise，真实 Word 身份与签名可验证，但许可证仍未激活，10 份成品尚未开始正式 Word 导出。该缺口降级为已记录的兼容性风险，不得据 WPS/LibreOffice 结果推导或宣传 Microsoft Word 已通过。
 
