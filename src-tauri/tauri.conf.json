@@ -69,7 +69,8 @@
     "windows": {
       "wix": {
         "language": ["zh-CN"],
-        "fragmentPaths": ["./windows/native-host.wxs"]
+        "fragmentPaths": ["./windows/native-host.wxs"],
+        "componentRefs": ["LongTranslateNativeHostIntegration"]
       },
       "nsis": {
         "installerHooks": "./windows/native-host-hooks.nsh"
