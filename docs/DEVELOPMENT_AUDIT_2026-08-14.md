@@ -109,3 +109,12 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 首次真实探测发现：由 Node/Vitest 启动 Windows PowerShell 5.1 时可能继承 PowerShell 7 模块路径，导致 `Microsoft.PowerShell.Security` 自动加载到不兼容模块，签名校验无法运行。执行器改为从当前 Windows PowerShell 的 `$PSHOME` 显式加载系统安全模块，不依赖继承环境或 COM 启动后的模块自动发现。
 - 修复后执行器专项测试、自测和真实 `-ProbeOnly` 均通过，真实 COM 返回 Microsoft Word 16.0，`WINWORD.EXE` 签名通过。该结果只证明身份门槛就绪，不等价于 10 份成品导出、逐页视觉检查或 Office 许可证激活完成。
 - 顺序保持不变：本修复必须先独立通过 PR/主分支 CI；随后检查安装完成与 Office 激活状态，再运行冻结语料的 Word 验收。Word P0 完成前版本继续保持 `0.5.0`。
+
+## 2026-08-15 Microsoft Word 实机运行第二轮审计
+
+- PR #97 与合并后 `master` CI 已通过，真实 Word 16.0 身份、Microsoft 文件信息和有效 Authenticode 签名可以稳定探测。
+- 首次批量运行在处理绝对 `OutputDirectory` 时先把它错误拼接到当前目录，再判断是否为根路径，导致 `.NET GetFullPath` 拒绝 `E:\...\E:\...` 格式。路径解析现先判断 rooted/relative，并由自测分别固定两条分支。
+- 修复路径后，真实运行发现 `Get-FileHash` 同样会受 Node 继承的 PowerShell 7 模块路径影响；执行器现在从 Windows PowerShell 5.1 自身 `$PSHOME` 显式加载 Security 与 Utility 两个必需系统模块，哈希与签名命令均使用已加载模块。
+- 未激活 Office 会在隐藏 COM 会话中触发不可见的首次运行/许可阻塞。审计中断了无产物的卡住任务，终止5个由本轮创建且无窗口的 Word 自动化进程，保留用户可见的空白 Word 窗口；10份输入 SHA-256 未变，失败目录为空。执行器现通过创建 COM 前后的 WINWORD PID 差集绑定唯一隔离进程；正常 `Quit` 后只在该精确 PID 仍无可见窗口时清理，负向回归前后隐藏进程数均为0。
+- 执行器新增 Office 激活 fail-closed 门禁：vNext 证据必须包含 `LicenseState=Licensed`，或 OSPP 必须返回 `---LICENSED---`。当前真实环境无 vNext/device license 且无产品密钥，负向运行在创建输出目录和打开输入前明确退出，未生成假证据。
+- 当前唯一剩余前置仍是用户使用有许可证的 Microsoft 365/Office 账号完成激活。激活前不得运行正式10文档导出、填写逐页结论、提升 `0.5.1` 或创建 Release。

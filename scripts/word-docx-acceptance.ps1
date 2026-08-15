@@ -15,10 +15,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 # Node-based npm runners can pass PowerShell 7 module paths into Windows
-# PowerShell 5.1. Load the security module from this host's own installation so
-# Authenticode verification cannot bind to an incompatible inherited module.
-$securityModulePath = Join-Path $PSHOME "Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1"
-Import-Module -Name $securityModulePath -ErrorAction Stop
+# PowerShell 5.1. Load required built-in modules from this host's own
+# installation so hashing and signature checks cannot bind to incompatible
+# inherited modules.
+$requiredModuleNames = @("Microsoft.PowerShell.Security", "Microsoft.PowerShell.Utility")
+foreach ($moduleName in $requiredModuleNames) {
+    $modulePath = Join-Path $PSHOME "Modules\$moduleName\$moduleName.psd1"
+    Import-Module -Name $modulePath -ErrorAction Stop
+}
 $wordPdfFormat = 17
 $wordStatisticPages = 2
 
@@ -81,6 +85,45 @@ function Test-CorpusNames {
     return $errors.ToArray()
 }
 
+function Resolve-OutputDirectoryPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if ([IO.Path]::IsPathRooted($Path)) {
+        return [IO.Path]::GetFullPath($Path)
+    }
+    return [IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Path))
+}
+
+function Test-WordActivationEvidence {
+    param(
+        [string]$VNextOutput = "",
+        [string]$OsppOutput = ""
+    )
+
+    return (
+        $VNextOutput -match '(?i)"LicenseState"\s*:\s*"Licensed"' -or
+        $OsppOutput -match '(?i)LICENSE STATUS:\s*---LICENSED---'
+    )
+}
+
+function Assert-WordActivated {
+    param([Parameter(Mandatory = $true)][string]$ApplicationPath)
+
+    $vNextOutput = ""
+    $osppOutput = ""
+    $vNextDiag = Join-Path $ApplicationPath "vNextDiag.ps1"
+    if (Test-Path -LiteralPath $vNextDiag -PathType Leaf) {
+        $vNextOutput = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $vNextDiag -action list 2>&1 | Out-String)
+    }
+    $ospp = Join-Path $ApplicationPath "OSPP.VBS"
+    if (Test-Path -LiteralPath $ospp -PathType Leaf) {
+        $osppOutput = (& cscript.exe //Nologo $ospp /dstatus 2>&1 | Out-String)
+    }
+    if (-not (Test-WordActivationEvidence -VNextOutput $vNextOutput -OsppOutput $osppOutput)) {
+        throw "Microsoft Word is not activated; sign in with a licensed Office account before running document acceptance"
+    }
+}
+
 function Get-WordIdentityEvidence {
     param([Parameter(Mandatory = $true)]$Application)
 
@@ -125,9 +168,44 @@ function Close-ComObject {
     }
 }
 
-function Open-VerifiedWord {
-    $application = New-Object -ComObject Word.Application
+function Close-WordApplication {
+    param(
+        $Application,
+        [uint32]$WordProcessId = 0
+    )
+
+    if ($null -ne $Application) {
+        try { $Application.Quit(0) } catch {}
+        Close-ComObject $Application
+    }
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    if ($WordProcessId -eq 0) {
+        return
+    }
     try {
+        $process = [Diagnostics.Process]::GetProcessById($WordProcessId)
+        if (-not $process.WaitForExit(2000)) {
+            $process.Refresh()
+            if ($process.MainWindowHandle -eq [IntPtr]::Zero) {
+                $process.Kill()
+                [void]$process.WaitForExit(5000)
+            }
+        }
+    } catch [ArgumentException] {
+        # The isolated Word process already exited after COM release.
+    }
+}
+
+function Open-VerifiedWord {
+    $wordPidsBefore = @(Get-Process -Name WINWORD -ErrorAction SilentlyContinue | ForEach-Object { [uint32]$_.Id })
+    $application = New-Object -ComObject Word.Application
+    [uint32]$wordProcessId = 0
+    try {
+        $newWordPids = @(Get-Process -Name WINWORD -ErrorAction SilentlyContinue | Where-Object { $wordPidsBefore -notcontains [uint32]$_.Id })
+        if ($newWordPids.Count -eq 1) {
+            $wordProcessId = [uint32]$newWordPids[0].Id
+        }
         $evidence = Get-WordIdentityEvidence -Application $application
         $identityErrors = Test-WordIdentityEvidence -Evidence $evidence
         if ($identityErrors.Count -gt 0) {
@@ -139,10 +217,9 @@ function Open-VerifiedWord {
         $application.Options.UpdateLinksAtOpen = $false
         $application.Options.UpdateFieldsAtPrint = $false
         $application.Options.SaveNormalPrompt = $false
-        return [PSCustomObject]@{ Application = $application; Evidence = $evidence }
+        return [PSCustomObject]@{ Application = $application; Evidence = $evidence; ProcessId = $wordProcessId }
     } catch {
-        try { $application.Quit(0) } catch {}
-        Close-ComObject $application
+        Close-WordApplication -Application $application -WordProcessId $wordProcessId
         throw
     }
 }
@@ -181,6 +258,24 @@ function Invoke-SelfTest {
     if ((Test-CorpusNames $invalidCorpus).Count -lt 2) {
         throw "Self-test did not reject an incomplete corpus"
     }
+    $absoluteOutput = Join-Path ([IO.Path]::GetTempPath()) "word-acceptance-self-test"
+    if ((Resolve-OutputDirectoryPath $absoluteOutput) -ne [IO.Path]::GetFullPath($absoluteOutput)) {
+        throw "Self-test changed an absolute output path"
+    }
+    $relativeOutput = "word-acceptance-self-test"
+    $expectedRelativeOutput = [IO.Path]::GetFullPath((Join-Path (Get-Location).Path $relativeOutput))
+    if ((Resolve-OutputDirectoryPath $relativeOutput) -ne $expectedRelativeOutput) {
+        throw "Self-test did not resolve a relative output path"
+    }
+    if (-not (Test-WordActivationEvidence -VNextOutput '{"LicenseState":"Licensed"}')) {
+        throw "Self-test rejected licensed vNext evidence"
+    }
+    if (-not (Test-WordActivationEvidence -OsppOutput 'LICENSE STATUS:  ---LICENSED---')) {
+        throw "Self-test rejected licensed OSPP evidence"
+    }
+    if (Test-WordActivationEvidence -VNextOutput 'No licenses found.' -OsppOutput '<No installed product keys detected>') {
+        throw "Self-test accepted missing Office activation evidence"
+    }
     Write-Output "Word DOCX acceptance self-test passed."
 }
 
@@ -190,27 +285,27 @@ if ($SelfTest) {
 }
 
 $probe = $null
+$wordApplicationPath = ""
 try {
     $probe = Open-VerifiedWord
+    $wordApplicationPath = $probe.Evidence.ApplicationPath
     Write-Output "Verified Microsoft Word $($probe.Evidence.Version) with a valid Microsoft Authenticode signature."
 } finally {
     if ($null -ne $probe) {
-        try { $probe.Application.Quit(0) } catch {}
-        Close-ComObject $probe.Application
+        Close-WordApplication -Application $probe.Application -WordProcessId $probe.ProcessId
     }
 }
 if ($ProbeOnly) {
     exit 0
 }
 
+Assert-WordActivated -ApplicationPath $wordApplicationPath
+
 $resolvedInput = (Resolve-Path -LiteralPath $InputDirectory).Path
 if (-not (Test-Path -LiteralPath $resolvedInput -PathType Container)) {
     throw "InputDirectory must be an existing directory"
 }
-$outputFullPath = [IO.Path]::GetFullPath((Join-Path (Get-Location) $OutputDirectory))
-if ([IO.Path]::IsPathRooted($OutputDirectory)) {
-    $outputFullPath = [IO.Path]::GetFullPath($OutputDirectory)
-}
+$outputFullPath = Resolve-OutputDirectoryPath $OutputDirectory
 if (Test-Path -LiteralPath $outputFullPath) {
     throw "OutputDirectory must not already exist"
 }
@@ -230,7 +325,7 @@ if ($corpusErrors.Count -gt 0) {
 
 $sourceHashes = @{}
 foreach ($file in $files) {
-    $sourceHashes[$file.FullName] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $sourceHashes[$file.FullName] = (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
 }
 New-Item -ItemType Directory -Path $outputFullPath | Out-Null
 
@@ -269,14 +364,11 @@ foreach ($file in $files) {
             try { $document.Close(0) } catch {}
         }
         if ($null -ne $session) {
-            try { $session.Application.Quit(0) } catch {}
+            Close-WordApplication -Application $session.Application -WordProcessId $session.ProcessId
         }
         Close-ComObject $document
-        if ($null -ne $session) { Close-ComObject $session.Application }
-        [GC]::Collect()
-        [GC]::WaitForPendingFinalizers()
     }
-    $afterHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $afterHash = (Microsoft.PowerShell.Utility\Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
     if ($afterHash -ne $sourceHashes[$file.FullName]) {
         $status = "source-hash-changed"
     }
