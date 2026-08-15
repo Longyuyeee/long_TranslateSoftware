@@ -24,22 +24,29 @@ if (!existsSync(join(extensionDirectory, "manifest.json"))) {
   throw new Error(`Built extension was not found at ${extensionDirectory}`);
 }
 
+const edgeInstallRoots = [
+  process.env["ProgramFiles(x86)"],
+  process.env.ProgramFiles,
+  process.env.LOCALAPPDATA,
+].filter(Boolean);
+const chromeInstallRoots = [
+  process.env.ProgramFiles,
+  process.env["ProgramFiles(x86)"],
+  process.env.LOCALAPPDATA,
+].filter(Boolean);
 const browserCandidates = [
   {
     name: "Edge",
-    paths: [
-      join(process.env["ProgramFiles(x86)"] || "", "Microsoft/Edge/Application/msedge.exe"),
-      join(process.env.ProgramFiles || "", "Microsoft/Edge/Application/msedge.exe"),
-      join(process.env.LOCALAPPDATA || "", "Microsoft/Edge/Application/msedge.exe"),
-    ],
+    paths: edgeInstallRoots.flatMap((root) => [
+      join(root, "Microsoft/Edge/Application/msedge.exe"),
+      join(root, "Microsoft/Edge/Application/Microsoft Edge.exe"),
+    ]),
   },
   {
     name: "Chrome",
-    paths: [
-      join(process.env.ProgramFiles || "", "Google/Chrome/Application/chrome.exe"),
-      join(process.env["ProgramFiles(x86)"] || "", "Google/Chrome/Application/chrome.exe"),
-      join(process.env.LOCALAPPDATA || "", "Google/Chrome/Application/chrome.exe"),
-    ],
+    paths: chromeInstallRoots.map((root) =>
+      join(root, "Google/Chrome/Application/chrome.exe"),
+    ),
   },
 ];
 const localizedPopup = {
