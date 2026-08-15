@@ -94,3 +94,10 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 最终输入已经冻结为 `.docx-acceptance/public-outputs-word-boundary-20260815-001029` 中 5 组译文版/双语版共 10 份成品。执行器将输出脱敏 manifest 和人工 review 矩阵，不覆盖历史证据；自动导出成功仍不能替代可见打开和逐页检查。
 - 本机再次执行 `npm run audit:docx:word -- -ProbeOnly`，严格拒绝了 WPS COM 身份；这证明 fail-closed 边界生效，不构成 Microsoft Word 通过证据。
 - 需求顺序保持不变：先在安装并激活 Microsoft Word 16.x/365 的 Windows 环境完成同一 10 份成品的逐页视觉验收；只有该 P0 通过后，才允许提升 `0.5.1`、构建安装器并执行 v0.5.0 原位升级、Updater、签名与 Release 资产完整性验收。
+
+## 2026-08-15 本机 Runtime Smoke 复验
+
+- 本机 Microsoft Edge 的系统 App Paths 注册项指向标准安装目录下的 `Microsoft Edge.exe`，而不是常见的 `msedge.exe`；该文件的产品名为 Microsoft Edge、公司为 Microsoft Corporation、原始文件名为 `msedge.exe`，Authenticode 签名有效。
+- 浏览器 Runtime Smoke 的 Edge 探测已同时覆盖三个标准安装根目录下的 `msedge.exe` 与 `Microsoft Edge.exe`，并过滤缺失的环境根目录，避免退化为相对路径探测；Chrome 的默认门禁和标准路径不变。
+- 本机专项回归测试通过，真实 Edge 英文/简体中文检查完成后脚本继续进入 Chrome 阶段；由于本机没有 Chrome，默认双浏览器 Smoke 明确失败，没有把环境缺口伪装成通过。GitHub Windows CI 仍必须使用默认命令完成 Edge/Chrome 策略复核。
+- 该修复只提高既有测试工具对已注册 Edge 启动文件名的适配性，不改变产品功能、发布范围或 Microsoft Word P0 顺序；版本继续保持 `0.5.0`。
