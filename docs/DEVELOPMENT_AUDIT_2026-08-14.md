@@ -1,6 +1,6 @@
 # 2026-08-14 开发进度与收尾审计
 
-审计基线：`master` / `9c295ed`（PR #94）
+审计基线：`master` / `849baaf`（PR #98）
 
 目标版本：`v0.5.1` DOCX-only MVP
 
@@ -10,17 +10,17 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 本轮发布故障审计补齐权限拒绝、磁盘写入失败、文件同步失败和提交时目标竞争。审计发现 Windows `rename` 会在竞争窗口覆盖刚出现的目标文件，因此最终提交改为同卷硬链接创建目标名：目标存在时原子失败；临时名删除失败时回滚目标链接。失败路径均验证源文件逐字节不变、既有目标不变且无 `.long-translate-*` 临时文件残留。
 
-当前仍不是可发布的 `v0.5.1` 候选版。Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化与 LibreOffice 视觉验收已经完成，但不能替代 Microsoft Word 逐页视觉验收；版本源继续保持 `0.5.0`。
+Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化、LibreOffice 97 页和 WPS Office 96 页逐页验收已经完成。产品决策允许 v0.5.1 以 DOCX 预览能力进入发布候选收口；Microsoft Word 同批真实文档验收仍未完成，必须作为明确限制保留。版本源在发布候选步骤开始前继续保持 `0.5.0`。
 
 ## 当前复审快照
 
-- `master` 已同步到 `9c295ed`；工作区中的用户本地修改不纳入、不修改。
+- `master` 已同步到 `849baaf`；工作区中的用户本地修改不纳入、不修改。
 - `package.json`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本均为 `0.5.0`，与尚未通过 `v0.5.1` 发布门槛的状态一致。
 - 前端 60 个测试文件、305 项测试全部通过；Rust 149 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖真实语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
 - Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；PR #87 将正式 Chrome 的 `ERR_BLOCKED_BY_CLIENT` 与“不开放自动化调试端口”两种已知官方限制统一保留为 `chrome://extensions` 人工门槛，其他 Chrome 错误仍会使 CI 失败。PR 与合并后 `master` CI 均全绿。
 - 本轮未发现新的 P0/P1 代码回归。维护风险为 Browserslist 数据已约 6 个月未更新，以及最大桌面 chunk 已使用约 84% 门槛；两项均记录为 P2，不阻断 DOCX 验收，但后续功能增量不得继续无审计扩大主包。
-- 发布决策不变：不提升版本、不创建标签或 Release。先完成真实 DOCX 视觉门槛，再进入 `0.5.1` 版本、安装器、原位升级、Updater 与资产完整性收口。
+- 发布决策已调整：WPS/LibreOffice 真实文档矩阵作为 v0.5.1 DOCX 预览版的发布证据；先完成范围声明审计，再进入 `0.5.1` 版本、安装器、原位升级、Updater 与资产完整性收口。正式标签仍必须等发布候选门禁通过。
 
 ## 已完成范围
 
@@ -48,18 +48,18 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 剩余风险与顺序
 
-### P0：Microsoft Word 视觉验收
+### P2：Microsoft Word 兼容性尚未正式验收
 
-- 使用至少 5 份匿名真实 DOCX，对译文版和双语版逐页检查文本完整性、顺序、表格、列表、链接、图片、页眉页脚和明显格式降级。
-- 自动化语料、LibreOffice 可打开证据和本轮合成语料 Word 检查均不能代替真实文档结论；完成前不得宣称 Word 全面兼容。
-- [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 已固定私有语料目录、清单格式、双模式成品生成、源哈希复核和 Word/LibreOffice 记录矩阵；入口已用合成夹具模拟验证，但真实语料和人工结论仍未完成。
-- 2026-08-15 当前执行环境复核：`.docx-acceptance/docs` 已具备 5 份真实公开 DOCX，最终 10 份双模式成品位于忽略目录 `.docx-acceptance/public-outputs-word-boundary-20260815-001029`；LibreOffice 和 WPS 逐页验收已经完成。PATH、标准安装目录与 COM 身份仍未发现可明确识别的 Microsoft Word，`Word.Application` 当前指向 WPS Office；`npm run audit:docx:word -- -ProbeOnly` 会按预期拒绝其版本、路径、文件身份、公司信息和 Authenticode 签名。WPS/LibreOffice 记录不得据此宣称 Microsoft Word 门槛已通过。
+- 后续仍需使用至少 5 份匿名真实 DOCX，对译文版和双语版逐页检查文本完整性、顺序、表格、列表、链接、图片、页眉页脚和明显格式降级。
+- 自动化语料、LibreOffice 和 WPS 结果不能推出 Microsoft Word 必然兼容；完成前不得宣称 Word 全面兼容，也不得移除预览标识和限制说明。
+- [`DOCX_REAL_DOCUMENT_ACCEPTANCE.md`](DOCX_REAL_DOCUMENT_ACCEPTANCE.md) 已固定语料目录、清单格式、双模式成品生成、源哈希复核和跨引擎记录矩阵。LibreOffice/WPS 矩阵已经完成，Word 矩阵保留为后续兼容性工作。
+- 官方 Microsoft Word 已安装且身份、签名验证通过，但当前 Office 许可证未激活。执行器会在创建输出和打开输入前 fail closed；该环境限制不再阻塞 v0.5.1 预览版，但不能被写成 Word 通过证据。
 
 ### 已完成：Release 门禁对齐
 
 - `ci.yml` 和 `release.yml` 现在显式执行相同的前端测试、依赖审计、生产构建、包体/扩展审计、浏览器 Runtime Smoke、Windows 生命周期、Rust 全量、严格 Clippy 和强制质量报告。
 - 工作流契约测试固定这些命令必须存在，并要求 Release 的全部质量门禁和报告上传发生在签名发布之前。
-- Microsoft Word 视觉门槛通过后，再统一提升 `package.json`、Cargo 和 Tauri 配置到 `0.5.1`，更新 Release Notes，构建 NSIS/MSI，并验证 v0.5.0 原位升级、Updater 与资产完整性。
+- 范围声明审计合并后，统一提升 `package.json`、Cargo 和 Tauri 配置到 `0.5.1`，更新 Release Notes，构建 NSIS/MSI，并验证 v0.5.0 原位升级、Updater 与资产完整性。
 
 ### P1：后续质量工作
 
@@ -68,7 +68,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 ## 下一步入口
 
-在可明确识别的 Microsoft Word 桌面端打开本轮 5 份真实公开 DOCX 的 10 份双模式输出，完成逐页视觉检查并记录结论。该门槛通过后才能提升 `0.5.1`、构建并发布。
+先合并 DOCX 预览版范围与限制声明，再进入 `0.5.1` 版本同步和发布候选构建。候选版必须完成 NSIS/MSI 安装、v0.5.0 原位升级、Updater、桌面/DOCX 烟雾和资产完整性验证；Microsoft Word 验收作为 P2 后续兼容性工作保留。
 
 ## 2026-08-15 真实文档与单词边界复审
 
@@ -100,7 +100,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 本机 Microsoft Edge 的系统 App Paths 注册项指向标准安装目录下的 `Microsoft Edge.exe`，而不是常见的 `msedge.exe`；该文件的产品名为 Microsoft Edge、公司为 Microsoft Corporation、原始文件名为 `msedge.exe`，Authenticode 签名有效。
 - 浏览器 Runtime Smoke 的 Edge 探测已同时覆盖三个标准安装根目录下的 `msedge.exe` 与 `Microsoft Edge.exe`，并过滤缺失的环境根目录，避免退化为相对路径探测；Chrome 的默认门禁和标准路径不变。
 - 本机专项回归测试通过，真实 Edge 英文/简体中文检查完成后脚本继续进入 Chrome 阶段；由于本机没有 Chrome，默认双浏览器 Smoke 明确失败，没有把环境缺口伪装成通过。GitHub Windows CI 仍必须使用默认命令完成 Edge/Chrome 策略复核。
-- 该修复只提高既有测试工具对已注册 Edge 启动文件名的适配性，不改变产品功能、发布范围或 Microsoft Word P0 顺序；版本继续保持 `0.5.0`。
+- 在该增量当时，此修复只提高既有测试工具对已注册 Edge 启动文件名的适配性，不改变产品功能、发布范围或当时的 Microsoft Word P0 顺序；版本保持 `0.5.0`。
 
 ## 2026-08-15 Microsoft Word 环境与执行器修复
 
@@ -108,7 +108,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - `C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE` 已落盘，文件版本为 16.0.20228.20190，产品/公司信息属于 Microsoft Office / Microsoft Corporation，原始文件名为 `WinWord.exe`，Authenticode 状态有效且签名者为 Microsoft Corporation。
 - 首次真实探测发现：由 Node/Vitest 启动 Windows PowerShell 5.1 时可能继承 PowerShell 7 模块路径，导致 `Microsoft.PowerShell.Security` 自动加载到不兼容模块，签名校验无法运行。执行器改为从当前 Windows PowerShell 的 `$PSHOME` 显式加载系统安全模块，不依赖继承环境或 COM 启动后的模块自动发现。
 - 修复后执行器专项测试、自测和真实 `-ProbeOnly` 均通过，真实 COM 返回 Microsoft Word 16.0，`WINWORD.EXE` 签名通过。该结果只证明身份门槛就绪，不等价于 10 份成品导出、逐页视觉检查或 Office 许可证激活完成。
-- 顺序保持不变：本修复必须先独立通过 PR/主分支 CI；随后检查安装完成与 Office 激活状态，再运行冻结语料的 Word 验收。Word P0 完成前版本继续保持 `0.5.0`。
+- 在该增量当时，顺序仍是先独立通过 PR/主分支 CI，再检查安装完成与 Office 激活状态并运行冻结语料的 Word 验收；后续产品范围调整见本文末的决策记录。
 
 ## 2026-08-15 Microsoft Word 实机运行第二轮审计
 
@@ -117,4 +117,11 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 修复路径后，真实运行发现 `Get-FileHash` 同样会受 Node 继承的 PowerShell 7 模块路径影响；执行器现在从 Windows PowerShell 5.1 自身 `$PSHOME` 显式加载 Security 与 Utility 两个必需系统模块，哈希与签名命令均使用已加载模块。
 - 未激活 Office 会在隐藏 COM 会话中触发不可见的首次运行/许可阻塞。审计中断了无产物的卡住任务，终止5个由本轮创建且无窗口的 Word 自动化进程，保留用户可见的空白 Word 窗口；10份输入 SHA-256 未变，失败目录为空。执行器现通过创建 COM 前后的 WINWORD PID 差集绑定唯一隔离进程；正常 `Quit` 后只在该精确 PID 仍无可见窗口时清理，负向回归前后隐藏进程数均为0。
 - 执行器新增 Office 激活 fail-closed 门禁：vNext 证据必须包含 `LicenseState=Licensed`，或 OSPP 必须返回 `---LICENSED---`。当前真实环境无 vNext/device license 且无产品密钥，负向运行在创建输出目录和打开输入前明确退出，未生成假证据。
-- 当前唯一剩余前置仍是用户使用有许可证的 Microsoft 365/Office 账号完成激活。激活前不得运行正式10文档导出、填写逐页结论、提升 `0.5.1` 或创建 Release。
+- 此轮实机审计结束时，唯一剩余的 Word 前置是用户使用有许可证的 Microsoft 365/Office 账号完成激活；后续产品范围调整见下节。
+
+## 2026-08-15 DOCX 预览版范围决策
+
+- 产品确认以已经完成的 WPS Office 12.1.0.28043 与 LibreOffice 26.2.5.2 真实文档矩阵作为 v0.5.1 DOCX 预览版的发布证据，不再把未激活 Microsoft Word 的同批矩阵作为本版本硬阻塞。
+- 该决策改变发布范围，不改变技术事实：WPS/LibreOffice 通过不能推出 Microsoft Word 必然兼容。README、Release Notes 和应用说明必须保留“Microsoft Word 尚未完成正式验收”的限制，不得宣传全面 Word 兼容。
+- Microsoft Word 执行器、激活 fail-closed 门禁和冻结语料全部保留；Word 同批逐页矩阵降级为 P2 后续兼容性工作，通过后才能移除限制声明。
+- 下一步进入阶段 7：统一版本为 `0.5.1`，更新发布说明并构建发布候选；完成 NSIS/MSI 安装、v0.5.0 原位升级、Updater、桌面/DOCX 烟雾和资产完整性验证后，才能创建正式标签与 Release。
