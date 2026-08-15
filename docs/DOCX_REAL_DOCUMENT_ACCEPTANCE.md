@@ -1,6 +1,6 @@
-# DOCX 真实文档双引擎验收
+# DOCX 真实文档跨引擎验收
 
-本清单用于完成 `v0.5.1` 发布前最后的 DOCX 兼容性门槛。自动化只证明源文件未变、两种输出可重新解析且分段结构一致；Microsoft Word 和 LibreOffice 的逐页视觉结论必须由人工记录。
+本清单记录 DOCX 在不同桌面排版引擎中的真实文档证据。自动化只证明源文件未变、两种输出可重新解析且分段结构一致；每个引擎的逐页视觉结论必须独立记录，不能从 WPS Office 或 LibreOffice 的结果推导 Microsoft Word 必然兼容。v0.5.1 以已完成的 WPS Office/LibreOffice 矩阵作为 DOCX 预览版发布证据，Microsoft Word 矩阵保留为后续兼容性验收。
 
 ## 1. 隐私与语料要求
 
@@ -54,7 +54,7 @@ cargo test --manifest-path src-tauri/Cargo.toml round_trips_real_validation_corp
 
 第二条测试要求输出目录尚不存在，并为每份语料生成 `*-translated.docx` 与 `*-bilingual.docx`。它会重新打开成品、核对段数/部件/结构、在保留 Word 制表符和换行等布局控制的前提下验证译文占位内容，并确认源文件字节不变；不会删除输出，也不会自动填写人工结论。
 
-## 3. Word 与 LibreOffice 逐页检查
+## 3. Microsoft Word 后续逐页检查
 
 先在装有 Microsoft Word 16.x/365 桌面版的 Windows 电脑上运行 Word 专用执行器：
 
@@ -89,7 +89,8 @@ npm run audit:docx:word -- `
 
 ## 4. 退出门槛
 
-- 至少 5 份真实文档 × 2 种模式 × 2 个引擎的检查均有记录。
+- v0.5.1 DOCX 预览版要求至少 5 份真实文档 × 2 种模式在 WPS Office 与 LibreOffice 的检查均有记录。
+- Microsoft Word 的同批检查独立记录；完成前 Release Notes 和 README 必须明确“尚未完成 Microsoft Word 正式验收”。
 - 没有未归类的损坏、丢段、错位、覆盖源文件或临时文件残留。
 - 可接受降级写入 Release Notes；不可接受问题必须先修复并重新执行完整矩阵。
 - 完成后只提交脱敏的覆盖范围、SHA-256 摘要和结论，不提交真实语料、输出文件或含正文的 `review.md`。
