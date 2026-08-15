@@ -25,6 +25,8 @@ describe("Microsoft Word DOCX acceptance runner", () => {
     const source = readFileSync(runnerPath, "utf8");
 
     expect(source).toContain("Get-AuthenticodeSignature");
+    expect(source.indexOf("Join-Path $PSHOME"))
+      .toBeLessThan(source.indexOf("New-Object -ComObject Word.Application"));
     expect(source).toContain("Microsoft Corporation");
     expect(source).toContain("kingsoft|wps office");
     expect(source).toContain("AutomationSecurity = 3");

@@ -14,6 +14,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Node-based npm runners can pass PowerShell 7 module paths into Windows
+# PowerShell 5.1. Load the security module from this host's own installation so
+# Authenticode verification cannot bind to an incompatible inherited module.
+$securityModulePath = Join-Path $PSHOME "Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1"
+Import-Module -Name $securityModulePath -ErrorAction Stop
 $wordPdfFormat = 17
 $wordStatisticPages = 2
 
@@ -90,7 +95,7 @@ function Get-WordIdentityEvidence {
         $item = Get-Item -LiteralPath $executablePath
         $companyName = [string]$item.VersionInfo.CompanyName
         $originalFilename = [string]$item.VersionInfo.OriginalFilename
-        $signature = Get-AuthenticodeSignature -LiteralPath $executablePath
+        $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $executablePath
         $signatureStatus = [string]$signature.Status
         if ($null -ne $signature.SignerCertificate) {
             $signerSubject = [string]$signature.SignerCertificate.Subject
