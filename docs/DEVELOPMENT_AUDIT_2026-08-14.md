@@ -77,7 +77,7 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 视觉审计发现纯译文中的拉丁单词可能被原 DOCX 的多个 Run/控件边界拆开，例如 `Va` / `lidation`。重建分配现改为：存在空白词界时将非末尾切点吸附到最近词界；无空白文本继续按 Unicode grapheme 安全分配；多 Run 且目标文本较短时保持切点单调，避免切片回退。
 - 修复后重新执行完整真实语料 round-trip 和 LibreOffice 批量渲染。61 个双语页与修复前逐像素一致，变化仅落在纯译文路径；纯译文单词保持完整。窄表格列仍可能按原列宽自然换行，不通过扩列改变原模板布局。
 - 本地 Rust 全量门禁通过：149 项单元测试通过、2 项显式视觉语料测试忽略，另有 2 项生命周期、7 项 Native Host 进程和 2 项注册测试通过；`cargo clippy --all-targets --all-features -- -D warnings` 通过。全仓 `cargo fmt --check` 被既有 `db.rs`、`ocr.rs` 格式差异阻断，本增量所改 Rust 文件已单独格式化。
-- LibreOffice 验收门槛在本轮语料上记为通过。Microsoft Word 仍未安装，`Word.Application` COM 指向 WPS Office，因此 Word 门槛保持 P0 未完成，不提升版本、不创建标签或 Release。
+- LibreOffice 验收门槛在本轮语料上记为通过。当时 Microsoft Word 尚未安装，`Word.Application` COM 指向 WPS Office；后续安装状态见本文末的 Microsoft Word 环境更新。Word 逐页门槛保持 P0 未完成，不提升版本、不创建标签或 Release。
 
 ## 2026-08-15 WPS 补充兼容审计
 
@@ -101,3 +101,11 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 - 浏览器 Runtime Smoke 的 Edge 探测已同时覆盖三个标准安装根目录下的 `msedge.exe` 与 `Microsoft Edge.exe`，并过滤缺失的环境根目录，避免退化为相对路径探测；Chrome 的默认门禁和标准路径不变。
 - 本机专项回归测试通过，真实 Edge 英文/简体中文检查完成后脚本继续进入 Chrome 阶段；由于本机没有 Chrome，默认双浏览器 Smoke 明确失败，没有把环境缺口伪装成通过。GitHub Windows CI 仍必须使用默认命令完成 Edge/Chrome 策略复核。
 - 该修复只提高既有测试工具对已注册 Edge 启动文件名的适配性，不改变产品功能、发布范围或 Microsoft Word P0 顺序；版本继续保持 `0.5.0`。
+
+## 2026-08-15 Microsoft Word 环境与执行器修复
+
+- 通过官方 winget 源安装 Microsoft 365 Apps for enterprise；安装器来自 `officecdn.microsoft.com` 且下载哈希与 winget 清单一致。未卸载 WPS，也未修改用户文档。
+- `C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE` 已落盘，文件版本为 16.0.20228.20190，产品/公司信息属于 Microsoft Office / Microsoft Corporation，原始文件名为 `WinWord.exe`，Authenticode 状态有效且签名者为 Microsoft Corporation。
+- 首次真实探测发现：由 Node/Vitest 启动 Windows PowerShell 5.1 时可能继承 PowerShell 7 模块路径，导致 `Microsoft.PowerShell.Security` 自动加载到不兼容模块，签名校验无法运行。执行器改为从当前 Windows PowerShell 的 `$PSHOME` 显式加载系统安全模块，不依赖继承环境或 COM 启动后的模块自动发现。
+- 修复后执行器专项测试、自测和真实 `-ProbeOnly` 均通过，真实 COM 返回 Microsoft Word 16.0，`WINWORD.EXE` 签名通过。该结果只证明身份门槛就绪，不等价于 10 份成品导出、逐页视觉检查或 Office 许可证激活完成。
+- 顺序保持不变：本修复必须先独立通过 PR/主分支 CI；随后检查安装完成与 Office 激活状态，再运行冻结语料的 Word 验收。Word P0 完成前版本继续保持 `0.5.0`。
