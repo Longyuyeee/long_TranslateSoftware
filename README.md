@@ -27,7 +27,9 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **v0.5.0 浏览器扩展 MVP**：新增 Chrome / Edge 划词翻译、桌面安全配对、翻译取消与生词本收藏；扩展不保存 API Key，也不申请持久网页访问权限。
+> **当前稳定版 v0.5.0**：新增 Chrome / Edge 划词翻译、桌面安全配对、翻译取消与生词本收藏；扩展不保存 API Key，也不申请持久网页访问权限。
+>
+> **v0.5.1 DOCX 预览版候选**：新增安全导入、可恢复翻译、译文/双语重建和不覆盖原子导出。5 份真实公开文档的 10 份双模式成品已通过 WPS Office 与 LibreOffice 逐页验收；Microsoft Word 尚未完成正式兼容验收。
 
 ---
 
@@ -566,7 +568,7 @@ Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNa
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
 | **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 扩展 |
-| **文档翻译** | v0.5.1 开发中（DOCX MVP；PDF 延后） |
+| **文档翻译** | v0.5.1 DOCX 预览版候选（WPS/LibreOffice 已验收；Microsoft Word 尚未正式验收；PDF 延后） |
 
 ### v0.5.0 浏览器桥接（2026-08-13）
 

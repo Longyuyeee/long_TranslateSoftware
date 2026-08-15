@@ -101,6 +101,13 @@ describe("DocumentWorkbench", () => {
     });
   });
 
+  it("shows the DOCX preview compatibility boundary", () => {
+    render(<DocumentWorkbench labels={translations.en} />);
+
+    expect(screen.getByText(/DOCX preview/iu)).toBeInTheDocument();
+    expect(screen.getByText(/Microsoft Word compatibility validation is still pending/iu)).toBeInTheDocument();
+  });
+
   it("discovers and loads a redacted checkpoint without exposing private payloads", async () => {
     listCheckpointsMock.mockResolvedValue([{
       jobId: "job-1",
