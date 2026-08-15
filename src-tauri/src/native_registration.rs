@@ -67,19 +67,48 @@ pub struct RegistrationSpec {
 
 impl RegistrationSpec {
     pub fn installed(host_path: PathBuf, allowed_origins: Vec<String>) -> io::Result<Self> {
-        let parent = host_path.parent().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Native Host executable has no parent directory",
-            )
-        })?;
         Ok(Self {
             host_name: HOST_NAME.to_string(),
-            manifest_path: parent.join(MANIFEST_FILE_NAME),
+            manifest_path: installed_manifest_path(&host_path)?,
             host_path,
             allowed_origins,
         })
     }
+}
+
+#[cfg(windows)]
+fn installed_manifest_path(_host_path: &Path) -> io::Result<PathBuf> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA").ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "LOCALAPPDATA is unavailable for Native Host registration",
+        )
+    })?;
+    manifest_path_in_local_app_data(Path::new(&local_app_data))
+}
+
+#[cfg(not(windows))]
+fn installed_manifest_path(host_path: &Path) -> io::Result<PathBuf> {
+    let parent = host_path.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Native Host executable has no parent directory",
+        )
+    })?;
+    Ok(parent.join(MANIFEST_FILE_NAME))
+}
+
+fn manifest_path_in_local_app_data(local_app_data: &Path) -> io::Result<PathBuf> {
+    if !local_app_data.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Native Host data root must be an absolute path",
+        ));
+    }
+    Ok(local_app_data
+        .join(HOST_NAME)
+        .join("native-messaging")
+        .join(MANIFEST_FILE_NAME))
 }
 
 pub fn handle_cli_command(args: &[String]) -> Option<io::Result<String>> {
@@ -721,6 +750,23 @@ mod tests {
             assert!(validate_host_name(name).is_err(), "accepted {name}");
         }
         validate_host_name("com.long.translate_test").unwrap();
+    }
+
+    #[test]
+    fn installed_manifest_uses_a_user_writable_absolute_data_root() {
+        let root = if cfg!(windows) {
+            PathBuf::from(r"C:\Users\fixture\AppData\Local")
+        } else {
+            PathBuf::from("/tmp/fixture-local-data")
+        };
+        let path = manifest_path_in_local_app_data(&root).unwrap();
+        assert_eq!(
+            path,
+            root.join(HOST_NAME)
+                .join("native-messaging")
+                .join(MANIFEST_FILE_NAME)
+        );
+        assert!(manifest_path_in_local_app_data(Path::new("relative")).is_err());
     }
 
     #[cfg(windows)]

@@ -132,3 +132,14 @@ Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化
 - 新增 `docs/releases/v0.5.1.md`，只描述已经完成的 DOCX 用户闭环、安全边界、WPS/LibreOffice 真实文档证据和已知限制。
 - DOCX 工作台中英文说明直接显示预览状态与 Microsoft Word 未正式验收的限制，避免用户只在仓库文档中才能看到兼容性边界。
 - 本增量不更新 README 的正式下载链接、不创建标签、不触发 Release；下一步先构建候选安装包并执行安装、原位升级、Updater 与资产完整性验收。
+
+## 2026-08-15 v0.5.1 安装器候选审计
+
+- 本机签名构建生成 NSIS、MSI 与各自 Updater `.sig`；两个签名均使用应用内嵌公钥通过 `minisign-verify` 实际验签。安装包未配置 Authenticode，与既有 SmartScreen 限制一致。
+- 官方 v0.5.0 NSIS 资产经 GitHub Release SHA-256 复核后覆盖安装，再用 v0.5.1 NSIS 候选原位升级；两步均保持安装路径、用户数据库和 Local 数据逐文件哈希，候选启动、单实例与窗口恢复通过。
+- MSI 候选需要管理员权限；提权安装后发现成品文件表、安装目录和注册表均缺少 Native Host 集成。根因是 WiX Fragment 只有 CustomAction/执行序列，未通过 `componentRefs` 接入 MSI 主 Feature，因此被链接器裁掉。
+- 修复要求：WiX Fragment 增加主 Feature 可引用组件；Native Host 清单迁移到当前用户可写的 LocalAppData，避免 Program Files 写权限问题；NSIS 与 MSI 统一该路径，并新增静态安装器契约和真实 MSI 成品/安装回归。修复通过前不得创建 v0.5.1 标签或 Release。
+- 修复后 MSI 成品已确认包含 `LongTranslateNativeHostIntegration` 组件、主 Feature 引用及四个安装/回滚自定义动作；重新构建的 MSI SHA-256 为 `9FDD60DDDFF217F8687241AF91218D8F0F13D8ECCEA5A31AE009F16B5998424D`，Updater 签名使用应用内嵌公钥验签通过。
+- 修复后 MSI 管理员静默安装、启动、二次启动单实例、窗口恢复及静默卸载均通过。Chrome/Edge 注册统一指向 `%LOCALAPPDATA%\com.long.translate\native-messaging\com.long.translate.json`；卸载后清单、两项浏览器注册和 MSI 标记均被清理，用户词库仍存在且 SHA-256 保持 `590BA9034A09CF5C2BBEC87EAF1926050661CB5C4162CF1B8B7BFF1BA0647D7B`。
+- 同一修复重新构建 NSIS，SHA-256 为 `93A179927FC351F9170E3A1164BFE2F1423D43BC36F9F794D1FC39CDCAF0DA94`，Updater 签名验签通过；静默安装后用户目录清单与 Chrome/Edge 注册正确，旧安装目录清单不存在，词库哈希保持不变。当前本机保留该 NSIS v0.5.1 候选用于后续 Updater 验收。
+- 修复后的全量门禁通过：Vitest `61` 文件、`308` 用例；Rust 单元测试 `150` 通过、`2` 个显式人工语料测试忽略，另有生命周期 `2`、Native Host 进程 `7`、Windows 注册 `2` 项集成测试通过；Clippy 零警告，生产构建通过，生产依赖审计为 `0` 个漏洞。
