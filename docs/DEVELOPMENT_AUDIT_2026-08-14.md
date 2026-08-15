@@ -10,12 +10,12 @@ DOCX 用户闭环已经完成安全导入、Checkpoint 恢复、有界翻译队�
 
 本轮发布故障审计补齐权限拒绝、磁盘写入失败、文件同步失败和提交时目标竞争。审计发现 Windows `rename` 会在竞争窗口覆盖刚出现的目标文件，因此最终提交改为同卷硬链接创建目标名：目标存在时原子失败；临时名删除失败时回滚目标链接。失败路径均验证源文件逐字节不变、既有目标不变且无 `.long-translate-*` 临时文件残留。
 
-Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化、LibreOffice 97 页和 WPS Office 96 页逐页验收已经完成。产品决策允许 v0.5.1 以 DOCX 预览能力进入发布候选收口；Microsoft Word 同批真实文档验收仍未完成，必须作为明确限制保留。版本源在发布候选步骤开始前继续保持 `0.5.0`。
+Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化、LibreOffice 97 页和 WPS Office 96 页逐页验收已经完成。产品决策允许 v0.5.1 以 DOCX 预览能力进入发布候选收口；Microsoft Word 同批真实文档验收仍未完成，必须作为明确限制保留。版本源现已统一为 `0.5.1`，但正式标签仍需等待安装、升级、Updater 和资产完整性门禁通过。
 
 ## 当前复审快照
 
 - `master` 已同步到 `849baaf`；工作区中的用户本地修改不纳入、不修改。
-- `package.json`、`src-tauri/Cargo.toml` 与 `src-tauri/tauri.conf.json` 的版本均为 `0.5.0`，与尚未通过 `v0.5.1` 发布门槛的状态一致。
+- `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` 与浏览器扩展 Manifest 的项目版本均已统一为 `0.5.1`；该状态只表示发布候选，不表示 Release 已发布。
 - 前端 60 个测试文件、305 项测试全部通过；Rust 149 项单元测试、2 项生命周期测试、7 项 Native Host 进程测试和 2 项注册测试通过，2 项显式依赖真实语料/人工视觉结果的测试默认忽略；严格 Clippy 通过。
 - 桌面端与浏览器扩展生产构建通过，最大桌面 JavaScript chunk 为 251.25 KiB（门槛 300 KiB），扩展包为 34.33 KiB（门槛 64 KiB）；npm 官方 registry 审计为 0 个漏洞。
 - Edge 英文/简体中文 Runtime Smoke、扩展审计和强制 Runtime 质量报告通过；PR #87 将正式 Chrome 的 `ERR_BLOCKED_BY_CLIENT` 与“不开放自动化调试端口”两种已知官方限制统一保留为 `chrome://extensions` 人工门槛，其他 Chrome 错误仍会使 CI 失败。PR 与合并后 `master` CI 均全绿。
@@ -125,3 +125,10 @@ Release 工作流已经与普通 CI 对齐，5 份真实公开文档的自动化
 - 该决策改变发布范围，不改变技术事实：WPS/LibreOffice 通过不能推出 Microsoft Word 必然兼容。README、Release Notes 和应用说明必须保留“Microsoft Word 尚未完成正式验收”的限制，不得宣传全面 Word 兼容。
 - Microsoft Word 执行器、激活 fail-closed 门禁和冻结语料全部保留；Word 同批逐页矩阵降级为 P2 后续兼容性工作，通过后才能移除限制声明。
 - 下一步进入阶段 7：统一版本为 `0.5.1`，更新发布说明并构建发布候选；完成 NSIS/MSI 安装、v0.5.0 原位升级、Updater、桌面/DOCX 烟雾和资产完整性验证后，才能创建正式标签与 Release。
+
+## 2026-08-15 v0.5.1 发布候选版本对齐
+
+- package、npm lock、Cargo manifest、Cargo lock、Tauri 配置与浏览器扩展 Manifest 中的项目版本统一为 `0.5.1`；依赖自身出现的 `0.5.0` 不做机械替换。首次生产构建按预期捕获扩展仍为 `0.5.0` 的遗漏，补齐后必须重跑完整构建与扩展审计。
+- 新增 `docs/releases/v0.5.1.md`，只描述已经完成的 DOCX 用户闭环、安全边界、WPS/LibreOffice 真实文档证据和已知限制。
+- DOCX 工作台中英文说明直接显示预览状态与 Microsoft Word 未正式验收的限制，避免用户只在仓库文档中才能看到兼容性边界。
+- 本增量不更新 README 的正式下载链接、不创建标签、不触发 Release；下一步先构建候选安装包并执行安装、原位升级、Updater 与资产完整性验收。
