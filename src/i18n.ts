@@ -36,18 +36,27 @@ const zh = {
     mainNavigation: "主功能导航",
     batchTranslate: "文本翻译",
     documentTranslate: "文档翻译",
-    documentWorkbenchTitle: "DOCX 文档工作台",
-    documentWorkbenchDescription: "DOCX 预览功能：已通过 WPS Office 与 LibreOffice 真实文档验收；Microsoft Word 尚未完成正式兼容验收。选择文档后请先检查内容与结构风险。",
+    documentWorkbenchTitle: "文档翻译工作台",
+    documentWorkbenchDescription: "DOCX 预览已通过 WPS Office 与 LibreOffice 真实验收，Microsoft Word 正式兼容验收仍待完成；PDF 当前只开放本机文本层检查与阅读顺序预览。",
+    documentFormatLabel: "文档类型",
+    documentFormatDocx: "DOCX 翻译",
+    documentFormatPdf: "PDF 检查预览",
     documentChoose: "选择 DOCX",
     documentChooseAnother: "选择其他 DOCX",
     documentPickerTitle: "选择 DOCX 文档",
     documentPickerFilter: "Word 文档 (*.docx)",
+    pdfChoose: "选择 PDF",
+    pdfChooseAnother: "选择其他 PDF",
+    pdfPickerTitle: "选择 PDF 文档",
+    pdfPickerFilter: "PDF 文档 (*.pdf)",
     documentSelecting: "正在打开文件选择器…",
     documentInspecting: "正在安全检查文档…",
     documentEmptyTitle: "选择一个 DOCX 开始",
     documentEmptyDescription: "支持未加密的 Open XML .docx 文件，最大 50 MiB。旧 .doc 文件不受支持。",
     documentFileSize: "文件大小",
     documentDocxFormat: "DOCX",
+    documentPdfFormat: "PDF 文本层",
+    documentPageCount: "页数",
     documentSegmentCount: "可翻译分段",
     documentSourceBytes: "原文字节",
     documentWarnings: "结构提示",
@@ -55,6 +64,12 @@ const zh = {
     documentPreview: "分段预览",
     documentPreviewCount: "显示前 {shown} / {total} 段",
     documentPrivacyNotice: "正文仅在本机解析；确认任务只冻结当前配置，明确开始翻译前不会发送给模型服务商。",
+    pdfPrivacyNotice: "PDF 正文仅在本机进行只读解析；当前预览不会发送模型请求、修改源文件或创建输出文件。",
+    pdfEmptyTitle: "选择一个 PDF 开始检查",
+    pdfEmptyDescription: "仅支持最大 50 MiB、未加密且带可选择文本层的 PDF；扫描件和密码保护文件会被明确拒绝。",
+    pdfPreviewScopeTitle: "当前仅可检查",
+    pdfPreviewScopeDescription: "请逐段核对推断后的阅读顺序。PDF 翻译、Checkpoint 和 DOCX 导出将在后续独立增量接通，当前界面不会启动任务。",
+    pdfPageLabel: "第 {page} 页",
     documentOutputSetup: "启动前确认",
     documentOutputMode: "输出方式",
     documentOutputTranslated: "译文版",
@@ -106,6 +121,14 @@ const zh = {
     "documentImportError_invalid-input": "文档已加密、损坏或包含不安全的包结构。",
     "documentImportError_parse-failed": "无法读取文档结构，请确认文件可在 Word 中正常打开。",
     documentImportError_unknown: "文档检查失败，请重新选择文件后重试。",
+    pdfImportErrorTitle: "无法检查这个 PDF",
+    "pdfImportError_unsupported-format": "请选择有效的 .pdf 文件。",
+    "pdfImportError_input-too-large": "PDF 超过安全文件、页数或文本上限，请缩小文件后重试。",
+    "pdfImportError_invalid-input": "PDF 为空、损坏或不是有效的 PDF 文档。",
+    "pdfImportError_encrypted-pdf": "密码保护或加密 PDF 暂不支持，请先在可信工具中生成未加密副本。",
+    "pdfImportError_text-layer-required": "这个 PDF 没有可选择文本层；扫描件 OCR 不在当前 MVP 范围内。",
+    "pdfImportError_parse-failed": "无法安全读取 PDF 内容，请确认文件能在常用 PDF 阅读器中正常打开。",
+    pdfImportError_unknown: "PDF 检查失败，请重新选择文件后重试。",
     "documentWarning_comments-ignored": "批注不会翻译。",
     "documentWarning_images-ignored": "图片会保留，但不会发送翻译。",
     "documentWarning_embedded-objects-unsupported": "嵌入对象不会翻译。",
@@ -114,6 +137,11 @@ const zh = {
     "documentWarning_text-boxes-unsupported": "文本框不会翻译。",
     "documentWarning_fields-degraded": "字段会保留，但字段指令不会翻译。",
     documentWarning_unknown: "文档包含需要降级处理的结构。",
+    "pdfWarning_reading-order-inferred": "PDF 阅读顺序由内容流推断；多栏、浮动文字和绘制标题可能不按视觉顺序出现，翻译前必须核对。",
+    "pdfWarning_page-text-missing": "这一页没有发现可选择文本。",
+    "pdfWarning_images-ignored": "这一页包含图片；图片内容不会进入文本预览。",
+    "pdfWarning_annotations-ignored": "这一页包含批注；批注内容不会进入文本预览。",
+    pdfWarning_unknown: "PDF 包含当前预览无法完整表达的内容。",
     documentStructure_paragraph: "正文",
     documentStructure_heading: "标题",
     "documentStructure_list-item": "列表",
@@ -507,18 +535,27 @@ const en: TranslationCatalog = {
     mainNavigation: "Main navigation",
     batchTranslate: "Batch",
     documentTranslate: "Documents",
-    documentWorkbenchTitle: "DOCX workspace",
-    documentWorkbenchDescription: "DOCX preview: validated with real documents in WPS Office and LibreOffice; formal Microsoft Word compatibility validation is still pending. Inspect content and structure risks before continuing.",
+    documentWorkbenchTitle: "Document workspace",
+    documentWorkbenchDescription: "DOCX preview is validated with WPS Office and LibreOffice; formal Microsoft Word compatibility validation is still pending. PDF currently offers local text-layer inspection and reading-order preview only.",
+    documentFormatLabel: "Document type",
+    documentFormatDocx: "DOCX translation",
+    documentFormatPdf: "PDF inspection preview",
     documentChoose: "Choose DOCX",
     documentChooseAnother: "Choose another DOCX",
     documentPickerTitle: "Choose a DOCX document",
     documentPickerFilter: "Word document (*.docx)",
+    pdfChoose: "Choose PDF",
+    pdfChooseAnother: "Choose another PDF",
+    pdfPickerTitle: "Choose a PDF document",
+    pdfPickerFilter: "PDF document (*.pdf)",
     documentSelecting: "Opening the file picker…",
     documentInspecting: "Inspecting the document safely…",
     documentEmptyTitle: "Choose a DOCX to begin",
     documentEmptyDescription: "Supports unencrypted Open XML .docx files up to 50 MiB. Legacy .doc files are not supported.",
     documentFileSize: "File size",
     documentDocxFormat: "DOCX",
+    documentPdfFormat: "PDF text layer",
+    documentPageCount: "Pages",
     documentSegmentCount: "Translatable segments",
     documentSourceBytes: "Source bytes",
     documentWarnings: "Structure notices",
@@ -526,6 +563,12 @@ const en: TranslationCatalog = {
     documentPreview: "Segment preview",
     documentPreviewCount: "Showing {shown} of {total} segments",
     documentPrivacyNotice: "Text is parsed locally. Confirming only freezes the current settings; nothing is sent until translation is explicitly started.",
+    pdfPrivacyNotice: "PDF text is inspected locally and read-only. This preview sends no model request, changes no source file, and creates no output file.",
+    pdfEmptyTitle: "Choose a PDF to inspect",
+    pdfEmptyDescription: "Supports unencrypted PDFs with a selectable text layer up to 50 MiB. Scans and password-protected files are rejected explicitly.",
+    pdfPreviewScopeTitle: "Inspection only",
+    pdfPreviewScopeDescription: "Review the inferred reading order segment by segment. PDF translation, checkpoints, and DOCX export arrive in separate increments; this screen cannot start a task yet.",
+    pdfPageLabel: "Page {page}",
     documentOutputSetup: "Preflight confirmation",
     documentOutputMode: "Output mode",
     documentOutputTranslated: "Translated",
@@ -577,6 +620,14 @@ const en: TranslationCatalog = {
     "documentImportError_invalid-input": "The document is encrypted, damaged, or contains an unsafe package structure.",
     "documentImportError_parse-failed": "The document structure could not be read. Confirm that Word can open the file.",
     documentImportError_unknown: "Document inspection failed. Choose the file again and retry.",
+    pdfImportErrorTitle: "This PDF could not be inspected",
+    "pdfImportError_unsupported-format": "Choose a valid .pdf file.",
+    "pdfImportError_input-too-large": "The PDF exceeds a safe file, page, or text limit. Reduce it and try again.",
+    "pdfImportError_invalid-input": "The PDF is empty, damaged, or not a valid PDF document.",
+    "pdfImportError_encrypted-pdf": "Password-protected or encrypted PDFs are not supported. Create an unencrypted copy in a trusted tool first.",
+    "pdfImportError_text-layer-required": "This PDF has no selectable text layer. Scanned-document OCR is outside the current MVP.",
+    "pdfImportError_parse-failed": "The PDF could not be read safely. Confirm that a normal PDF reader can open it.",
+    pdfImportError_unknown: "PDF inspection failed. Choose the file again and retry.",
     "documentWarning_comments-ignored": "Comments are not translated.",
     "documentWarning_images-ignored": "Images are preserved but are not sent for translation.",
     "documentWarning_embedded-objects-unsupported": "Embedded objects are not translated.",
@@ -585,6 +636,11 @@ const en: TranslationCatalog = {
     "documentWarning_text-boxes-unsupported": "Text boxes are not translated.",
     "documentWarning_fields-degraded": "Fields are preserved, but field instructions are not translated.",
     documentWarning_unknown: "The document contains a structure that requires degraded handling.",
+    "pdfWarning_reading-order-inferred": "PDF reading order is inferred from content streams. Columns, floating text, and drawn headings may not follow visual order; review it before translation.",
+    "pdfWarning_page-text-missing": "No selectable text was found on this page.",
+    "pdfWarning_images-ignored": "This page contains images. Image content is excluded from the text preview.",
+    "pdfWarning_annotations-ignored": "This page contains annotations. Annotation content is excluded from the text preview.",
+    pdfWarning_unknown: "The PDF contains content this preview cannot represent completely.",
     documentStructure_paragraph: "Paragraph",
     documentStructure_heading: "Heading",
     "documentStructure_list-item": "List",
@@ -961,6 +1017,8 @@ function translatedCode(
     | "documentPreparationError_"
     | "documentRunError_"
     | "documentWarning_"
+    | "pdfImportError_"
+    | "pdfWarning_"
     | "documentStructure_",
   code: string | undefined,
 ): string | undefined {
@@ -983,6 +1041,22 @@ export function documentWarningText(
 ): string {
   return translatedCode(catalog, "documentWarning_", code)
     ?? catalog.documentWarning_unknown;
+}
+
+export function pdfImportErrorText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "pdfImportError_", code)
+    ?? catalog.pdfImportError_unknown;
+}
+
+export function pdfWarningText(
+  catalog: TranslationCatalog,
+  code?: string,
+): string {
+  return translatedCode(catalog, "pdfWarning_", code)
+    ?? catalog.pdfWarning_unknown;
 }
 
 export function documentPreparationErrorText(

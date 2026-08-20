@@ -10,10 +10,12 @@ import DocumentWorkbench from "./DocumentWorkbench";
 const {
   cancelRunMock,
   inspectMock,
+  inspectPdfMock,
   listCheckpointsMock,
   loadCheckpointMock,
   loadSnapshotMock,
   pickMock,
+  pickPdfMock,
   pickOutputMock,
   runHookMock,
   resumeRecoveredMock,
@@ -21,10 +23,12 @@ const {
 } = vi.hoisted(() => ({
   cancelRunMock: vi.fn(),
   inspectMock: vi.fn(),
+  inspectPdfMock: vi.fn(),
   listCheckpointsMock: vi.fn(),
   loadCheckpointMock: vi.fn(),
   loadSnapshotMock: vi.fn(),
   pickMock: vi.fn(),
+  pickPdfMock: vi.fn(),
   pickOutputMock: vi.fn(),
   runHookMock: vi.fn(),
   resumeRecoveredMock: vi.fn(),
@@ -34,9 +38,11 @@ const {
 vi.mock("../services/documentTranslation", async (importOriginal) => ({
   ...await importOriginal<typeof import("../services/documentTranslation")>(),
   inspectDocxDocument: inspectMock,
+  inspectPdfDocument: inspectPdfMock,
   listDocumentCheckpoints: listCheckpointsMock,
   loadDocumentCheckpoint: loadCheckpointMock,
   pickDocxDocument: pickMock,
+  pickPdfDocument: pickPdfMock,
   pickDocxOutput: pickOutputMock,
 }));
 vi.mock("../services/translationTask", async (importOriginal) => ({
@@ -85,6 +91,25 @@ describe("DocumentWorkbench", () => {
         sourcePosition: "paragraph:0:chunk:0:bytes:0-5:runs:0-0:text-nodes:0-0",
         structure: "heading",
         sourceText: "Hello 世界",
+      }],
+    });
+    pickPdfMock.mockResolvedValue("C:\\private\\fixture.pdf");
+    inspectPdfMock.mockResolvedValue({
+      fingerprint: "sha256:pdf-fixture",
+      fileName: "fixture.pdf",
+      sizeBytes: 4096,
+      pageCount: 2,
+      warnings: [{
+        code: "reading-order-inferred",
+        message: "raw PDF warning",
+      }],
+      segments: [{
+        id: "pdf:2:0",
+        order: 0,
+        page: 2,
+        sourcePosition: "page:2:line:0",
+        structure: "paragraph",
+        sourceText: "Public PDF body",
       }],
     });
     pickOutputMock.mockResolvedValue("C:\\private\\fixture-translated.docx");
@@ -187,6 +212,39 @@ describe("DocumentWorkbench", () => {
     expect(screen.getByText(translations.en["documentWarning_images-ignored"])).toBeInTheDocument();
     expect(screen.queryByText("raw backend warning")).not.toBeInTheDocument();
     expect(screen.queryByText("C:\\private\\fixture.docx")).not.toBeInTheDocument();
+  });
+
+  it("inspects a PDF read-only and does not expose DOCX task actions", async () => {
+    render(<DocumentWorkbench labels={translations.en} />);
+
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentFormatPdf }));
+    fireEvent.click(screen.getByRole("button", { name: translations.en.pdfChoose }));
+
+    expect(await screen.findByText("fixture.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Public PDF body")).toBeInTheDocument();
+    expect(screen.getByText(translations.en.pdfPreviewScopeTitle)).toBeInTheDocument();
+    expect(screen.getByText(translations.en.pdfPageLabel.replace("{page}", "2"))).toBeInTheDocument();
+    expect(screen.getByText(translations.en["pdfWarning_reading-order-inferred"])).toBeInTheDocument();
+    expect(screen.queryByText(translations.en.documentOutputSetup)).not.toBeInTheDocument();
+    expect(screen.queryByText(translations.en.documentRecoveryTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw PDF warning|C:\\private/iu)).not.toBeInTheDocument();
+    expect(loadSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("shows a localized encrypted-PDF error without leaking its path", async () => {
+    inspectPdfMock.mockRejectedValue({
+      code: "encrypted-pdf",
+      message: "C:\\private\\protected.pdf requires secret-password",
+    });
+    render(<DocumentWorkbench labels={translations.en} />);
+
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentFormatPdf }));
+    fireEvent.click(screen.getByRole("button", { name: translations.en.pdfChoose }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      translations.en["pdfImportError_encrypted-pdf"],
+    );
+    expect(screen.queryByText(/private|secret-password/iu)).not.toBeInTheDocument();
   });
 
   it("shows a stable localized error without exposing backend details", async () => {

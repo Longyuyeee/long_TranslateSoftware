@@ -144,9 +144,9 @@ fn page_lines(text: &str) -> Vec<String> {
     text.replace('\0', "")
         .replace('\u{000c}', "\n")
         .lines()
-        .map(str::trim)
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|line| !line.is_empty())
-        .flat_map(split_bounded_text)
+        .flat_map(|line| split_bounded_text(&line))
         .collect()
 }
 
@@ -420,7 +420,7 @@ pub fn inspect_pdf_document(path: String) -> ImportResult<PdfInspection> {
 
 #[cfg(test)]
 mod tests {
-    use super::{inspect_pdf_bytes, PdfImportErrorCode, MAX_SEGMENT_BYTES};
+    use super::{inspect_pdf_bytes, page_lines, PdfImportErrorCode, MAX_SEGMENT_BYTES};
     use lopdf::content::{Content, Operation};
     use lopdf::{
         dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, Stream,
@@ -501,6 +501,14 @@ mod tests {
             "Expected public PDF text"
         );
         assert!(inspection.segments[0].source_text.len() <= MAX_SEGMENT_BYTES);
+    }
+
+    #[test]
+    fn normalizes_pdf_layout_whitespace_without_joining_lines() {
+        assert_eq!(
+            page_lines("Get  Ready\tResource Hub\nSecond   line"),
+            vec!["Get Ready Resource Hub", "Second line"]
+        );
     }
 
     #[test]
@@ -592,6 +600,7 @@ mod tests {
                 required_text: &[
                     "The resource hub has been developed",
                     "Frequently Asked Questions",
+                    "Get Ready Resource Hub",
                 ],
             },
         ];
