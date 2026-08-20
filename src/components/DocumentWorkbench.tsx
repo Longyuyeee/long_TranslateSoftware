@@ -82,7 +82,14 @@ export default function DocumentWorkbench({
     setOutputMode,
     chooseOutput,
     confirmTask,
-  } = useDocumentPreparation({
+  } = useDocumentPreparation(isPdf ? {
+    format: "pdf",
+    inspection: pdfImport.inspection,
+    sourcePath: pdfImport.sourcePath,
+    pickerTitle: labels.documentOutputPickerTitle,
+    pickerFilterName: labels.documentPickerFilter,
+  } : {
+    format: "docx",
     inspection: docxInspection,
     sourcePath: docxSourcePath,
     pickerTitle: labels.documentOutputPickerTitle,
@@ -314,7 +321,7 @@ export default function DocumentWorkbench({
         </div>
       )}
 
-      {!isPdf && preparationPhase === "error" && (
+      {preparationPhase === "error" && (
         <div role="alert" className="shrink-0 rounded-2xl border border-red-500/20 bg-red-50 p-4 text-red-700 dark:bg-red-500/10 dark:text-red-300">
           <div className="flex items-start gap-3">
             <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
@@ -490,7 +497,7 @@ export default function DocumentWorkbench({
               )}
             </div>
 
-            {!isPdf ? <div className="glass-card rounded-[24px] p-5">
+            <div className="glass-card rounded-[24px] p-5">
               <h3 className="mb-4 flex items-center gap-2 text-xs font-black text-zinc-800 dark:text-zinc-100">
                 <FileOutput size={15} className="text-accent" aria-hidden="true" />
                 {labels.documentOutputSetup}
@@ -606,7 +613,7 @@ export default function DocumentWorkbench({
                       </dd>
                     </div>
                   </dl>
-                  {canStartPreparedTask && (
+                  {canStartPreparedTask && !isPdf && (
                     <button
                       type="button"
                       onClick={() => void startTranslation()}
@@ -616,19 +623,14 @@ export default function DocumentWorkbench({
                       {labels.documentStartTranslation}
                     </button>
                   )}
+                  {isPdf && (
+                    <p className="mt-3 rounded-xl bg-accent/10 px-3 py-2 text-[9px] font-semibold leading-relaxed text-accent">
+                      {labels.pdfPreviewScopeDescription}
+                    </p>
+                  )}
                 </div>
               )}
-            </div> : (
-              <div className="glass-card rounded-[24px] border border-accent/15 p-5">
-                <h3 className="flex items-center gap-2 text-xs font-black text-zinc-800 dark:text-zinc-100">
-                  <ShieldCheck size={15} className="text-accent" aria-hidden="true" />
-                  {labels.pdfPreviewScopeTitle}
-                </h3>
-                <p className="mt-2 text-[10px] leading-relaxed font-semibold text-zinc-500 dark:text-zinc-400">
-                  {labels.pdfPreviewScopeDescription}
-                </p>
-              </div>
-            )}
+            </div>
           </div>
 
           <div className="glass-card flex min-h-0 flex-col rounded-[24px] p-5">

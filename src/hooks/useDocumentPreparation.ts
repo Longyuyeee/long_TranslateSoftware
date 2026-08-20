@@ -5,6 +5,7 @@ import {
   pickDocxOutput,
   type DocxInspection,
   type DocumentOutputMode,
+  type PdfInspection,
 } from "../services/documentTranslation";
 import {
   createRequestId,
@@ -34,18 +35,22 @@ interface DocumentPreparationState {
   errorCode: DocumentPreparationErrorCode | null;
 }
 
-interface UseDocumentPreparationOptions {
-  inspection: DocxInspection | null;
+interface UseDocumentPreparationBaseOptions {
   sourcePath: string | null;
   pickerTitle: string;
   pickerFilterName: string;
 }
 
+type UseDocumentPreparationOptions = UseDocumentPreparationBaseOptions & (
+  | { format: "docx"; inspection: DocxInspection | null }
+  | { format: "pdf"; inspection: PdfInspection | null }
+);
+
 export function documentOutputFileName(
   fileName: string,
   outputMode: DocumentOutputMode,
 ): string {
-  const stem = fileName.replace(/\.docx$/iu, "").trim() || "document";
+  const stem = fileName.replace(/\.(?:docx|pdf)$/iu, "").trim() || "document";
   const boundedStem = [...stem].slice(0, 100).join("");
   const suffix = outputMode === "translated" ? "translated" : "bilingual";
   return `${boundedStem}-${suffix}.docx`;
@@ -63,6 +68,7 @@ function preparationErrorCode(error: unknown): DocumentPreparationErrorCode {
 }
 
 export function useDocumentPreparation({
+  format,
   inspection,
   sourcePath,
   pickerTitle,
@@ -98,7 +104,7 @@ export function useDocumentPreparation({
       preparedTask: null,
       errorCode: null,
     }));
-  }, [inspection?.fingerprint, sourcePath]);
+  }, [format, inspection?.fingerprint, sourcePath]);
 
   const setOutputMode = useCallback((outputMode: DocumentOutputMode) => {
     if (busyRef.current) return;
@@ -164,15 +170,25 @@ export function useDocumentPreparation({
       const execution = await loadTranslationExecutionSnapshot();
       if (!mountedRef.current || generationRef.current !== generation) return;
       const createdAt = new Date().toISOString();
-      const job = createReadyDocumentJob({
+      const sharedJobOptions = {
         id: `document-${createRequestId()}`,
         sourcePath,
         outputPath: current.outputPath,
         outputMode: current.outputMode,
-        inspection,
         execution,
         createdAt,
-      });
+      };
+      const job = format === "pdf"
+        ? createReadyDocumentJob({
+            ...sharedJobOptions,
+            format: "pdf",
+            inspection: inspection as PdfInspection,
+          })
+        : createReadyDocumentJob({
+            ...sharedJobOptions,
+            format: "docx",
+            inspection: inspection as DocxInspection,
+          });
       setState(value => ({
         ...value,
         phase: "prepared",
@@ -190,7 +206,7 @@ export function useDocumentPreparation({
     } finally {
       if (generationRef.current === generation) busyRef.current = false;
     }
-  }, [inspection, sourcePath]);
+  }, [format, inspection, sourcePath]);
 
   return {
     ...state,

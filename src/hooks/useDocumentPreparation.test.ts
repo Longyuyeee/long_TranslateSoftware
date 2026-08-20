@@ -31,6 +31,7 @@ const inspection = {
   segments: [],
 };
 const options = {
+  format: "docx" as const,
   inspection,
   sourcePath: "C:\\private\\fixture.docx",
   pickerTitle: "Choose output",
@@ -56,6 +57,8 @@ describe("useDocumentPreparation", () => {
       .toBe("report-translated.docx");
     expect(documentOutputFileName("REPORT.DOCX", "bilingual"))
       .toBe("REPORT-bilingual.docx");
+    expect(documentOutputFileName("brief.PDF", "translated"))
+      .toBe("brief-translated.docx");
     expect([...documentOutputFileName("x".repeat(300) + ".docx", "translated")].length)
       .toBeLessThanOrEqual(116);
   });
@@ -76,6 +79,7 @@ describe("useDocumentPreparation", () => {
     expect(loadSnapshotMock).toHaveBeenCalledOnce();
     expect(createJobMock).toHaveBeenCalledWith(expect.objectContaining({
       id: "document-fixture-id",
+      format: "docx",
       sourcePath: options.sourcePath,
       outputPath: "C:\\private\\fixture-translated.docx",
       outputMode: "translated",

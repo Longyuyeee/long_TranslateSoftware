@@ -214,7 +214,7 @@ describe("DocumentWorkbench", () => {
     expect(screen.queryByText("C:\\private\\fixture.docx")).not.toBeInTheDocument();
   });
 
-  it("inspects a PDF read-only and does not expose DOCX task actions", async () => {
+  it("confirms a frozen PDF task without starting translation or exposing paths", async () => {
     render(<DocumentWorkbench labels={translations.en} />);
 
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentFormatPdf }));
@@ -222,13 +222,22 @@ describe("DocumentWorkbench", () => {
 
     expect(await screen.findByText("fixture.pdf")).toBeInTheDocument();
     expect(screen.getByText("Public PDF body")).toBeInTheDocument();
-    expect(screen.getByText(translations.en.pdfPreviewScopeTitle)).toBeInTheDocument();
     expect(screen.getByText(translations.en.pdfPageLabel.replace("{page}", "2"))).toBeInTheDocument();
     expect(screen.getByText(translations.en["pdfWarning_reading-order-inferred"])).toBeInTheDocument();
-    expect(screen.queryByText(translations.en.documentOutputSetup)).not.toBeInTheDocument();
+    expect(screen.getByText(translations.en.documentOutputSetup)).toBeInTheDocument();
     expect(screen.queryByText(translations.en.documentRecoveryTitle)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw PDF warning|C:\\private/iu)).not.toBeInTheDocument();
-    expect(loadSnapshotMock).not.toHaveBeenCalled();
+
+    await chooseOutputDestination();
+    fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
+
+    expect(await screen.findByText(translations.en.documentPreparedTitle)).toBeInTheDocument();
+    expect(screen.getByText(translations.en.pdfPreviewScopeDescription)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: translations.en.documentStartTranslation }))
+      .not.toBeInTheDocument();
+    expect(loadSnapshotMock).toHaveBeenCalledOnce();
+    expect(startRunMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(/api\.example|private-key|C:\\private/iu)).not.toBeInTheDocument();
   });
 
   it("shows a localized encrypted-PDF error without leaking its path", async () => {

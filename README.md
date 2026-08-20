@@ -573,7 +573,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、最小工作台、译文/双语重建、发布前取消和不覆盖原子导出；权限拒绝、磁盘写入/同步失败和提交时目标竞争均已纳入安全失败回归，Release 门禁也已与普通 CI 对齐。5 份真实公开文档的译文版与双语版已经通过 LibreOffice 和 WPS Office 逐页验收；Microsoft Word 16.x/365 的同批真实文档验收尚未完成，因此本版本不宣称 Microsoft Word 全面兼容。PDF 独立后续版本的开发主线已接入受限文本层检查、真实公开语料和只读阅读顺序工作台，但尚未随稳定版发布，也不能启动 PDF 翻译或导出。
+浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、最小工作台、译文/双语重建、发布前取消和不覆盖原子导出；权限拒绝、磁盘写入/同步失败和提交时目标竞争均已纳入安全失败回归，Release 门禁也已与普通 CI 对齐。5 份真实公开文档的译文版与双语版已经通过 LibreOffice 和 WPS Office 逐页验收；Microsoft Word 16.x/365 的同批真实文档验收尚未完成，因此本版本不宣称 Microsoft Word 全面兼容。PDF 独立后续版本的开发主线已接入受限文本层检查、真实公开语料、只读阅读顺序工作台和统一任务确认，但尚未随稳定版发布，也不能启动 PDF 翻译或导出。
 
 Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop`，排除浏览器缺失、旧 EXE、错误注册、扩展权限扩大和桌面桥接未就绪等环境问题；该预检不会替代 Chrome / Edge 的真实交互烟雾。
 
@@ -590,7 +590,7 @@ Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNa
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
 | **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 扩展 |
-| **文档翻译** | v0.5.1 DOCX 预览版；PDF 后续版本已完成只读检查入口，尚未发布且不能翻译/导出 |
+| **文档翻译** | v0.5.1 DOCX 预览版；PDF 开发主线已完成只读检查与任务确认，尚未发布且不能启动翻译/导出 |
 
 ### v0.5.0 浏览器桥接（2026-08-13）
 
