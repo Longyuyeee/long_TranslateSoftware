@@ -177,6 +177,45 @@ export interface DocxInspection {
   warnings: DocxImportWarning[];
 }
 
+export interface PdfImportSegment {
+  id: string;
+  order: number;
+  page: number;
+  sourcePosition: string;
+  structure: "paragraph";
+  sourceText: string;
+}
+
+export interface PdfImportWarning {
+  code:
+    | "reading-order-inferred"
+    | "page-text-missing"
+    | "images-ignored"
+    | "annotations-ignored";
+  message: string;
+  page?: number;
+}
+
+export interface PdfImportCommandError {
+  code:
+    | "unsupported-format"
+    | "input-too-large"
+    | "invalid-input"
+    | "encrypted-pdf"
+    | "text-layer-required"
+    | "parse-failed";
+  message: string;
+}
+
+export interface PdfInspection {
+  fingerprint: string;
+  fileName: string;
+  sizeBytes: number;
+  pageCount: number;
+  segments: PdfImportSegment[];
+  warnings: PdfImportWarning[];
+}
+
 export interface DocxRebuildReplacement {
   id: string;
   order: number;
@@ -224,6 +263,17 @@ export async function pickDocxDocument(
 
 export async function inspectDocxDocument(path: string): Promise<DocxInspection> {
   return invoke<DocxInspection>("inspect_docx_document", { path });
+}
+
+export async function pickPdfDocument(
+  title: string,
+  filterName: string,
+): Promise<string | null> {
+  return invoke<string | null>("pick_pdf_document", { title, filterName });
+}
+
+export async function inspectPdfDocument(path: string): Promise<PdfInspection> {
+  return invoke<PdfInspection>("inspect_pdf_document", { path });
 }
 
 export async function pickDocxOutput(

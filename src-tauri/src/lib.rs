@@ -17,6 +17,7 @@ pub mod native_host;
 pub mod native_protocol;
 pub mod native_registration;
 mod ocr;
+mod pdf_document;
 mod review;
 mod secure_config;
 mod shortcuts;
@@ -158,6 +159,8 @@ pub fn run() {
             diagnostics::export_diagnostics,
             document::pick_docx_document,
             document::inspect_docx_document,
+            pdf_document::pick_pdf_document,
+            pdf_document::inspect_pdf_document,
             document_checkpoint::save_document_checkpoint,
             document_checkpoint::load_document_checkpoint,
             document_checkpoint::list_document_checkpoints,

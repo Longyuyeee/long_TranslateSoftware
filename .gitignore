@@ -37,3 +37,4 @@ quality-reports/
 
 # Local real-DOCX acceptance inputs, outputs, and visual review notes
 .docx-acceptance/
+.pdf-acceptance/
