@@ -1,9 +1,12 @@
 import {
   cancelDocxRebuild,
   createDocxRebuildPlan,
+  createPdfDocxExportPlan,
   DOCUMENT_CHECKPOINT_VERSION,
   DocumentContractError,
+  exportPdfTranslationDocx,
   inspectDocxDocument,
+  inspectPdfDocument,
   rebuildDocxDocument,
   saveDocumentCheckpoint,
   parseDocumentCheckpoint,
@@ -13,6 +16,8 @@ import {
   type DocxRebuildPlan,
   type DocxRebuildResult,
   type DocumentJob,
+  type PdfDocxExportPlan,
+  type PdfInspection,
 } from "./documentTranslation";
 import { DocumentTranslationTaskRegistry } from "./documentTranslationRegistry";
 import type {
@@ -59,6 +64,8 @@ export interface DocumentRunSnapshot {
 type DocumentCheckpointSink = (checkpoint: DocumentCheckpoint) => Promise<void>;
 type DocumentInspectionSource = (path: string) => Promise<DocxInspection>;
 type DocumentRebuildSink = (jobId: string, plan: DocxRebuildPlan) => Promise<DocxRebuildResult>;
+type PdfInspectionSource = (path: string) => Promise<PdfInspection>;
+type PdfExportSink = (jobId: string, plan: PdfDocxExportPlan) => Promise<DocxRebuildResult>;
 type DocumentRebuildCancellation = (jobId: string) => Promise<boolean>;
 type Listener = () => void;
 
@@ -113,6 +120,8 @@ export class DocumentTranslationRuntime {
     private readonly inspect: DocumentInspectionSource = inspectDocxDocument,
     private readonly rebuild: DocumentRebuildSink = rebuildDocxDocument,
     private readonly cancelRebuild: DocumentRebuildCancellation = cancelDocxRebuild,
+    private readonly inspectPdf: PdfInspectionSource = inspectPdfDocument,
+    private readonly exportPdf: PdfExportSink = exportPdfTranslationDocx,
   ) {}
 
   getSnapshot = (): DocumentRunSnapshot => this.snapshot;
@@ -149,7 +158,9 @@ export class DocumentTranslationRuntime {
     const jobId = sourceJob.id;
     try {
       this.publish({ phase: "rebuilding", job: sourceJob, progress: this.progress(sourceJob), errorCode: null });
-      const inspection = await this.inspect(sourceJob.input.sourcePath);
+      const inspection = sourceJob.input.format === "pdf"
+        ? await this.inspectPdf(sourceJob.input.sourcePath)
+        : await this.inspect(sourceJob.input.sourcePath);
       if (this.activeJobId !== jobId) return;
       if (this.rebuildCancelRequested) {
         await this.finishCancelled(sourceJob);
@@ -158,7 +169,9 @@ export class DocumentTranslationRuntime {
       if (!sourceJob.outputPath) {
         throw new DocumentContractError("rebuild-failed", "DOCX output path is missing");
       }
-      const plan = createDocxRebuildPlan(sourceJob, inspection, sourceJob.outputPath);
+      const plan = sourceJob.input.format === "pdf"
+        ? createPdfDocxExportPlan(sourceJob, inspection as PdfInspection, sourceJob.outputPath)
+        : createDocxRebuildPlan(sourceJob, inspection as DocxInspection, sourceJob.outputPath);
       const exporting = transitionDocumentJob(sourceJob, "exporting", this.now());
       await this.saveCheckpoint({ schemaVersion: DOCUMENT_CHECKPOINT_VERSION, job: exporting });
       if (this.activeJobId !== jobId) return;
@@ -167,7 +180,9 @@ export class DocumentTranslationRuntime {
         return;
       }
       this.publish({ phase: "exporting", job: exporting, progress: this.progress(exporting), errorCode: null });
-      const result = await this.rebuild(jobId, plan);
+      const result = sourceJob.input.format === "pdf"
+        ? await this.exportPdf(jobId, plan as PdfDocxExportPlan)
+        : await this.rebuild(jobId, plan as DocxRebuildPlan);
       if (this.activeJobId !== jobId) return;
       const completed = transitionDocumentJob(
         { ...exporting, outputPath: result.outputPath },

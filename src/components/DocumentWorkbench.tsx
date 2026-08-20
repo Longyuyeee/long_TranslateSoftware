@@ -203,7 +203,7 @@ export default function DocumentWorkbench({
         </div>
       </div>
 
-      {!isPdf && <div className="glass-card shrink-0 rounded-[24px] border border-accent/10 p-4">
+      <div className="glass-card shrink-0 rounded-[24px] border border-accent/10 p-4">
         <div className="flex items-start gap-3">
           <History size={17} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
           <div className="min-w-0 flex-1">
@@ -301,7 +301,7 @@ export default function DocumentWorkbench({
             )}
           </div>
         </div>
-      </div>}
+      </div>
 
       {phase === "error" && (
         <div role="alert" className="shrink-0 rounded-2xl border border-red-500/20 bg-red-50 p-4 text-red-700 dark:bg-red-500/10 dark:text-red-300">
@@ -335,7 +335,7 @@ export default function DocumentWorkbench({
         </div>
       )}
 
-      {!isPdf && runPhase !== "idle" && (
+      {runPhase !== "idle" && (
         <div
           role={runPhase === "failed" ? "alert" : "status"}
           aria-live="polite"
@@ -613,7 +613,7 @@ export default function DocumentWorkbench({
                       </dd>
                     </div>
                   </dl>
-                  {canStartPreparedTask && !isPdf && (
+                  {canStartPreparedTask && (
                     <button
                       type="button"
                       onClick={() => void startTranslation()}
@@ -623,7 +623,7 @@ export default function DocumentWorkbench({
                       {labels.documentStartTranslation}
                     </button>
                   )}
-                  {isPdf && (
+                  {isPdf && !canStartPreparedTask && (
                     <p className="mt-3 rounded-xl bg-accent/10 px-3 py-2 text-[9px] font-semibold leading-relaxed text-accent">
                       {labels.pdfPreviewScopeDescription}
                     </p>
