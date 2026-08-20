@@ -214,7 +214,7 @@ describe("DocumentWorkbench", () => {
     expect(screen.queryByText("C:\\private\\fixture.docx")).not.toBeInTheDocument();
   });
 
-  it("confirms a frozen PDF task without starting translation or exposing paths", async () => {
+  it("starts a confirmed PDF task explicitly without exposing paths", async () => {
     render(<DocumentWorkbench labels={translations.en} />);
 
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentFormatPdf }));
@@ -225,18 +225,18 @@ describe("DocumentWorkbench", () => {
     expect(screen.getByText(translations.en.pdfPageLabel.replace("{page}", "2"))).toBeInTheDocument();
     expect(screen.getByText(translations.en["pdfWarning_reading-order-inferred"])).toBeInTheDocument();
     expect(screen.getByText(translations.en.documentOutputSetup)).toBeInTheDocument();
-    expect(screen.queryByText(translations.en.documentRecoveryTitle)).not.toBeInTheDocument();
+    expect(screen.getByText(translations.en.documentRecoveryTitle)).toBeInTheDocument();
     expect(screen.queryByText(/raw PDF warning|C:\\private/iu)).not.toBeInTheDocument();
 
     await chooseOutputDestination();
     fireEvent.click(screen.getByRole("button", { name: translations.en.documentConfirmTask }));
 
     expect(await screen.findByText(translations.en.documentPreparedTitle)).toBeInTheDocument();
-    expect(screen.getByText(translations.en.pdfPreviewScopeDescription)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: translations.en.documentStartTranslation }))
-      .not.toBeInTheDocument();
+    const start = screen.getByRole("button", { name: translations.en.documentStartTranslation });
     expect(loadSnapshotMock).toHaveBeenCalledOnce();
     expect(startRunMock).not.toHaveBeenCalled();
+    fireEvent.click(start);
+    expect(startRunMock).toHaveBeenCalledOnce();
     expect(screen.queryByText(/api\.example|private-key|C:\\private/iu)).not.toBeInTheDocument();
   });
 

@@ -97,6 +97,51 @@ function translatedJob(): DocumentJob {
   };
 }
 
+function preparedPdfTask(): PreparedDocumentTask {
+  const source = preparedTask();
+  return {
+    ...source,
+    job: {
+      ...source.job,
+      input: {
+        ...source.job.input,
+        sourcePath: "C:\\private\\source.pdf",
+        fileName: "source.pdf",
+        format: "pdf",
+        fingerprint: "sha256:pdf-runtime",
+      },
+      segments: source.job.segments.map(segment => ({
+        ...segment,
+        id: "pdf:2:0",
+        location: {
+          order: 0,
+          part: "page:2",
+          page: 2,
+          sourcePosition: "page:2:line:0",
+        },
+      })),
+    },
+  };
+}
+
+function pdfInspection() {
+  return {
+    fingerprint: "sha256:pdf-runtime",
+    fileName: "source.pdf",
+    sizeBytes: 1024,
+    pageCount: 2,
+    warnings: [],
+    segments: [{
+      id: "pdf:2:0",
+      order: 0,
+      page: 2,
+      sourcePosition: "page:2:line:0",
+      structure: "paragraph" as const,
+      sourceText: "Hello",
+    }],
+  };
+}
+
 describe("document translation runtime", () => {
   it("durably saves the ready job before starting and publishes progress across subscribers", async () => {
     const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
@@ -201,6 +246,112 @@ describe("document translation runtime", () => {
     expect(saves).toHaveBeenCalledTimes(2);
     expect(saves.mock.calls[1][0].job.phase).toBe("cancelled");
     expect(runtime.getSnapshot().phase).toBe("cancelled");
+  });
+
+  it("reuses the same queue and checkpoint lifecycle for PDF DOCX export", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const completion = deferred<DocumentTranslationQueueCompletion>();
+    const registry = {
+      start: vi.fn(() => ({ cancel: vi.fn(), done: completion.promise })),
+      cancel: vi.fn(() => true),
+    };
+    const inspectDocx = vi.fn();
+    const rebuildDocx = vi.fn();
+    const inspectPdf = vi.fn(async () => pdfInspection());
+    const exportPdf = vi.fn(async () => ({
+      outputPath: "C:\\private\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:pdf-output",
+    }));
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      inspectDocx,
+      rebuildDocx,
+      vi.fn(async () => true),
+      inspectPdf,
+      exportPdf,
+    );
+    const prepared = preparedPdfTask();
+
+    await runtime.start(prepared);
+    completion.resolve({
+      status: "ready-to-rebuild",
+      job: {
+        ...prepared.job,
+        phase: "rebuilding",
+        segments: prepared.job.segments.map(segment => ({
+          ...segment,
+          status: "translated" as const,
+          translatedText: "你好",
+        })),
+      },
+    });
+
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("completed"));
+    expect(inspectPdf).toHaveBeenCalledWith("C:\\private\\source.pdf");
+    expect(exportPdf).toHaveBeenCalledWith("document-runtime", expect.objectContaining({
+      sourcePath: "C:\\private\\source.pdf",
+      outputPath: "C:\\private\\translated.docx",
+      segments: [expect.objectContaining({
+        page: 2,
+        translatedText: "你好",
+      })],
+    }));
+    expect(inspectDocx).not.toHaveBeenCalled();
+    expect(rebuildDocx).not.toHaveBeenCalled();
+    expect(saves.mock.calls.map(call => call[0].job.phase)).toEqual([
+      "ready",
+      "exporting",
+      "completed",
+    ]);
+  });
+
+  it("resumes a fully translated PDF checkpoint directly into export", async () => {
+    const saves = vi.fn<(checkpoint: DocumentCheckpoint) => Promise<void>>(async () => {});
+    const registry = { start: vi.fn(), cancel: vi.fn(() => true) };
+    const inspectPdf = vi.fn(async () => pdfInspection());
+    const exportPdf = vi.fn(async () => ({
+      outputPath: "C:\\private\\translated.docx",
+      replacementCount: 1,
+      sizeBytes: 2048,
+      fingerprint: "sha256:pdf-output",
+    }));
+    const runtime = new DocumentTranslationRuntime(
+      registry,
+      saves,
+      () => now,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(async () => true),
+      inspectPdf,
+      exportPdf,
+    );
+    const source = preparedPdfTask().job;
+    const interrupted: DocumentJob = {
+      ...source,
+      phase: "translating",
+      segments: source.segments.map(segment => ({
+        ...segment,
+        status: "translated" as const,
+        translatedText: "你好",
+      })),
+    };
+
+    await expect(runtime.resumeRebuild({ schemaVersion: 1, job: interrupted }))
+      .resolves.toBe(true);
+    await vi.waitFor(() => expect(runtime.getSnapshot().phase).toBe("completed"));
+
+    expect(registry.start).not.toHaveBeenCalled();
+    expect(inspectPdf).toHaveBeenCalledOnce();
+    expect(exportPdf).toHaveBeenCalledOnce();
+    expect(saves.mock.calls.map(call => call[0].job.phase)).toEqual([
+      "rebuilding",
+      "exporting",
+      "completed",
+    ]);
   });
 
   it("cancels during rebuild inspection without creating an output", async () => {
