@@ -216,6 +216,23 @@ export interface PdfInspection {
   warnings: PdfImportWarning[];
 }
 
+export interface PdfDocxExportSegment {
+  id: string;
+  order: number;
+  page: number;
+  sourcePosition: string;
+  sourceText: string;
+  translatedText: string;
+}
+
+export interface PdfDocxExportPlan {
+  sourcePath: string;
+  outputPath: string;
+  fingerprint: string;
+  outputMode: DocumentOutputMode;
+  segments: PdfDocxExportSegment[];
+}
+
 export interface DocxRebuildReplacement {
   id: string;
   order: number;
@@ -528,6 +545,88 @@ export async function rebuildDocxDocument(
 
 export async function cancelDocxRebuild(jobId: string): Promise<boolean> {
   return invoke<boolean>("cancel_docx_rebuild", { jobId });
+}
+
+export async function validatePdfDocxExportPlan(
+  plan: PdfDocxExportPlan,
+): Promise<DocxRebuildValidation> {
+  return invoke<DocxRebuildValidation>("validate_pdf_docx_export_plan", { plan });
+}
+
+export async function exportPdfTranslationDocx(
+  jobId: string,
+  plan: PdfDocxExportPlan,
+): Promise<DocxRebuildResult> {
+  return invoke<DocxRebuildResult>("export_pdf_translation_docx", { jobId, plan });
+}
+
+/** Builds a closed PDF export allowlist after re-checking the source inspection. */
+export function createPdfDocxExportPlan(
+  sourceJob: DocumentJob,
+  inspection: PdfInspection,
+  outputPath: string,
+): PdfDocxExportPlan {
+  const job = parseDocumentCheckpoint({
+    schemaVersion: DOCUMENT_CHECKPOINT_VERSION,
+    job: sourceJob,
+  }).job;
+  if (job.phase !== "rebuilding" || job.input.format !== "pdf") {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "PDF DOCX export requires a rebuilding PDF job",
+    );
+  }
+  const trimmedOutput = outputPath.trim();
+  if (!trimmedOutput || !/\.docx$/iu.test(trimmedOutput)) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "PDF translation output must use the .docx extension",
+    );
+  }
+  if (
+    inspection.fingerprint !== job.input.fingerprint
+    || inspection.sizeBytes !== job.input.sizeBytes
+    || inspection.fileName.toLocaleLowerCase() !== job.input.fileName.toLocaleLowerCase()
+    || inspection.segments.length !== job.segments.length
+  ) {
+    throw new DocumentContractError(
+      "rebuild-failed",
+      "PDF source changed after it was inspected",
+    );
+  }
+
+  return {
+    sourcePath: job.input.sourcePath,
+    outputPath: trimmedOutput,
+    fingerprint: job.input.fingerprint,
+    outputMode: job.outputMode,
+    segments: job.segments.map((segment, order) => {
+      const inspected = inspection.segments[order];
+      if (
+        segment.status !== "translated"
+        || !segment.translatedText?.trim()
+        || segment.id !== inspected.id
+        || segment.location.order !== order
+        || segment.location.page !== inspected.page
+        || segment.location.part !== `page:${inspected.page}`
+        || segment.location.sourcePosition !== inspected.sourcePosition
+        || segment.sourceText !== inspected.sourceText
+      ) {
+        throw new DocumentContractError(
+          "rebuild-failed",
+          `PDF segment is not ready for export: ${segment.id}`,
+        );
+      }
+      return {
+        id: segment.id,
+        order,
+        page: inspected.page,
+        sourcePosition: inspected.sourcePosition,
+        sourceText: inspected.sourceText,
+        translatedText: segment.translatedText,
+      };
+    }),
+  };
 }
 
 /** Produces the persistable task summary without copying runtime credentials. */

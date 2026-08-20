@@ -1,4 +1,5 @@
 use crate::document::{dialog_label, inspect_docx_bytes, local_dialog_path, DocxInspection};
+use crate::pdf_document::{inspect_pdf_document, PdfInspection};
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -230,6 +231,27 @@ pub struct DocxRebuildResult {
     pub replacement_count: usize,
     pub size_bytes: usize,
     pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PdfDocxExportSegment {
+    id: String,
+    order: usize,
+    page: u32,
+    source_position: String,
+    source_text: String,
+    translated_text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PdfDocxExportPlan {
+    source_path: String,
+    output_path: String,
+    fingerprint: String,
+    output_mode: DocxOutputMode,
+    segments: Vec<PdfDocxExportSegment>,
 }
 
 struct TempFileGuard {
@@ -966,6 +988,167 @@ fn prepare_rebuilt_package_with_cancel(
     Ok((validation, rebuilt))
 }
 
+fn validate_pdf_export_against_inspection_with_cancel(
+    plan: &PdfDocxExportPlan,
+    inspection: &PdfInspection,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<DocxRebuildValidation> {
+    check_cancel(cancellation)?;
+    validate_output_path(&plan.source_path, &plan.output_path)?;
+    if plan.fingerprint != inspection.fingerprint {
+        return Err(DocxRebuildError::stale(
+            "PDF source fingerprint changed after inspection",
+        ));
+    }
+    if plan.segments.is_empty() || plan.segments.len() > MAX_SEGMENTS {
+        return Err(DocxRebuildError::invalid(
+            "PDF export segment count is invalid",
+        ));
+    }
+    if plan.segments.len() != inspection.segments.len() {
+        return Err(DocxRebuildError::stale(
+            "PDF segment count changed after inspection",
+        ));
+    }
+
+    let mut translated_bytes = 0usize;
+    let mut pages = HashSet::new();
+    for (order, (segment, inspected)) in plan.segments.iter().zip(&inspection.segments).enumerate()
+    {
+        check_cancel(cancellation)?;
+        if segment.order != order
+            || segment.id != inspected.id
+            || segment.page != inspected.page
+            || segment.source_position != inspected.source_position
+            || segment.source_text != inspected.source_text
+        {
+            return Err(DocxRebuildError::stale(format!(
+                "PDF export anchor does not match segment {order}"
+            )));
+        }
+        if segment.page == 0
+            || segment.translated_text.trim().is_empty()
+            || segment.translated_text.len() > MAX_SEGMENT_BYTES
+            || !contains_only_xml_characters(&segment.source_text)
+            || !contains_only_xml_characters(&segment.translated_text)
+        {
+            return Err(DocxRebuildError::invalid(format!(
+                "PDF export segment {order} is invalid"
+            )));
+        }
+        translated_bytes = translated_bytes
+            .checked_add(segment.translated_text.len())
+            .ok_or_else(|| DocxRebuildError::invalid("PDF translation size is invalid"))?;
+        if translated_bytes > MAX_TRANSLATED_BYTES {
+            return Err(DocxRebuildError::invalid(
+                "PDF translated text exceeds the 24 MiB limit",
+            ));
+        }
+        pages.insert(segment.page);
+    }
+
+    Ok(DocxRebuildValidation {
+        replacement_count: plan.segments.len(),
+        part_count: pages.len(),
+        translated_bytes,
+        rebuilt_size_bytes: 0,
+        rebuilt_fingerprint: String::new(),
+    })
+}
+
+fn append_generated_paragraph(xml: &mut String, text: &str) {
+    use quick_xml::escape::escape;
+    xml.push_str("<w:p><w:r><w:t xml:space=\"preserve\">");
+    xml.push_str(&escape(text));
+    xml.push_str("</w:t></w:r></w:p>");
+}
+
+fn build_pdf_export_package_with_cancel(
+    plan: &PdfDocxExportPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<Vec<u8>> {
+    use zip::write::SimpleFileOptions;
+
+    let mut document_xml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>"#,
+    );
+    let mut previous_page = None;
+    for segment in &plan.segments {
+        check_cancel(cancellation)?;
+        if previous_page.is_some_and(|page| page != segment.page) {
+            document_xml.push_str("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
+        }
+        if plan.output_mode == DocxOutputMode::Bilingual {
+            append_generated_paragraph(&mut document_xml, &segment.source_text);
+        }
+        append_generated_paragraph(&mut document_xml, &segment.translated_text);
+        previous_page = Some(segment.page);
+        if document_xml.len() > MAX_XML_PART_BYTES {
+            return Err(DocxRebuildError::invalid(
+                "Generated DOCX XML exceeds the 16 MiB limit",
+            ));
+        }
+    }
+    document_xml.push_str(
+        r#"<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>"#,
+    );
+
+    let target = Cursor::new(Vec::new());
+    let mut writer = ZipWriter::new(target);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, content) in [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+        ("word/document.xml", document_xml.as_str()),
+    ] {
+        check_cancel(cancellation)?;
+        writer.start_file(name, options).map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot create generated DOCX entry: {error}"))
+        })?;
+        writer.write_all(content.as_bytes()).map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot write generated DOCX entry: {error}"))
+        })?;
+    }
+    let output = writer
+        .finish()
+        .map_err(|error| {
+            DocxRebuildError::rebuild(format!("Cannot finish generated DOCX: {error}"))
+        })?
+        .into_inner();
+    check_cancel(cancellation)?;
+    if output.len() as u64 > MAX_DOCX_BYTES {
+        return Err(DocxRebuildError::invalid(
+            "Generated DOCX exceeds the 50 MiB package limit",
+        ));
+    }
+    Ok(output)
+}
+
+fn prepare_pdf_export_with_cancel(
+    plan: &PdfDocxExportPlan,
+    cancellation: Option<&RebuildCancellation>,
+) -> RebuildResult<(DocxRebuildValidation, Vec<u8>)> {
+    let inspection = inspect_pdf_document(plan.source_path.clone()).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot re-inspect PDF source: {}", error.message))
+    })?;
+    let mut validation =
+        validate_pdf_export_against_inspection_with_cancel(plan, &inspection, cancellation)?;
+    let output = build_pdf_export_package_with_cancel(plan, cancellation)?;
+    inspect_docx_bytes(&output, "translated.docx".to_string()).map_err(|error| {
+        DocxRebuildError::rebuild(format!("Cannot validate generated DOCX: {}", error.message))
+    })?;
+    check_cancel(cancellation)?;
+    validation.rebuilt_size_bytes = output.len();
+    validation.rebuilt_fingerprint = format!("sha256:{}", hex::encode(Sha256::digest(&output)));
+    Ok((validation, output))
+}
+
 fn safe_output_file_name(output: &Path) -> RebuildResult<&str> {
     let name = output
         .file_name()
@@ -1213,6 +1396,13 @@ pub fn validate_docx_rebuild_plan(plan: DocxRebuildPlan) -> RebuildResult<DocxRe
 }
 
 #[tauri::command]
+pub fn validate_pdf_docx_export_plan(
+    plan: PdfDocxExportPlan,
+) -> RebuildResult<DocxRebuildValidation> {
+    prepare_pdf_export_with_cancel(&plan, None).map(|(validation, _)| validation)
+}
+
+#[tauri::command]
 pub async fn rebuild_docx_document(
     job_id: String,
     plan: DocxRebuildPlan,
@@ -1229,6 +1419,28 @@ pub async fn rebuild_docx_document(
 }
 
 #[tauri::command]
+pub async fn export_pdf_translation_docx(
+    job_id: String,
+    plan: PdfDocxExportPlan,
+) -> RebuildResult<DocxRebuildResult> {
+    let registration = RebuildRegistration::register(job_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let cancellation = Arc::clone(&registration.cancellation);
+        let (validation, output) = prepare_pdf_export_with_cancel(&plan, Some(&cancellation))?;
+        let publish_plan = DocxRebuildPlan {
+            source_path: plan.source_path,
+            output_path: plan.output_path,
+            fingerprint: plan.fingerprint,
+            output_mode: plan.output_mode,
+            replacements: Vec::new(),
+        };
+        publish_rebuilt_package_with_cancel(&publish_plan, &validation, &output, &cancellation)
+    })
+    .await
+    .map_err(|_| DocxRebuildError::rebuild("PDF DOCX export worker stopped unexpectedly"))?
+}
+
+#[tauri::command]
 pub fn cancel_docx_rebuild(job_id: String) -> RebuildResult<bool> {
     cancel_rebuild_job(&job_id)
 }
@@ -1237,6 +1449,7 @@ pub fn cancel_docx_rebuild(job_id: String) -> RebuildResult<bool> {
 mod tests {
     use super::*;
     use crate::document::{inspect_docx_path, DocxImportWarning, DocxSegment};
+    use crate::pdf_document::PdfSegment;
     use zip::write::SimpleFileOptions;
 
     const DOCUMENT_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -1245,6 +1458,61 @@ mod tests {
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#;
     const PACKAGE_RELS: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdOffice" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#;
+
+    fn pdf_inspection() -> PdfInspection {
+        PdfInspection {
+            fingerprint: "sha256:pdf-fixture".to_string(),
+            file_name: "fixture.pdf".to_string(),
+            size_bytes: 1024,
+            page_count: 2,
+            warnings: Vec::new(),
+            segments: vec![
+                PdfSegment {
+                    id: "pdf:1:0".to_string(),
+                    order: 0,
+                    page: 1,
+                    source_position: "page:1:line:0".to_string(),
+                    structure: "paragraph".to_string(),
+                    source_text: "Hello & world".to_string(),
+                },
+                PdfSegment {
+                    id: "pdf:2:0".to_string(),
+                    order: 1,
+                    page: 2,
+                    source_position: "page:2:line:0".to_string(),
+                    structure: "paragraph".to_string(),
+                    source_text: "Second <page>".to_string(),
+                },
+            ],
+        }
+    }
+
+    fn pdf_export_plan(mode: DocxOutputMode) -> PdfDocxExportPlan {
+        PdfDocxExportPlan {
+            source_path: r"C:\docs\fixture.pdf".to_string(),
+            output_path: r"C:\docs\fixture-translated.docx".to_string(),
+            fingerprint: "sha256:pdf-fixture".to_string(),
+            output_mode: mode,
+            segments: vec![
+                PdfDocxExportSegment {
+                    id: "pdf:1:0".to_string(),
+                    order: 0,
+                    page: 1,
+                    source_position: "page:1:line:0".to_string(),
+                    source_text: "Hello & world".to_string(),
+                    translated_text: "你好 & 世界".to_string(),
+                },
+                PdfDocxExportSegment {
+                    id: "pdf:2:0".to_string(),
+                    order: 1,
+                    page: 2,
+                    source_position: "page:2:line:0".to_string(),
+                    source_text: "Second <page>".to_string(),
+                    translated_text: "第二 <页>".to_string(),
+                },
+            ],
+        }
+    }
 
     fn inspection() -> DocxInspection {
         DocxInspection {
@@ -1285,6 +1553,145 @@ mod tests {
         let cancellation = RebuildCancellation::new();
         let (validation, rebuilt) = prepare_rebuilt_package_with_cancel(plan, Some(&cancellation))?;
         publish_rebuilt_package_with_cancel(plan, &validation, &rebuilt, &cancellation)
+    }
+
+    #[test]
+    fn generates_valid_translated_and_bilingual_docx_from_pdf_segments() {
+        let inspection = pdf_inspection();
+        for (mode, expected_segments) in [
+            (DocxOutputMode::Translated, 2usize),
+            (DocxOutputMode::Bilingual, 4usize),
+        ] {
+            let plan = pdf_export_plan(mode);
+            let validation =
+                validate_pdf_export_against_inspection_with_cancel(&plan, &inspection, None)
+                    .unwrap();
+            assert_eq!(validation.replacement_count, 2);
+            assert_eq!(validation.part_count, 2);
+            let output = build_pdf_export_package_with_cancel(&plan, None).unwrap();
+            let mut archive = ZipArchive::new(Cursor::new(&output)).unwrap();
+            let mut document_xml = String::new();
+            archive
+                .by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut document_xml)
+                .unwrap();
+            assert!(document_xml.contains("<w:pgSz w:w=\"11906\" w:h=\"16838\"/>"));
+            assert!(document_xml.contains("<w:pgMar w:top=\"1440\""));
+            let reopened = inspect_docx_bytes(&output, "generated.docx".to_string()).unwrap();
+            assert_eq!(reopened.segments.len(), expected_segments);
+            let text = reopened
+                .segments
+                .iter()
+                .map(|segment| segment.source_text.as_str())
+                .collect::<Vec<_>>();
+            assert!(text.contains(&"你好 & 世界"));
+            assert!(text.contains(&"第二 <页>"));
+            if mode == DocxOutputMode::Bilingual {
+                assert!(text.contains(&"Hello & world"));
+                assert!(text.contains(&"Second <page>"));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_stale_or_unsafe_pdf_export_segments() {
+        let inspection = pdf_inspection();
+        let mut stale = pdf_export_plan(DocxOutputMode::Translated);
+        stale.segments[0].source_position = "page:1:line:99".to_string();
+        assert_eq!(
+            validate_pdf_export_against_inspection_with_cancel(&stale, &inspection, None)
+                .unwrap_err()
+                .code,
+            DocxRebuildErrorCode::StaleSource
+        );
+
+        let mut unsafe_text = pdf_export_plan(DocxOutputMode::Translated);
+        unsafe_text.segments[0].translated_text = "bad\u{0001}text".to_string();
+        assert_eq!(
+            validate_pdf_export_against_inspection_with_cancel(&unsafe_text, &inspection, None)
+                .unwrap_err()
+                .code,
+            DocxRebuildErrorCode::InvalidPlan
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the explicitly downloaded public PDF acceptance corpus"]
+    fn exports_real_public_pdf_to_both_docx_modes_without_changing_source() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".pdf-acceptance")
+            .join("resource-hub.pdf");
+        let source_before = fs::read(&source).unwrap();
+        let inspection = inspect_pdf_document(source.to_string_lossy().into_owned()).unwrap();
+        let retained_output_directory = std::env::var_os("LONG_TRANSLATE_PDF_DOCX_OUTPUT_DIR");
+        let directory = retained_output_directory
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("pdf-docx-real-export-{}", uuid::Uuid::new_v4()))
+            });
+        fs::create_dir_all(&directory).unwrap();
+
+        for mode in [DocxOutputMode::Translated, DocxOutputMode::Bilingual] {
+            let suffix = if mode == DocxOutputMode::Translated {
+                "translated"
+            } else {
+                "bilingual"
+            };
+            let output_path = directory.join(format!("resource-hub-{suffix}.docx"));
+            let plan = PdfDocxExportPlan {
+                source_path: source.to_string_lossy().into_owned(),
+                output_path: output_path.to_string_lossy().into_owned(),
+                fingerprint: inspection.fingerprint.clone(),
+                output_mode: mode,
+                segments: inspection
+                    .segments
+                    .iter()
+                    .map(|segment| PdfDocxExportSegment {
+                        id: segment.id.clone(),
+                        order: segment.order,
+                        page: segment.page,
+                        source_position: segment.source_position.clone(),
+                        source_text: segment.source_text.clone(),
+                        translated_text: format!("验收译文 {}", segment.order + 1),
+                    })
+                    .collect(),
+            };
+            let cancellation = RebuildCancellation::new();
+            let (validation, output) =
+                prepare_pdf_export_with_cancel(&plan, Some(&cancellation)).unwrap();
+            let publish_plan = DocxRebuildPlan {
+                source_path: plan.source_path.clone(),
+                output_path: plan.output_path.clone(),
+                fingerprint: plan.fingerprint.clone(),
+                output_mode: plan.output_mode,
+                replacements: Vec::new(),
+            };
+            let result = publish_rebuilt_package_with_cancel(
+                &publish_plan,
+                &validation,
+                &output,
+                &cancellation,
+            )
+            .unwrap();
+            assert_eq!(result.replacement_count, 4);
+            let reopened = inspect_docx_path(&output_path).unwrap();
+            assert_eq!(
+                reopened.segments.len(),
+                if mode == DocxOutputMode::Translated {
+                    4
+                } else {
+                    8
+                }
+            );
+        }
+
+        assert_eq!(fs::read(&source).unwrap(), source_before);
+        if retained_output_directory.is_none() {
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]

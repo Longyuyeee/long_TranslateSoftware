@@ -13,6 +13,9 @@ import {
   inspectDocumentInput,
   inspectDocxDocument,
   inspectPdfDocument,
+  createPdfDocxExportPlan,
+  exportPdfTranslationDocx,
+  validatePdfDocxExportPlan,
   createReadyDocumentJob,
   pickDocxDocument,
   pickPdfDocument,
@@ -234,6 +237,38 @@ describe("PDF import foundation", () => {
       attempts: 0,
     }]);
   });
+
+  it("invokes bounded PDF DOCX validation and export commands", async () => {
+    const plan = {
+      sourcePath: "C:\\docs\\fixture.pdf",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      fingerprint: "sha256:fixture",
+      outputMode: "translated" as const,
+      segments: [],
+    };
+    const validation = {
+      replacementCount: 1,
+      partCount: 1,
+      translatedBytes: 2,
+      rebuiltSizeBytes: 1024,
+      rebuiltFingerprint: "sha256:output",
+    };
+    const result = {
+      outputPath: plan.outputPath,
+      replacementCount: 1,
+      sizeBytes: 1024,
+      fingerprint: "sha256:output",
+    };
+    invokeMock.mockResolvedValueOnce(validation).mockResolvedValueOnce(result);
+
+    await expect(validatePdfDocxExportPlan(plan)).resolves.toEqual(validation);
+    expect(invokeMock).toHaveBeenCalledWith("validate_pdf_docx_export_plan", { plan });
+    await expect(exportPdfTranslationDocx("pdf-job", plan)).resolves.toEqual(result);
+    expect(invokeMock).toHaveBeenCalledWith("export_pdf_translation_docx", {
+      jobId: "pdf-job",
+      plan,
+    });
+  });
 });
 
 describe("document task preparation", () => {
@@ -361,6 +396,69 @@ describe("document task preparation", () => {
       }],
     });
     expect(JSON.stringify(prepared)).not.toContain("private-key");
+  });
+
+  it("closes translated PDF segments into a source-bound DOCX export plan", () => {
+    const pdfInspection = {
+      fingerprint: "sha256:pdf-fixture",
+      fileName: "fixture.pdf",
+      sizeBytes: 4096,
+      pageCount: 2,
+      warnings: [],
+      segments: [{
+        id: "pdf:2:0",
+        order: 0,
+        page: 2,
+        sourcePosition: "page:2:line:0",
+        structure: "paragraph" as const,
+        sourceText: "Public PDF body",
+      }],
+    };
+    const ready = createReadyDocumentJob({
+      id: "document-pdf-export",
+      format: "pdf",
+      sourcePath: "C:\\docs\\fixture.pdf",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      outputMode: "translated",
+      inspection: pdfInspection,
+      execution,
+      createdAt: now,
+    });
+    const rebuilding: DocumentJob = {
+      ...ready,
+      phase: "rebuilding",
+      segments: ready.segments.map(segment => ({
+        ...segment,
+        status: "translated",
+        attempts: 1,
+        translatedText: "PDF 译文",
+      })),
+    };
+
+    expect(createPdfDocxExportPlan(
+      rebuilding,
+      pdfInspection,
+      "C:\\docs\\fixture-translated.docx",
+    )).toEqual({
+      sourcePath: "C:\\docs\\fixture.pdf",
+      outputPath: "C:\\docs\\fixture-translated.docx",
+      fingerprint: "sha256:pdf-fixture",
+      outputMode: "translated",
+      segments: [{
+        id: "pdf:2:0",
+        order: 0,
+        page: 2,
+        sourcePosition: "page:2:line:0",
+        sourceText: "Public PDF body",
+        translatedText: "PDF 译文",
+      }],
+    });
+
+    expect(() => createPdfDocxExportPlan(
+      rebuilding,
+      { ...pdfInspection, fingerprint: "sha256:changed" },
+      "C:\\docs\\fixture-translated.docx",
+    )).toThrow("source changed");
   });
 });
 
