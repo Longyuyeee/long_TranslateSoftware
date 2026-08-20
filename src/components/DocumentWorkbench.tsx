@@ -11,16 +11,19 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   documentImportErrorText,
   documentPreparationErrorText,
   documentRunErrorText,
   documentStructureText,
   documentWarningText,
+  pdfImportErrorText,
+  pdfWarningText,
   type TranslationCatalog,
 } from "../i18n";
 import { useDocumentImport } from "../hooks/useDocumentImport";
+import { usePdfImport } from "../hooks/usePdfImport";
 import { useDocumentPreparation } from "../hooks/useDocumentPreparation";
 import { useDocumentRecovery } from "../hooks/useDocumentRecovery";
 import { useDocumentTranslationRun } from "../hooks/useDocumentTranslationRun";
@@ -47,17 +50,28 @@ export default function DocumentWorkbench({
 }: {
   labels: TranslationCatalog;
 }) {
+  const [format, setFormat] = useState<"docx" | "pdf">("docx");
   const {
-    phase,
-    inspection,
-    sourcePath,
-    errorCode,
-    isBusy: isImportBusy,
-    chooseDocument,
+    phase: docxPhase,
+    inspection: docxInspection,
+    sourcePath: docxSourcePath,
+    errorCode: docxErrorCode,
+    isBusy: isDocxImportBusy,
+    chooseDocument: chooseDocx,
   } = useDocumentImport({
     title: labels.documentPickerTitle,
     filterName: labels.documentPickerFilter,
   });
+  const pdfImport = usePdfImport({
+    title: labels.pdfPickerTitle,
+    filterName: labels.pdfPickerFilter,
+  });
+  const isPdf = format === "pdf";
+  const phase = isPdf ? pdfImport.phase : docxPhase;
+  const inspection = isPdf ? pdfImport.inspection : docxInspection;
+  const errorCode = isPdf ? pdfImport.errorCode : docxErrorCode;
+  const isImportBusy = isPdf ? pdfImport.isBusy : isDocxImportBusy;
+  const chooseDocument = isPdf ? pdfImport.choosePdf : chooseDocx;
   const {
     phase: preparationPhase,
     outputMode,
@@ -69,8 +83,8 @@ export default function DocumentWorkbench({
     chooseOutput,
     confirmTask,
   } = useDocumentPreparation({
-    inspection,
-    sourcePath,
+    inspection: docxInspection,
+    sourcePath: docxSourcePath,
     pickerTitle: labels.documentOutputPickerTitle,
     pickerFilterName: labels.documentPickerFilter,
   });
@@ -88,7 +102,7 @@ export default function DocumentWorkbench({
     || runPhase === "rebuilding"
     || runPhase === "exporting"
     || runPhase === "cancelling";
-  const isBusy = isImportBusy || isPreparationBusy || isRunActive;
+  const isBusy = isDocxImportBusy || pdfImport.isBusy || isPreparationBusy || isRunActive;
   const canStartPreparedTask = Boolean(preparedTask) && !isRunActive && (
     runPhase === "idle" || runJob?.id !== preparedTask?.job.id
   );
@@ -138,27 +152,51 @@ export default function DocumentWorkbench({
               {labels.documentWorkbenchDescription}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void chooseDocument()}
-            disabled={isBusy}
-            className="flex min-w-40 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-xs font-black text-white shadow-lg shadow-accent transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
-          >
-            <FolderOpen size={16} aria-hidden="true" />
-            {isImportBusy
-              ? busyLabel
-              : inspection
-                ? labels.documentChooseAnother
-                : labels.documentChoose}
-          </button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div
+              role="group"
+              aria-label={labels.documentFormatLabel}
+              className="grid grid-cols-2 rounded-2xl bg-black/[0.035] p-1 dark:bg-white/[0.055]"
+            >
+              {(["docx", "pdf"] as const).map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={format === value}
+                  disabled={isBusy}
+                  onClick={() => setFormat(value)}
+                  className={`rounded-xl px-3 py-2 text-[10px] font-black transition-colors disabled:opacity-45 ${
+                    format === value
+                      ? "bg-white text-accent shadow-sm dark:bg-white/10"
+                      : "text-zinc-500 dark:text-zinc-400"
+                  }`}
+                >
+                  {value === "docx" ? labels.documentFormatDocx : labels.documentFormatPdf}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void chooseDocument()}
+              disabled={isBusy}
+              className="flex min-w-40 items-center justify-center gap-2 rounded-2xl bg-accent px-5 py-3 text-xs font-black text-white shadow-lg shadow-accent transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
+            >
+              <FolderOpen size={16} aria-hidden="true" />
+              {isImportBusy
+                ? busyLabel
+                : inspection
+                  ? isPdf ? labels.pdfChooseAnother : labels.documentChooseAnother
+                  : isPdf ? labels.pdfChoose : labels.documentChoose}
+            </button>
+          </div>
         </div>
         <div className="mt-4 flex items-start gap-2 rounded-2xl border border-accent/10 bg-accent/5 px-4 py-3 text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">
           <ShieldCheck size={15} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
-          <span>{labels.documentPrivacyNotice}</span>
+          <span>{isPdf ? labels.pdfPrivacyNotice : labels.documentPrivacyNotice}</span>
         </div>
       </div>
 
-      <div className="glass-card shrink-0 rounded-[24px] border border-accent/10 p-4">
+      {!isPdf && <div className="glass-card shrink-0 rounded-[24px] border border-accent/10 p-4">
         <div className="flex items-start gap-3">
           <History size={17} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
           <div className="min-w-0 flex-1">
@@ -256,21 +294,27 @@ export default function DocumentWorkbench({
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {phase === "error" && (
         <div role="alert" className="shrink-0 rounded-2xl border border-red-500/20 bg-red-50 p-4 text-red-700 dark:bg-red-500/10 dark:text-red-300">
           <div className="flex items-start gap-3">
             <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
             <div>
-              <h3 className="text-xs font-black">{labels.documentImportErrorTitle}</h3>
-              <p className="mt-1 text-[11px] font-medium">{documentImportErrorText(labels, errorCode ?? undefined)}</p>
+              <h3 className="text-xs font-black">
+                {isPdf ? labels.pdfImportErrorTitle : labels.documentImportErrorTitle}
+              </h3>
+              <p className="mt-1 text-[11px] font-medium">
+                {isPdf
+                  ? pdfImportErrorText(labels, errorCode ?? undefined)
+                  : documentImportErrorText(labels, errorCode ?? undefined)}
+              </p>
             </div>
           </div>
         </div>
       )}
 
-      {preparationPhase === "error" && (
+      {!isPdf && preparationPhase === "error" && (
         <div role="alert" className="shrink-0 rounded-2xl border border-red-500/20 bg-red-50 p-4 text-red-700 dark:bg-red-500/10 dark:text-red-300">
           <div className="flex items-start gap-3">
             <AlertCircle size={18} className="mt-0.5 shrink-0" aria-hidden="true" />
@@ -284,7 +328,7 @@ export default function DocumentWorkbench({
         </div>
       )}
 
-      {runPhase !== "idle" && (
+      {!isPdf && runPhase !== "idle" && (
         <div
           role={runPhase === "failed" ? "alert" : "status"}
           aria-live="polite"
@@ -381,10 +425,10 @@ export default function DocumentWorkbench({
         <div className="glass-card flex min-h-64 flex-1 flex-col items-center justify-center rounded-[28px] px-8 text-center">
           <FileText size={38} className="mb-4 text-zinc-300 dark:text-zinc-600" aria-hidden="true" />
           <h3 className="text-sm font-black text-zinc-800 dark:text-zinc-100">
-            {labels.documentEmptyTitle}
+            {isPdf ? labels.pdfEmptyTitle : labels.documentEmptyTitle}
           </h3>
           <p className="mt-2 max-w-md text-xs font-medium text-zinc-400">
-            {labels.documentEmptyDescription}
+            {isPdf ? labels.pdfEmptyDescription : labels.documentEmptyDescription}
           </p>
         </div>
       ) : (
@@ -400,13 +444,16 @@ export default function DocumentWorkbench({
                     {inspection.fileName}
                   </h3>
                   <p className="text-[10px] font-semibold text-zinc-400">
-                    {labels.documentDocxFormat}
+                    {isPdf ? labels.documentPdfFormat : labels.documentDocxFormat}
                   </p>
                 </div>
               </div>
-              <dl className="grid grid-cols-3 gap-2">
+              <dl className={`grid gap-2 ${isPdf ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
                 {[
                   [labels.documentFileSize, formatBytes(inspection.sizeBytes)],
+                  ...(isPdf
+                    ? [[labels.documentPageCount, String(pdfImport.inspection?.pageCount ?? 0)]]
+                    : []),
                   [labels.documentSegmentCount, String(inspection.segments.length)],
                   [labels.documentSourceBytes, formatBytes(sourceBytes)],
                 ].map(([label, value]) => (
@@ -429,16 +476,21 @@ export default function DocumentWorkbench({
                 </p>
               ) : (
                 <ul className="space-y-2">
-                  {inspection.warnings.map(warning => (
-                    <li key={warning.code} className="rounded-2xl border border-amber-500/15 bg-amber-500/5 px-3 py-2.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                      {documentWarningText(labels, warning.code)}
+                  {inspection.warnings.map((warning, index) => (
+                    <li key={`${warning.code}:${"page" in warning ? warning.page ?? index : index}`} className="rounded-2xl border border-amber-500/15 bg-amber-500/5 px-3 py-2.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                      {isPdf
+                        ? pdfWarningText(labels, warning.code)
+                        : documentWarningText(labels, warning.code)}
+                      {isPdf && "page" in warning && warning.page
+                        ? ` · ${labels.pdfPageLabel.replace("{page}", String(warning.page))}`
+                        : ""}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
 
-            <div className="glass-card rounded-[24px] p-5">
+            {!isPdf ? <div className="glass-card rounded-[24px] p-5">
               <h3 className="mb-4 flex items-center gap-2 text-xs font-black text-zinc-800 dark:text-zinc-100">
                 <FileOutput size={15} className="text-accent" aria-hidden="true" />
                 {labels.documentOutputSetup}
@@ -566,7 +618,17 @@ export default function DocumentWorkbench({
                   )}
                 </div>
               )}
-            </div>
+            </div> : (
+              <div className="glass-card rounded-[24px] border border-accent/15 p-5">
+                <h3 className="flex items-center gap-2 text-xs font-black text-zinc-800 dark:text-zinc-100">
+                  <ShieldCheck size={15} className="text-accent" aria-hidden="true" />
+                  {labels.pdfPreviewScopeTitle}
+                </h3>
+                <p className="mt-2 text-[10px] leading-relaxed font-semibold text-zinc-500 dark:text-zinc-400">
+                  {labels.pdfPreviewScopeDescription}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="glass-card flex min-h-0 flex-col rounded-[24px] p-5">
@@ -585,7 +647,9 @@ export default function DocumentWorkbench({
                 <li key={segment.id} className="rounded-2xl border border-black/5 bg-white/45 p-3 dark:border-white/5 dark:bg-white/[0.035]">
                   <div className="mb-1.5 flex items-center justify-between gap-3">
                     <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[9px] font-black text-accent">
-                      {documentStructureText(labels, segment.structure)}
+                      {isPdf && "page" in segment
+                        ? labels.pdfPageLabel.replace("{page}", String(segment.page))
+                        : documentStructureText(labels, segment.structure)}
                     </span>
                     <span className="text-[9px] font-bold text-zinc-400">{segment.order + 1}</span>
                   </div>
