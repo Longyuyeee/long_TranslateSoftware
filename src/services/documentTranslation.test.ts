@@ -11,8 +11,10 @@ import {
   documentProgress,
   inspectDocumentInput,
   inspectDocxDocument,
+  inspectPdfDocument,
   createReadyDocumentJob,
   pickDocxDocument,
+  pickPdfDocument,
   pickDocxOutput,
   saveDocumentCheckpoint,
   loadDocumentCheckpoint,
@@ -164,6 +166,42 @@ describe("DOCX import adaptation", () => {
       status: "pending",
       attempts: 0,
     }]);
+  });
+});
+
+describe("PDF import foundation", () => {
+  it("passes localized labels to the desktop PDF picker", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+
+    await expect(pickPdfDocument(
+      "Choose a PDF document",
+      "PDF document (*.pdf)",
+    )).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("pick_pdf_document", {
+      title: "Choose a PDF document",
+      filterName: "PDF document (*.pdf)",
+    });
+  });
+
+  it("invokes the bounded read-only PDF inspection command", async () => {
+    const inspection = {
+      fingerprint: "sha256:fixture",
+      fileName: "fixture.pdf",
+      sizeBytes: 4096,
+      pageCount: 2,
+      warnings: [{
+        code: "reading-order-inferred",
+        message: "Reading order is inferred from PDF content streams",
+      }],
+      segments: [],
+    };
+    invokeMock.mockResolvedValueOnce(inspection);
+
+    await expect(inspectPdfDocument("C:\\docs\\fixture.pdf"))
+      .resolves.toEqual(inspection);
+    expect(invokeMock).toHaveBeenCalledWith("inspect_pdf_document", {
+      path: "C:\\docs\\fixture.pdf",
+    });
   });
 });
 

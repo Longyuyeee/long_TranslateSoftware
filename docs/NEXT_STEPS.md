@@ -1,6 +1,6 @@
 # 开发接手说明
 
-最近更新：2026-08-15
+最近更新：2026-08-20
 
 ## 当前情况
 
@@ -17,8 +17,9 @@
 ## 接手后按顺序处理
 
 1. 冻结 v0.5.1 DOCX MVP，只处理回归、安全、隐私、数据损坏和升级阻断问题。
-2. 保留 `npm run audit:docx:word` 作为后续兼容性门槛；只有同批真实文档通过后，才允许移除 Word 未验证声明。
-3. 在全新 Windows VM 补充 NSIS/MSI 环境覆盖，并将 Authenticode、浏览器商店上架与 PDF 分别立项，不与 v0.5.1 回归维护混合。
+2. PDF 已作为独立后续版本启动：第一增量建立受限、只读的文本层解析和真实公开语料验收；下一增量接最小阅读顺序预览，不提前接翻译或导出。执行边界与实际差异见 [`PDF_MVP_PLAN.md`](PDF_MVP_PLAN.md)。
+3. 保留 `npm run audit:docx:word` 作为后续兼容性门槛；只有同批真实文档通过后，才允许移除 Word 未验证声明。
+4. Authenticode、浏览器商店上架和全新 Windows VM 安装覆盖继续分别立项，不与 PDF 增量混合。
 
 当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX，最终输入目录 `.docx-acceptance/public-outputs-word-boundary-20260815-001029` 已具备 5 组译文版/双语版共 10 份成品；LibreOffice 26.2.5.2 与 WPS Office 12.1.0.28043 均已完成双模式逐页验收。本机现已通过官方 winget 源安装 Microsoft 365 Apps for enterprise，真实 Word 身份与签名可验证，但许可证仍未激活，10 份成品尚未开始正式 Word 导出。该缺口降级为已记录的兼容性风险，不得据 WPS/LibreOffice 结果推导或宣传 Microsoft Word 已通过。
 
