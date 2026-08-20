@@ -1,4 +1,5 @@
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::escape::resolve_xml_entity;
+use quick_xml::events::{BytesRef, BytesStart, Event};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
 use serde::Serialize;
@@ -234,6 +235,25 @@ fn paragraph_kind(
     }
 }
 
+fn append_xml_reference(reference: &BytesRef<'_>, output: &mut String) -> ImportResult<()> {
+    let decoded = reference.decode().map_err(|error| {
+        DocxImportError::parse_failed(format!("Invalid DOCX text entity encoding: {error}"))
+    })?;
+    if let Some(value) = resolve_xml_entity(&decoded) {
+        output.push_str(value);
+        return Ok(());
+    }
+    if let Some(value) = reference.resolve_char_ref().map_err(|error| {
+        DocxImportError::parse_failed(format!("Invalid DOCX character reference: {error}"))
+    })? {
+        output.push(value);
+        return Ok(());
+    }
+    Err(DocxImportError::parse_failed(format!(
+        "Unsupported DOCX text entity: &{decoded};"
+    )))
+}
+
 fn parse_document_part(
     part: &str,
     part_kind: DocumentPartKind,
@@ -359,6 +379,9 @@ fn parse_document_part(
                     DocxImportError::parse_failed(format!("Invalid DOCX text entity: {error}"))
                 })?;
                 paragraph_text.push_str(&unescaped);
+            }
+            Ok(Event::GeneralRef(reference)) if in_text && paragraph_depth > 0 => {
+                append_xml_reference(&reference, &mut paragraph_text)?;
             }
             Ok(Event::End(event)) => {
                 match local_name(event.name().as_ref()) {
