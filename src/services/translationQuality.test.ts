@@ -40,4 +40,19 @@ describe("translation format quality gate", () => {
       issues: [{ kind: "placeholder", token: "{id}", missingCount: 1 }],
     });
   });
+
+  it("accepts an exact source number next to translated CJK text", () => {
+    expect(evaluateTranslationFormat(
+      "Recovery acceptance page 1.",
+      "恢复验收第1页。",
+    ).passed).toBe(true);
+
+    expect(evaluateTranslationFormat(
+      "Recovery acceptance page 1.",
+      "恢复验收第10页。",
+    )).toMatchObject({
+      passed: false,
+      issues: [{ kind: "number", token: "1", missingCount: 1 }],
+    });
+  });
 });

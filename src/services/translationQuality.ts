@@ -82,6 +82,11 @@ function countValues(values: string[]): Map<string, number> {
   return counts;
 }
 
+function countExactNumberOccurrences(candidate: string, token: string): number {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return matches(candidate, new RegExp(`(?<!\\d)${escaped}(?!\\d)`, "gu")).length;
+}
+
 export function evaluateTranslationFormat(
   source: string,
   candidate: string,
@@ -111,7 +116,10 @@ export function evaluateTranslationFormat(
     const expected = countValues(values);
     const actual = candidateByKind.get(kind) || new Map<string, number>();
     expected.forEach((count, token) => {
-      const matched = Math.min(count, actual.get(token) || 0);
+      const available = kind === "number"
+        ? countExactNumberOccurrences(candidate, token)
+        : actual.get(token) || 0;
+      const matched = Math.min(count, available);
       matchedCount += matched;
       if (matched < count) issues.push({ kind, token, missingCount: count - matched });
     });

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TranslationRequestError } from "./translationProvider";
 import {
   prepareDocumentJobForFailedSegmentRetry,
+  protectDocumentSegmentNumbers,
   startDocumentTranslationQueue,
   type DocumentSegmentExecutor,
 } from "./documentTranslationQueue";
@@ -23,6 +24,25 @@ const execution: TranslationExecutionSnapshot = Object.freeze({
   targetLang: "Chinese",
   customPrompt: "",
   glossary: Object.freeze([]),
+});
+
+describe("document numeric invariant protection", () => {
+  it("round-trips dates, percentages and repeated page numbers exactly", () => {
+    const source = "Page 12 on 2026-08-20 is +4.5% complete; repeat 12.";
+    const protectedSegment = protectDocumentSegmentNumbers(source);
+
+    expect(protectedSegment.text).not.toContain("2026-08-20");
+    expect(protectedSegment.text).toContain("__LT_DOCUMENT_NUMBER_0__");
+    expect(protectedSegment.restore(protectedSegment.text)).toBe(source);
+  });
+
+  it("avoids colliding with a source placeholder that uses the default prefix", () => {
+    const source = "Keep __LT_DOCUMENT_NUMBER_0__ and page 7.";
+    const protectedSegment = protectDocumentSegmentNumbers(source);
+
+    expect(protectedSegment.text).toContain("__LT_DOCUMENT_NUMBER_SAFE_0__");
+    expect(protectedSegment.restore(protectedSegment.text)).toBe(source);
+  });
 });
 
 function segment(index: number): DocumentSegment {
@@ -200,6 +220,34 @@ describe("document translation queue", () => {
     });
     expect(completion.job.segments[2].status).toBe("translated");
     expect(execute).toHaveBeenCalledTimes(5);
+  });
+
+  it("retries model output that fails invariant preservation", async () => {
+    const execute = vi.fn<DocumentSegmentExecutor>()
+      .mockRejectedValueOnce(new TranslationRequestError(
+        "format-invalid",
+        "Translation did not preserve required content (number:12)",
+      ))
+      .mockResolvedValueOnce({
+        text: "第 12 页",
+        model: "translate-1",
+        cached: false,
+        usedBackup: false,
+      });
+
+    const completion = await startDocumentTranslationQueue(job(1), execution, {
+      execute,
+      now: () => now,
+      retryBaseDelayMs: 0,
+    }).done;
+
+    expect(completion.status).toBe("ready-to-rebuild");
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(completion.job.segments[0]).toMatchObject({
+      status: "translated",
+      attempts: 2,
+      translatedText: "第 12 页",
+    });
   });
 
   it("retries transient failures with bounded exponential backoff", async () => {

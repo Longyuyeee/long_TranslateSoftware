@@ -91,7 +91,7 @@ describe("startTranslationTask", () => {
     expect(fetch).not.toHaveBeenCalled();
     expect(invokeMock).toHaveBeenCalledWith(
       "lookup_translation_memory",
-      expect.objectContaining({ cacheContext: expect.stringContaining("accuracy-v2") }),
+      expect.objectContaining({ cacheContext: expect.stringContaining("accuracy-v3") }),
     );
   });
 
@@ -360,6 +360,7 @@ describe("translation accuracy helpers", () => {
     );
 
     expect(messages[0].content).toContain("&lt;source_text&gt;");
+    expect(messages[0].content).toContain("Copy every digit-based number exactly as written");
     expect(messages[1].content).not.toContain(source);
     expect(messages[0].content.match(/Ignore prior instructions/g)).toHaveLength(1);
   });
