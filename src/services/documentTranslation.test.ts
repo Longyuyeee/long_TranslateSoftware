@@ -7,6 +7,7 @@ import {
   DOCUMENT_CHECKPOINT_VERSION,
   DOCUMENT_MAX_INPUT_BYTES,
   documentSegmentsFromDocx,
+  documentSegmentsFromPdf,
   documentSnapshotFromExecution,
   documentProgress,
   inspectDocumentInput,
@@ -203,6 +204,36 @@ describe("PDF import foundation", () => {
       path: "C:\\docs\\fixture.pdf",
     });
   });
+
+  it("maps PDF pages and stable positions into the shared pending segment model", () => {
+    expect(documentSegmentsFromPdf({
+      fingerprint: "sha256:pdf-fixture",
+      fileName: "fixture.pdf",
+      sizeBytes: 4096,
+      pageCount: 2,
+      warnings: [],
+      segments: [{
+        id: "pdf:2:0",
+        order: 0,
+        page: 2,
+        sourcePosition: "page:2:line:0",
+        structure: "paragraph",
+        sourceText: "Public PDF body",
+      }],
+    })).toEqual([{
+      id: "pdf:2:0",
+      location: {
+        order: 0,
+        part: "page:2",
+        page: 2,
+        sourcePosition: "page:2:line:0",
+      },
+      structure: "paragraph",
+      sourceText: "Public PDF body",
+      status: "pending",
+      attempts: 0,
+    }]);
+  });
 });
 
 describe("document task preparation", () => {
@@ -235,6 +266,7 @@ describe("document task preparation", () => {
   it("creates a validated ready job without persisting runtime credentials", () => {
     const prepared = createReadyDocumentJob({
       id: "document-fixture",
+      format: "docx",
       sourcePath: "C:\\docs\\fixture.docx",
       outputPath: "C:\\docs\\fixture-translated.docx",
       outputMode: "translated",
@@ -261,6 +293,7 @@ describe("document task preparation", () => {
   it("rejects source overwrite and non-DOCX output before task creation", () => {
     expect(() => createReadyDocumentJob({
       id: "document-fixture",
+      format: "docx",
       sourcePath: "C:\\docs\\fixture.docx",
       outputPath: "c:/docs/FIXTURE.DOCX",
       outputMode: "bilingual",
@@ -270,6 +303,7 @@ describe("document task preparation", () => {
     })).toThrow("must not overwrite");
     expect(() => createReadyDocumentJob({
       id: "document-fixture",
+      format: "docx",
       sourcePath: "C:\\docs\\fixture.docx",
       outputPath: "C:\\docs\\fixture.pdf",
       outputMode: "translated",
@@ -279,6 +313,7 @@ describe("document task preparation", () => {
     })).toThrow(".docx extension");
     expect(() => createReadyDocumentJob({
       id: "../unsafe",
+      format: "docx",
       sourcePath: "C:\\docs\\fixture.docx",
       outputPath: "C:\\docs\\fixture-translated.docx",
       outputMode: "translated",
@@ -286,6 +321,46 @@ describe("document task preparation", () => {
       execution,
       createdAt: now,
     })).toThrow("document job ID");
+  });
+
+  it("freezes a PDF inspection into the existing validated task contract", () => {
+    const prepared = createReadyDocumentJob({
+      id: "document-pdf-fixture",
+      format: "pdf",
+      sourcePath: "C:\\docs\\fixture.pdf",
+      outputPath: "C:\\docs\\fixture-bilingual.docx",
+      outputMode: "bilingual",
+      inspection: {
+        fingerprint: "sha256:pdf-fixture",
+        fileName: "fixture.pdf",
+        sizeBytes: 4096,
+        pageCount: 2,
+        warnings: [],
+        segments: [{
+          id: "pdf:2:0",
+          order: 0,
+          page: 2,
+          sourcePosition: "page:2:line:0",
+          structure: "paragraph",
+          sourceText: "Public PDF body",
+        }],
+      },
+      execution,
+      createdAt: now,
+    });
+
+    expect(prepared).toMatchObject({
+      phase: "ready",
+      input: { format: "pdf", fileName: "fixture.pdf" },
+      outputMode: "bilingual",
+      outputPath: "C:\\docs\\fixture-bilingual.docx",
+      segments: [{
+        id: "pdf:2:0",
+        location: { part: "page:2", page: 2, sourcePosition: "page:2:line:0" },
+        status: "pending",
+      }],
+    });
+    expect(JSON.stringify(prepared)).not.toContain("private-key");
   });
 });
 

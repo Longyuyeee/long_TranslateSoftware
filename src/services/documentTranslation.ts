@@ -337,23 +337,46 @@ export function documentSegmentsFromDocx(
   }));
 }
 
-export interface ReadyDocumentJobOptions {
+export function documentSegmentsFromPdf(
+  inspection: PdfInspection,
+): DocumentSegment[] {
+  return inspection.segments.map(segment => ({
+    id: segment.id,
+    location: {
+      order: segment.order,
+      part: `page:${segment.page}`,
+      page: segment.page,
+      sourcePosition: segment.sourcePosition,
+    },
+    structure: segment.structure,
+    sourceText: segment.sourceText,
+    status: "pending",
+    attempts: 0,
+  }));
+}
+
+interface ReadyDocumentJobBaseOptions {
   id: string;
   sourcePath: string;
   outputPath: string;
   outputMode: DocumentOutputMode;
-  inspection: DocxInspection;
   execution: TranslationExecutionSnapshot;
   createdAt: string;
   concurrency?: number;
 }
 
-/** Freezes one inspected DOCX into a validated ready job without starting work. */
+export type ReadyDocumentJobOptions = ReadyDocumentJobBaseOptions & (
+  | { format: "docx"; inspection: DocxInspection }
+  | { format: "pdf"; inspection: PdfInspection }
+);
+
+/** Freezes one inspected document into the shared validated task model without starting work. */
 export function createReadyDocumentJob({
   id,
   sourcePath,
   outputPath,
   outputMode,
+  format,
   inspection,
   execution,
   createdAt,
@@ -372,14 +395,16 @@ export function createReadyDocumentJob({
       sourcePath,
       fileName: inspection.fileName,
       sizeBytes: inspection.sizeBytes,
-      format: "docx",
+      format,
       fingerprint: inspection.fingerprint,
     },
     outputMode,
     outputPath,
     snapshot: documentSnapshotFromExecution(execution),
     concurrency,
-    segments: documentSegmentsFromDocx(inspection),
+    segments: format === "pdf"
+      ? documentSegmentsFromPdf(inspection)
+      : documentSegmentsFromDocx(inspection),
     createdAt,
     updatedAt: createdAt,
   };

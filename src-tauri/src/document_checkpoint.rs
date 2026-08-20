@@ -1053,6 +1053,89 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires the explicitly downloaded public PDF acceptance corpus"]
+    fn real_pdf_inspection_round_trips_through_the_shared_checkpoint_contract() {
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".pdf-acceptance")
+            .join("resource-hub.pdf");
+        let inspection =
+            crate::pdf_document::inspect_pdf_document(source.to_string_lossy().into_owned())
+                .expect("real public PDF must inspect successfully");
+        assert_eq!(inspection.page_count, 1);
+        assert_eq!(inspection.segments.len(), 4);
+
+        let root = test_root();
+        let output = root.join("resource-hub-translated.docx");
+        let checkpoint = DocumentCheckpoint {
+            schema_version: CHECKPOINT_SCHEMA_VERSION,
+            job: DocumentJob {
+                id: "real-pdf-checkpoint".to_string(),
+                phase: DocumentJobPhase::Ready,
+                input: DocumentInput {
+                    source_path: source.to_string_lossy().into_owned(),
+                    file_name: inspection.file_name,
+                    size_bytes: inspection.size_bytes,
+                    format: DocumentFormat::Pdf,
+                    fingerprint: inspection.fingerprint,
+                },
+                output_mode: DocumentOutputMode::Translated,
+                output_path: Some(output.to_string_lossy().into_owned()),
+                snapshot: DocumentTranslationSnapshot {
+                    source_language: "auto".to_string(),
+                    target_language: "zh-Hans".to_string(),
+                    primary: DocumentProviderSnapshot {
+                        base_url: "https://api.example.com/v1".to_string(),
+                        model: "acceptance-model".to_string(),
+                    },
+                    backup: None,
+                    custom_prompt: String::new(),
+                    glossary: Vec::new(),
+                },
+                concurrency: 3,
+                segments: inspection
+                    .segments
+                    .into_iter()
+                    .map(|segment| DocumentSegment {
+                        id: segment.id,
+                        location: DocumentSegmentLocation {
+                            order: segment.order,
+                            part: format!("page:{}", segment.page),
+                            page: Some(segment.page),
+                            source_position: Some(segment.source_position),
+                        },
+                        structure: DocumentStructureKind::Paragraph,
+                        source_text: segment.source_text,
+                        translated_text: None,
+                        status: DocumentSegmentStatus::Pending,
+                        attempts: 0,
+                        error: None,
+                    })
+                    .collect(),
+                error: None,
+                created_at: "2026-08-20T00:00:00.000Z".to_string(),
+                updated_at: "2026-08-20T00:00:00.000Z".to_string(),
+            },
+        };
+
+        save_at(&root, &checkpoint).unwrap();
+        let recovered = load_at(&root, "real-pdf-checkpoint").unwrap();
+        assert_eq!(recovered.job.input.format, DocumentFormat::Pdf);
+        assert_eq!(recovered.job.segments.len(), 4);
+        assert!(recovered.job.segments.iter().all(|segment| {
+            segment.location.page == Some(1)
+                && segment.location.part == "page:1"
+                && segment
+                    .location
+                    .source_position
+                    .as_deref()
+                    .is_some_and(|position| position.starts_with("page:1:line:"))
+        }));
+        assert!(!output.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn atomically_replaces_and_recovers_interrupted_translation() {
         let root = test_root();
         let first = checkpoint();

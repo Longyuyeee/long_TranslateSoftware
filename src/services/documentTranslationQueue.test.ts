@@ -66,6 +66,55 @@ function job(count: number, concurrency = 3): DocumentJob {
 }
 
 describe("document translation queue", () => {
+  it("keeps PDF page anchors intact while reusing the existing queue", async () => {
+    const pdfJob: DocumentJob = {
+      ...job(1),
+      input: {
+        sourcePath: "C:\\docs\\input.pdf",
+        fileName: "input.pdf",
+        sizeBytes: 2048,
+        format: "pdf",
+        fingerprint: "sha256:pdf-queue",
+      },
+      outputPath: "C:\\docs\\input-translated.docx",
+      segments: [{
+        ...segment(0),
+        id: "pdf:3:0",
+        location: {
+          order: 0,
+          part: "page:3",
+          page: 3,
+          sourcePosition: "page:3:line:0",
+        },
+        sourceText: "Real page text",
+      }],
+    };
+    const execute: DocumentSegmentExecutor = vi.fn(async text => ({
+      text: `translated-${text}`,
+      model: "translate-1",
+      cached: false,
+      usedBackup: false,
+    }));
+
+    const completion = await startDocumentTranslationQueue(pdfJob, execution, {
+      execute,
+      now: () => now,
+    }).done;
+
+    expect(completion).toMatchObject({
+      status: "ready-to-rebuild",
+      job: {
+        phase: "rebuilding",
+        input: { format: "pdf" },
+        segments: [{
+          translatedText: "translated-Real page text",
+          location: { part: "page:3", page: 3, sourcePosition: "page:3:line:0" },
+        }],
+      },
+    });
+    expect(execute).toHaveBeenCalledWith("Real page text", execution, expect.any(AbortSignal));
+  });
+
   it("bounds concurrency and keeps progress stable across out-of-order completion", async () => {
     let active = 0;
     let maximumActive = 0;
