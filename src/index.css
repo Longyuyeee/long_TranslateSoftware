@@ -185,6 +185,10 @@ textarea:disabled {
   .dashboard-header {
     height: 3.5rem !important;
   }
+
+  .dashboard-version-row {
+    padding-top: 0.5rem !important;
+  }
 }
 
 /* Flashcard 3D flip utilities */

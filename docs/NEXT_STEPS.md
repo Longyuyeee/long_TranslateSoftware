@@ -5,6 +5,7 @@
 ## 当前情况
 
 - 当前稳定版为 `v0.5.2`，标签指向发布基线 `7b900db`。Release workflow `32440046681` 的全量质量门禁、Windows 构建、Updater 签名和发布步骤全部通过，7 个正式资产及在线 `latest.json` 已复核。
+- v0.5.2 后续界面增量在主界面左侧栏底部增加当前版本显示，并与“检查更新”形成同一信息区；版本优先读取 Tauri 运行时，构建元数据只作失败回退。中英文、深浅主题及 900×600 矮窗口真实页面验收通过，侧栏无溢出，前端 62 个测试文件 / 326 项与 300 KiB 包体门禁保持通过。
 - 上一个稳定版 `v0.5.1` 标签指向发布基线 `2e481fb`；Release workflow `31890953593` 的全量质量门禁、构建、签名与发布步骤全部通过。
 - Windows 桌面端已经具备翻译、OCR、TTS、术语表、生词本、FSRS、Anki、备份、WebDAV、单实例、托盘和自动更新闭环。
 - Native Messaging v1、单 EXE Host、Windows 安装集成、桌面私有 IPC、配对授权和 `translate` / `cancel` / `add_word` 已完成；固定开发 ID 的 Manifest V3 扩展通过 Release ZIP 分发，可由用户通过 `activeTab` 在当前页注入划词浮层，不声明持久网站权限。商店正式 ID 与上架流程后续单独处理。
