@@ -2961,7 +2961,7 @@ dependencies = [
 
 [[package]]
 name = "long-translate"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "aes-gcm",
  "argon2",

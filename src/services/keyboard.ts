@@ -1,12 +1,12 @@
 export const DASHBOARD_TAB_IDS = [
-  "general",
   "batch",
-  "model",
-  "appearance",
+  "document",
   "wordbook",
   "review",
   "history",
-  "document",
+  "general",
+  "model",
+  "appearance",
 ] as const;
 
 export type DashboardTabId = typeof DASHBOARD_TAB_IDS[number];

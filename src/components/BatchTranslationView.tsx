@@ -94,7 +94,7 @@ export default function BatchTranslationView({
 
   return (
     <div className="space-y-6 flex-1 flex flex-col min-h-0">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 min-[1040px]:grid-cols-2 gap-6 flex-1 min-h-0">
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between pl-4 pr-2">
             <h3 className="text-[11px] font-black uppercase text-zinc-400 tracking-[0.2em]">{labels.inputText}</h3>
@@ -172,7 +172,7 @@ export default function BatchTranslationView({
           </div>
 
           {compareMode ? (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 min-h-0">
+            <div className="grid grid-cols-1 min-[1480px]:grid-cols-2 gap-4 flex-1 min-h-0">
               <div className="flex flex-col gap-1.5 min-h-0">
                 <div className="flex items-center justify-between px-2">
                   <span className="text-[8px] font-black text-accent uppercase tracking-wider">{primaryComparisonState?.model || primaryModelName || "Primary"}</span>

@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **当前稳定版 v0.5.2**：新增带文本层 PDF 的翻译预览能力，复用现有可恢复队列，支持译文版/双语版 DOCX 导出。真实模型成功、取消、崩溃恢复和 15 页 LibreOffice 成品视觉验收均已通过；复杂多栏阅读顺序仍需用户预览确认。
+> **当前稳定版 v0.5.3**：完成桌面界面体验收口。左侧导航按“翻译、学习、设置”重新分组，生词本修复卡片压缩与窄窗口变形，并统一全局卡片、背景、间距和响应式断点。8 个主页面已在默认窗口与最小支持窗口逐页完成真实界面验收。
 
 ---
 
@@ -112,7 +112,7 @@
 - **弹性标签切换动画**: 定向滑入，自然流畅
 - **暗色模式完整适配**: 所有下拉框、输入框、placeholder 暗色对比度已修复
 - **可调整大小的浮动窗口**: 拖拽边缘自由缩放，适配长短文本
-- **Ctrl+1~7 键盘导航**: 快速切换设置标签页
+- **Ctrl+1~8 键盘导航**: 按“翻译、学习、设置”顺序快速切换全部主页面
 - **通知历史**: 铃铛图标保留最近 10 条系统消息
 - **全局字号缩放**: 10-24px 自由调节
 - **完整双语界面**: 中文 / English，140+ 翻译键全覆盖
@@ -128,9 +128,9 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.5.2 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.5.2 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64.msi) |
-| **Chrome / Edge** | **浏览器扩展 ZIP** | [下载 v0.5.2 扩展](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_browser_extension.zip) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.5.3 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.3/LongTranslate_0.5.3_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.5.3 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.3/LongTranslate_0.5.3_x64.msi) |
+| **Chrome / Edge** | **浏览器扩展 ZIP** | [下载 v0.5.3 扩展](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.3/LongTranslate_0.5.3_browser_extension.zip) |
 
 浏览器扩展安装：解压 ZIP，在 `chrome://extensions` 或 `edge://extensions` 开启开发者模式并选择“加载已解压的扩展程序”，然后打开扩展弹窗完成桌面配对。当前 MVP 使用固定开发 ID；Chrome Web Store 与 Edge Add-ons 正式上架后续单独处理。
 
@@ -139,6 +139,7 @@
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.5.2 | 2026-08 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64.msi) |
 | v0.5.1 | 2026-08 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64.msi) |
 | v0.5.0 | 2026-08 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64.msi) |
 | v0.4.9 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64.msi) |
@@ -164,6 +165,22 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.5.3 — 桌面界面体验收口</strong></summary>
+
+**导航与全局视觉**
+- 左侧导航重新整理为“翻译工作、学习管理、应用设置”三组，编号、方向键和 `Ctrl+1~8` 顺序保持一致
+- 统一浅色/深色背景层次、玻璃卡片边界、阴影、内容间距和最小窗口内边距
+- 主窗口左下角持续显示真实运行版本，并与安全自动更新入口归入同一信息区
+
+**生词本与响应式修复**
+- 工具栏与词条列表改为独立布局和滚动区域，彻底修复多词条被压缩成细线的问题
+- 默认窗口保持列表/详情双栏；窄窗口切换为横向词条列表与纵向详情，长单词和音标安全换行
+- 同步修正批量翻译的错误双栏断点，避免扣除侧栏后内容被挤压
+- 8 个主页面在 `1000×700` 与最小支持尺寸 `820×560` 下逐页验证，无横向溢出；生词本另以 8 条完整词条复核卡片尺寸和滚动行为
+
+</details>
+
+<details>
 <summary><strong>v0.5.2 — PDF 文档翻译预览版</strong></summary>
 
 **PDF 用户闭环**
@@ -580,7 +597,7 @@
 
 ## 🛠️ 技术栈
 
-当前稳定版为 v0.5.2，已交付带明确兼容性边界的 PDF 文档翻译预览版；DOCX 继续保持回归维护，Microsoft Word 正式兼容矩阵作为 P2 后续工作保留。详细步骤、审计结果和后续入口见：
+当前稳定版为 v0.5.3，完成桌面导航、全局视觉、生词本和小窗口响应式收口；v0.5.2 的 PDF 翻译预览与 v0.5.1 的 DOCX 能力保持兼容，Microsoft Word 正式兼容矩阵仍作为 P2 后续工作保留。详细步骤、审计结果和后续入口见：
 
 - [v0.5.1 DOCX 文档翻译收尾执行计划](docs/V0.5.1_DOCX_CLOSEOUT_PLAN.md)
 - [PDF 文档翻译 MVP 执行与真实语料验收](docs/PDF_MVP_PLAN.md)
@@ -640,7 +657,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.5.2` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包、浏览器扩展 ZIP 和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.5.3` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包、浏览器扩展 ZIP 和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

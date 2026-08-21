@@ -141,4 +141,16 @@ describe("WordbookTab", () => {
 
     expect(onDeleteWord).toHaveBeenCalledWith(word.id);
   });
+
+  it("keeps word cards in an independently scrollable list", () => {
+    renderTab();
+
+    const list = screen.getByTestId("wordbook-list");
+    const wordButton = screen.getByRole("button", { name: "elegant 优雅的" });
+
+    expect(list).toContainElement(wordButton);
+    expect(list).toHaveClass("overflow-x-auto");
+    expect(list).toHaveClass("min-[960px]:overflow-y-auto");
+    expect(wordButton.parentElement).toHaveClass("shrink-0");
+  });
 });

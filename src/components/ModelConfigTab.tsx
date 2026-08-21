@@ -137,7 +137,7 @@ export default function ModelConfigTab({
         </button>
       </div>
 
-      <div className="glass-card space-y-6 rounded-[28px] border-white/50 p-10 shadow-apple">
+      <div className="glass-card space-y-6 rounded-[28px] border-white/50 p-6 shadow-apple sm:p-8">
         <div className="mb-4 flex items-center gap-5">
           <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-zinc-200 text-zinc-600 shadow-inner dark:bg-white/10 dark:text-zinc-300">
             <Cpu size={28} />
