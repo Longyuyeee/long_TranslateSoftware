@@ -76,20 +76,36 @@ export default function DashboardShell({
   const previousTabRef = useRef<DashboardTabId>("general");
   const tabButtonRefs = useRef<Partial<Record<DashboardTabId, HTMLButtonElement | null>>>({});
 
-  const tabs = [
-    { id: "general", label: labels.general, icon: Settings },
-    { id: "batch", label: labels.batchTranslate, icon: Languages },
-    { id: "model", label: labels.modelConfig, icon: Cpu },
-    { id: "appearance", label: labels.appearance, icon: Palette },
-    { id: "wordbook", label: labels.wordbook, icon: Book },
-    { id: "review", label: labels.review, icon: Brain },
-    { id: "history", label: labels.history, icon: Clock },
-    { id: "document", label: labels.documentTranslate, icon: FileText },
-  ] satisfies Array<{
+  const tabGroups: Array<{ label: string; tabs: Array<{
     id: DashboardTabId;
     label: string;
     icon: typeof Settings;
-  }>;
+  }> }> = [
+    {
+      label: labels.navTranslation,
+      tabs: [
+        { id: "batch", label: labels.batchTranslate, icon: Languages },
+        { id: "document", label: labels.documentTranslate, icon: FileText },
+      ],
+    },
+    {
+      label: labels.navLearning,
+      tabs: [
+        { id: "wordbook", label: labels.wordbook, icon: Book },
+        { id: "review", label: labels.review, icon: Brain },
+        { id: "history", label: labels.history, icon: Clock },
+      ],
+    },
+    {
+      label: labels.navSettings,
+      tabs: [
+        { id: "general", label: labels.general, icon: Settings },
+        { id: "model", label: labels.modelConfig, icon: Cpu },
+        { id: "appearance", label: labels.appearance, icon: Palette },
+      ],
+    },
+  ];
+  const tabs = tabGroups.flatMap((group) => group.tabs);
 
   const previousIndex = DASHBOARD_TAB_IDS.indexOf(previousTabRef.current);
   const currentIndex = DASHBOARD_TAB_IDS.indexOf(activeTab);
@@ -125,10 +141,7 @@ export default function DashboardShell({
 
   return (
     <>
-      <aside
-        className="dashboard-sidebar glass z-20 flex min-h-0 shrink-0 flex-col border-r border-black/5 shadow-xl dark:border-white/5"
-        style={{ width: "180px", minWidth: "160px" }}
-      >
+      <aside className="dashboard-sidebar glass z-20 flex min-h-0 shrink-0 flex-col border-r border-black/5 shadow-xl dark:border-white/5">
         <div className="dashboard-sidebar-main custom-scrollbar min-h-0 flex-1 overflow-y-auto p-6">
           <div className="dashboard-brand group mb-8 flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 via-blue-600 to-blue-700 text-lg font-black text-white shadow-lg shadow-accent transition-transform duration-500 group-hover:rotate-12">
@@ -144,50 +157,66 @@ export default function DashboardShell({
             </div>
           </div>
 
-          <nav className="space-y-1" aria-label={labels.mainNavigation}>
+          <nav className="dashboard-nav space-y-4" aria-label={labels.mainNavigation}>
             <LayoutGroup id="sidebar">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  ref={(element) => {
-                    tabButtonRefs.current[tab.id] = element;
-                  }}
-                  type="button"
-                  aria-current={activeTab === tab.id ? "page" : undefined}
-                  onClick={() => onTabChange(tab.id)}
-                  onKeyDown={(event) => {
-                    const next = dashboardTabFromNavigation(tab.id, event.key);
-                    if (!next) return;
-                    event.preventDefault();
-                    onTabChange(next);
-                    tabButtonRefs.current[next]?.focus();
-                  }}
-                  className={`dashboard-nav-item group relative flex w-full items-center justify-between rounded-xl px-3 py-2.5 transition-all ${
-                    activeTab === tab.id
-                      ? "text-white"
-                      : "text-zinc-500 hover:bg-black/5 dark:hover:bg-white/5"
-                  }`}
-                  style={{ fontSize: "0.85em" }}
-                >
-                  {activeTab === tab.id && (
-                    <motion.div
-                      layoutId="activeTabBg"
-                      className="absolute inset-0 rounded-xl bg-accent shadow-lg shadow-accent"
-                      transition={{ type: "spring", bounce: 0.1, duration: 0.5 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-2.5 font-bold">
-                    <tab.icon
-                      size={15}
-                      className={
-                        activeTab === tab.id
-                          ? "text-white"
-                          : "text-zinc-400 transition-colors group-hover:text-zinc-600 dark:text-zinc-500 dark:group-hover:text-zinc-300"
-                      }
-                    />
-                    <span className="truncate">{tab.label}</span>
-                  </span>
-                </button>
+              {tabGroups.map((group) => (
+                <div key={group.label} className="dashboard-nav-group space-y-1">
+                  <p className="dashboard-nav-label px-3 pb-1 text-[8px] font-black tracking-[0.22em] text-zinc-400/70 uppercase">
+                    {group.label}
+                  </p>
+                  {group.tabs.map((tab) => {
+                    const shortcut = DASHBOARD_TAB_IDS.indexOf(tab.id) + 1;
+                    return (
+                      <button
+                        key={tab.id}
+                        ref={(element) => {
+                          tabButtonRefs.current[tab.id] = element;
+                        }}
+                        type="button"
+                        aria-label={tab.label}
+                        aria-current={activeTab === tab.id ? "page" : undefined}
+                        onClick={() => onTabChange(tab.id)}
+                        onKeyDown={(event) => {
+                          const next = dashboardTabFromNavigation(tab.id, event.key);
+                          if (!next) return;
+                          event.preventDefault();
+                          onTabChange(next);
+                          tabButtonRefs.current[next]?.focus();
+                        }}
+                        className={`dashboard-nav-item group relative flex w-full items-center justify-between overflow-hidden rounded-xl px-3 py-2.5 transition-all ${
+                          activeTab === tab.id
+                            ? "text-white"
+                            : "text-zinc-500 hover:bg-black/5 hover:text-zinc-800 dark:hover:bg-white/5 dark:hover:text-zinc-200"
+                        }`}
+                        style={{ fontSize: "0.85em" }}
+                      >
+                        {activeTab === tab.id && (
+                          <motion.div
+                            layoutId="activeTabBg"
+                            className="absolute inset-0 rounded-xl bg-accent shadow-lg shadow-accent"
+                            transition={{ type: "spring", bounce: 0.1, duration: 0.5 }}
+                          />
+                        )}
+                        <span className="relative z-10 flex min-w-0 items-center gap-2.5 font-bold">
+                          <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors ${activeTab === tab.id ? "bg-white/15" : "bg-black/[0.035] dark:bg-white/[0.045]"}`}>
+                            <tab.icon
+                              size={14}
+                              className={
+                                activeTab === tab.id
+                                  ? "text-white"
+                                  : "text-zinc-400 transition-colors group-hover:text-zinc-600 dark:text-zinc-500 dark:group-hover:text-zinc-300"
+                              }
+                            />
+                          </span>
+                          <span className="truncate">{tab.label}</span>
+                        </span>
+                        <span className={`dashboard-nav-shortcut relative z-10 text-[8px] font-black ${activeTab === tab.id ? "text-white/55" : "text-zinc-300 dark:text-zinc-600"}`}>
+                          {shortcut}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
             </LayoutGroup>
           </nav>
@@ -263,8 +292,8 @@ export default function DashboardShell({
         </div>
       </aside>
 
-      <div className="relative flex flex-1 flex-col overflow-hidden bg-transparent">
-        <header className="dashboard-header z-10 flex h-20 shrink-0 items-center justify-between border-b border-black/5 bg-white/30 px-10 backdrop-blur-3xl dark:border-white/5 dark:bg-black/20">
+      <div className="dashboard-content relative flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
+        <header className="dashboard-header z-10 flex h-20 shrink-0 items-center justify-between border-b border-black/5 bg-white/35 px-10 backdrop-blur-3xl dark:border-white/5 dark:bg-black/25">
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <h1 className="bg-gradient-to-r from-zinc-800 to-zinc-500 bg-clip-text text-xl font-black tracking-tighter text-transparent dark:from-white dark:to-zinc-400">
@@ -364,7 +393,7 @@ export default function DashboardShell({
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: slideDirection * -24 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="flex h-full min-h-0 flex-col"
+              className="dashboard-page flex h-full min-h-0 flex-col"
             >
               {children}
             </motion.div>

@@ -77,9 +77,10 @@ export default function WordbookTab({
     (!analysis || analysis.status === "failed");
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col gap-5 overflow-hidden lg:flex-row lg:gap-8">
-      <aside className="custom-scrollbar flex max-h-[42%] w-full shrink-0 flex-col gap-3 overflow-y-auto pr-2 lg:max-h-none lg:w-[260px] lg:min-w-[200px] lg:pr-3">
-        <div className="flex flex-col gap-2">
+    <div className="wordbook-layout relative flex min-h-full flex-col gap-5 min-[960px]:h-full min-[960px]:min-h-0 min-[960px]:flex-row min-[960px]:gap-6 min-[960px]:overflow-hidden">
+      <aside className="wordbook-sidebar flex w-full shrink-0 flex-col gap-3 min-[960px]:h-full min-[960px]:w-[28%] min-[960px]:min-w-[220px] min-[960px]:max-w-[300px] min-[960px]:overflow-hidden min-[960px]:pr-2">
+        <div className="wordbook-toolbar shrink-0 space-y-3 rounded-[24px] border border-white/50 bg-white/45 p-3 shadow-sm backdrop-blur-xl dark:border-white/[0.07] dark:bg-white/[0.035]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 min-[960px]:grid-cols-1">
           <div className="relative flex-1">
             <input
               type="search"
@@ -119,7 +120,7 @@ export default function WordbookTab({
         </div>
 
         <div className="flex items-center justify-between px-1">
-          <span className="text-[9px] font-black tracking-wider text-zinc-400 uppercase">
+          <span className="rounded-full bg-black/[0.035] px-2.5 py-1 text-[9px] font-black tracking-wider text-zinc-400 uppercase dark:bg-white/[0.055]">
             {words.length} / {total} {labels.wordCount}
           </span>
         </div>
@@ -150,7 +151,7 @@ export default function WordbookTab({
           </div>
         )}
 
-        <div className="mb-2">
+        <div>
           <AnimatePresence mode="wait">
             {!isAdding ? (
               <motion.button
@@ -195,79 +196,85 @@ export default function WordbookTab({
             )}
           </AnimatePresence>
         </div>
+        </div>
 
-        {words.map((word) => {
-          const isSelected = selectedWord?.id === word.id;
-          return (
-            <motion.div
-              layout
-              key={word.id}
-              className={`group relative overflow-hidden rounded-[24px] border transition-all duration-500 ${
-                isSelected
-                  ? "border-accent bg-accent shadow-2xl"
-                  : "glass-card border-transparent hover:border-accent/30 hover:bg-white/80"
-              }`}
-            >
-              <button
-                type="button"
-                aria-pressed={isSelected}
-                onClick={() => onSelectWord(word)}
-                className="w-full p-5 text-left"
-              >
-                <h3
-                  className={`mb-1.5 truncate pr-8 text-[0.95em] font-black ${
-                    isSelected
-                      ? "text-white"
-                      : "text-zinc-800 dark:text-zinc-100"
-                  }`}
-                >
-                  {word.word}
-                </h3>
-                <p
-                  className={`truncate text-[0.7em] font-bold opacity-80 ${
-                    isSelected ? "text-white/70" : "text-zinc-400"
-                  }`}
-                >
-                  {word.meaning || labels.analyzing}
-                </p>
-              </button>
-              <button
-                type="button"
-                aria-label={`${labels.readAloud}: ${word.word}`}
-                onClick={() => onSpeak(word.word)}
-                className={`absolute top-4 right-4 rounded-lg p-1 transition-all ${
+        <div
+          className="wordbook-list custom-scrollbar flex min-h-[108px] gap-3 overflow-x-auto pb-2 min-[960px]:min-h-0 min-[960px]:flex-1 min-[960px]:flex-col min-[960px]:overflow-x-hidden min-[960px]:overflow-y-auto min-[960px]:pb-0 min-[960px]:pr-1"
+          data-testid="wordbook-list"
+        >
+          {words.map((word) => {
+            const isSelected = selectedWord?.id === word.id;
+            return (
+              <motion.div
+                layout
+                key={word.id}
+                className={`group relative w-[190px] shrink-0 overflow-hidden rounded-[22px] border transition-all duration-300 min-[960px]:w-full ${
                   isSelected
-                    ? "text-white/40 hover:bg-white/10 hover:text-white"
-                    : "text-zinc-300 hover:bg-accent/10 hover:text-accent"
+                    ? "border-accent bg-accent shadow-2xl"
+                    : "glass-card border-transparent hover:border-accent/30 hover:bg-white/80"
                 }`}
               >
-                <Volume2 size={13} />
-              </button>
-              {isSelected && (
-                <motion.span
-                  layoutId="selectIndicator"
-                  className="absolute top-5 bottom-5 left-0 w-1 rounded-r-full bg-white"
-                />
-              )}
-            </motion.div>
-          );
-        })}
+                <button
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectWord(word)}
+                  className="w-full p-4 text-left"
+                >
+                  <h3
+                    className={`mb-1.5 truncate pr-8 text-[0.95em] font-black ${
+                      isSelected
+                        ? "text-white"
+                        : "text-zinc-800 dark:text-zinc-100"
+                    }`}
+                  >
+                    {word.word}
+                  </h3>
+                  <p
+                    className={`truncate text-[0.7em] font-bold opacity-80 ${
+                      isSelected ? "text-white/70" : "text-zinc-400"
+                    }`}
+                  >
+                    {word.meaning || labels.analyzing}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${labels.readAloud}: ${word.word}`}
+                  onClick={() => onSpeak(word.word)}
+                  className={`absolute top-3.5 right-3.5 rounded-lg p-1 transition-all ${
+                    isSelected
+                      ? "text-white/40 hover:bg-white/10 hover:text-white"
+                      : "text-zinc-300 hover:bg-accent/10 hover:text-accent"
+                  }`}
+                >
+                  <Volume2 size={13} />
+                </button>
+                {isSelected && (
+                  <motion.span
+                    layoutId="selectIndicator"
+                    className="absolute top-5 bottom-5 left-0 w-1 rounded-r-full bg-white"
+                  />
+                )}
+              </motion.div>
+            );
+          })}
 
-        {hasMore && (
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={onLoadMore}
-            className="w-full rounded-2xl border border-accent/20 bg-accent/10 py-3 text-[10px] font-black text-accent transition-all hover:bg-accent/20 disabled:cursor-wait disabled:opacity-50"
-          >
-            {isLoading
-              ? labels.loading
-              : `${labels.loadMore} (${labels.remaining} ${total - words.length})`}
-          </button>
-        )}
+          {hasMore && (
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={onLoadMore}
+              className="w-[190px] shrink-0 rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-[10px] font-black text-accent transition-all hover:bg-accent/20 disabled:cursor-wait disabled:opacity-50 min-[960px]:w-full"
+            >
+              {isLoading
+                ? labels.loading
+                : `${labels.loadMore} (${labels.remaining} ${total - words.length})`}
+            </button>
+          )}
+        </div>
       </aside>
 
-      <section className="glass-card relative flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-[32px] border-white/40 shadow-2xl">
+      <section className="glass-card relative flex min-h-[360px] shrink-0 flex-col overflow-hidden rounded-[32px] border-white/40 shadow-2xl min-[960px]:min-h-0 min-[960px]:flex-1">
         <AnimatePresence mode="wait">
           {selectedWord ? (
             !selectedWord.analysis ? (
@@ -343,15 +350,15 @@ export default function WordbookTab({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ duration: 0.5 }}
-                className="custom-scrollbar flex-1 space-y-10 overflow-y-auto p-6 sm:p-10"
+                className="custom-scrollbar flex-1 space-y-7 overflow-y-auto p-5 sm:p-8"
               >
-                <div className="flex items-start justify-between border-b border-black/5 pb-8 dark:border-white/5">
+                <div className="flex items-start justify-between gap-4 border-b border-black/5 pb-6 dark:border-white/5">
                   <div className="flex min-w-0 flex-col gap-3">
-                    <h2 className="break-words text-3xl font-black tracking-tighter text-accent">
+                    <h2 className="break-words text-2xl font-black tracking-tighter text-accent sm:text-3xl">
                       {selectedWord.word}
                     </h2>
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-full border border-black/5 bg-black/5 px-4 py-1 font-mono text-[0.85em] text-zinc-400 dark:bg-white/5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="max-w-full break-all rounded-full border border-black/5 bg-black/5 px-4 py-1 font-mono text-[0.85em] text-zinc-400 dark:bg-white/5">
                         /{analysis.phonetic}/
                       </span>
                       <button
@@ -368,14 +375,14 @@ export default function WordbookTab({
                     type="button"
                     aria-label={labels.delete}
                     onClick={() => onDeleteWord(selectedWord.id)}
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border border-red-500/20 bg-red-500/10 text-red-500 shadow-sm transition-all hover:bg-red-500 hover:text-white"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] border border-red-500/20 bg-red-500/10 text-red-500 shadow-sm transition-all hover:bg-red-500 hover:text-white"
                   >
                     <Trash2 size={20} />
                   </button>
                 </div>
 
                 <div className="space-y-6">
-                  <div className="group relative overflow-hidden rounded-[28px] border border-white/50 bg-white/50 p-7 shadow-sm dark:border-white/10 dark:bg-white/5">
+                  <div className="group relative overflow-hidden rounded-[24px] border border-white/50 bg-white/50 p-5 shadow-sm sm:p-6 dark:border-white/10 dark:bg-white/5">
                     <div className="absolute top-0 left-0 h-full w-1.5 bg-accent/20" />
                     <h4 className="mb-3 text-[10px] font-black tracking-[0.4em] text-accent uppercase">
                       {labels.meaning}
@@ -385,7 +392,7 @@ export default function WordbookTab({
                     </p>
                   </div>
                   {analysis.mnemonic && (
-                    <div className="relative overflow-hidden rounded-[28px] border border-amber-500/20 bg-amber-50/80 p-7 dark:bg-amber-500/5">
+                    <div className="relative overflow-hidden rounded-[24px] border border-amber-500/20 bg-amber-50/80 p-5 sm:p-6 dark:bg-amber-500/5">
                       <div className="absolute top-0 left-0 h-full w-1.5 bg-amber-400/60" />
                       <h4 className="mb-3 text-[10px] font-black tracking-[0.4em] text-amber-500 uppercase">
                         💡 {labels.mnemonic}
@@ -395,7 +402,7 @@ export default function WordbookTab({
                       </p>
                     </div>
                   )}
-                  <div className="rounded-[28px] border border-black/5 bg-black/[0.02] p-7 dark:border-white/5 dark:bg-white/[0.02]">
+                  <div className="rounded-[24px] border border-black/5 bg-black/[0.02] p-5 sm:p-6 dark:border-white/5 dark:bg-white/[0.02]">
                     <h4 className="mb-3 text-[10px] font-black tracking-[0.4em] text-zinc-400 uppercase">
                       {labels.etymology}
                     </h4>
@@ -403,7 +410,7 @@ export default function WordbookTab({
                       {analysis.etymology}
                     </p>
                   </div>
-                  <div className="rounded-[28px] border border-black/5 bg-black/[0.02] p-7 dark:border-white/5 dark:bg-white/[0.02]">
+                  <div className="rounded-[24px] border border-black/5 bg-black/[0.02] p-5 sm:p-6 dark:border-white/5 dark:bg-white/[0.02]">
                     <h4 className="mb-3 text-[10px] font-black tracking-[0.4em] text-zinc-400 uppercase">
                       {labels.synonyms}
                     </h4>

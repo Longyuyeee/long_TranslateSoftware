@@ -280,7 +280,7 @@ export default function ReviewTab({ lang, onRefreshStats }: { lang: Lang; onRefr
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center gap-6">
-          <div className="glass-card rounded-3xl border border-black/5 dark:border-white/10 p-10 w-full max-w-md text-center">
+          <div className="glass-card w-full max-w-md rounded-3xl border border-black/5 p-6 text-center sm:p-10 dark:border-white/10">
             <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-4">{t.score}</p>
             <h2 className="text-2xl font-black text-zinc-800 dark:text-zinc-100 mb-2">{qWord?.word || "?"}</h2>
             {qWord?.phonetic && <p className="text-sm text-zinc-400 mb-6">{qWord.phonetic}</p>}

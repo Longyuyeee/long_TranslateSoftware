@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsRZeR2a0VaUNF1ONQxuS1j4KTDaHn5fY89LYN3nvbzjHpV202vePym9dzxeUPEWQIPsEPd3RhCOl9Ntq0GqGcT+uGEmDVK8GOSV27/9GPFQwq6ytflbxuYwI9amcEMp0hZXrdwh8TSyS0WpZNUndLG542UDUzsUSzFn57OnTl3QOSiysnD0UsXn8R1nQFqPE9AaNqGDndKaEMHsid9Ibskz4+GSmlmsStIDlBTHuhqZsxZPJTUFpUU9hw1i2g8BMquS9DJ7vvstfQOAXeZTJkeKQC9l/nzusOSB01zyIWzs2OVivDAZWQChXh9DDRlC9EbFmju78TWIyEjMDu33G7QIDAQAB",

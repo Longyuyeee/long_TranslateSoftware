@@ -52,11 +52,35 @@ describe("DashboardShell", () => {
     expect(callbacks.onTabChange).toHaveBeenCalledWith("batch");
 
     fireEvent.keyDown(window, { key: "3", ctrlKey: true });
-    expect(callbacks.onTabChange).toHaveBeenCalledWith("model");
+    expect(callbacks.onTabChange).toHaveBeenCalledWith("wordbook");
 
     const generalTab = screen.getByRole("button", { name: translations.en.general });
     fireEvent.keyDown(generalTab, { key: "ArrowUp" });
-    expect(callbacks.onTabChange).toHaveBeenCalledWith("document");
+    expect(callbacks.onTabChange).toHaveBeenCalledWith("history");
+  });
+
+  it("groups navigation by workflow in the same order as shortcuts", () => {
+    render(
+      <DashboardShell {...baseProps}>
+        <div>Active page</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.getByText(translations.en.navTranslation)).toBeInTheDocument();
+    expect(screen.getByText(translations.en.navLearning)).toBeInTheDocument();
+    expect(screen.getByText(translations.en.navSettings)).toBeInTheDocument();
+
+    const navigation = screen.getByRole("navigation", { name: translations.en.mainNavigation });
+    expect(Array.from(navigation.querySelectorAll("button")).map((button) => button.textContent)).toEqual([
+      `${translations.en.batchTranslate}1`,
+      `${translations.en.documentTranslate}2`,
+      `${translations.en.wordbook}3`,
+      `${translations.en.review}4`,
+      `${translations.en.history}5`,
+      `${translations.en.general}6`,
+      `${translations.en.modelConfig}7`,
+      `${translations.en.appearance}8`,
+    ]);
   });
 
   it("keeps notification actions and outside dismissal in the shell boundary", () => {
