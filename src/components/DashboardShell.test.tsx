@@ -18,6 +18,7 @@ const callbacks = {
 
 const baseProps = {
   labels: translations.en,
+  appVersion: "0.5.2",
   activeTab: "general" as const,
   stats: {
     word_count: 12,
@@ -87,6 +88,7 @@ describe("DashboardShell", () => {
 
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("34")).toBeInTheDocument();
+    expect(screen.getByLabelText("Current version 0.5.2")).toHaveTextContent("v0.5.2");
     fireEvent.click(screen.getByRole("button", { name: translations.en.saveChanges }));
     fireEvent.click(screen.getByRole("button", { name: translations.en.checkUpdate }));
 

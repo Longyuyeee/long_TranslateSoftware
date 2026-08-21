@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useState, useEffect, useMemo } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import packageMetadata from "../../package.json";
 import {
   translations,
   translationErrorText,
@@ -85,6 +87,24 @@ const OCR_LANGUAGES = [
 export default function Dashboard() {
   useBrowserTranslationBridge();
   const [activeTab, setActiveTab] = useState<DashboardTabId>("general");
+  const [appVersion, setAppVersion] = useState(packageMetadata.version);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    let isActive = true;
+    void getVersion()
+      .then((version) => {
+        if (isActive) setAppVersion(version);
+      })
+      .catch(() => {
+        // The packaged metadata stays as a safe fallback if runtime lookup fails.
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
   const {
     lang,
     setLang,
@@ -427,6 +447,7 @@ export default function Dashboard() {
       />
       <DashboardShell
         labels={t}
+        appVersion={appVersion}
         activeTab={activeTab}
         stats={appStats}
         notifications={notifications}

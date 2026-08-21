@@ -33,6 +33,7 @@ interface DashboardStats {
 
 interface DashboardShellProps {
   labels: TranslationCatalog;
+  appVersion: string;
   activeTab: DashboardTabId;
   stats: DashboardStats;
   notifications: DashboardNotification[];
@@ -53,6 +54,7 @@ interface DashboardShellProps {
 
 export default function DashboardShell({
   labels,
+  appVersion,
   activeTab,
   stats,
   notifications,
@@ -236,6 +238,17 @@ export default function DashboardShell({
               <span className="text-[10px] font-black text-accent">
                 {stats.days_active}
                 {labels.dayUnit}
+              </span>
+            </div>
+            <div
+              className="dashboard-version-row flex items-center justify-between border-t border-black/5 pt-3 dark:border-white/5"
+              aria-label={`${labels.currentVersion} ${appVersion}`}
+            >
+              <span className="text-[9px] font-bold tracking-wide text-zinc-400">
+                {labels.currentVersion}
+              </span>
+              <span className="rounded-full border border-accent/15 bg-accent/8 px-2 py-0.5 text-[9px] font-black tracking-wide text-accent">
+                {labels.versionBadge.replace("{version}", appVersion)}
               </span>
             </div>
             <button
