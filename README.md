@@ -27,7 +27,7 @@
 
 **Long翻译** 是一款专为 Windows 用户打造的 AI 翻译、OCR 截图识别与间隔重复背单词工具。结合现代 AI 模型的理解能力与 Windows 原生 OCR 性能，提供最顺滑的跨屏、跨软件阅读与学习体验。
 
-> **当前稳定版 v0.5.1**：新增 DOCX 文档翻译预览能力，包括安全导入、可恢复翻译、译文/双语重建和不覆盖原子导出。5 份真实公开文档的 10 份双模式成品已通过 WPS Office 与 LibreOffice 逐页验收；Microsoft Word 尚未完成正式兼容验收，请使用副本处理重要文档并检查最终排版。
+> **当前稳定版 v0.5.2**：新增带文本层 PDF 的翻译预览能力，复用现有可恢复队列，支持译文版/双语版 DOCX 导出。真实模型成功、取消、崩溃恢复和 15 页 LibreOffice 成品视觉验收均已通过；复杂多栏阅读顺序仍需用户预览确认。
 
 ---
 
@@ -61,6 +61,12 @@
 - 有界队列、失败隔离、取消、Checkpoint 恢复和安全重试，避免整份文档重复翻译
 - 重新校验源文件与分段锚点，通过不覆盖原子提交导出，成功或失败均不修改原文件
 - WPS Office 与 LibreOffice 真实文档矩阵已通过；Microsoft Word 16.x/365 尚未正式验收，本功能保持“预览”标识
+
+### 📑 PDF 文档翻译预览
+- 安全检查未加密且带可选择文本层的 `.pdf`，展示页数、分段、结构警告和推断阅读顺序预览
+- 复用 DOCX 的模型快照、Checkpoint、有界队列、取消、失败段重试和崩溃恢复，不建立第二套调度器
+- 支持纯译文与双语 DOCX 导出，导出前重新校验源文件 SHA-256 与页级分段锚点，始终不覆盖原文件或既有目标
+- 首版不支持扫描件 OCR、密码 PDF、像素级版式还原、多栏自动重排、公式、手写内容或原 PDF 回写
 
 ### 🧠 FSRS 间隔重复背单词
 - **卡片模式**: 3D 翻转卡片，正面单词+音标，点击翻面看释义+例句，评分后自动安排下次复习
@@ -122,9 +128,9 @@
 
 | 平台 | 文件类型 | 下载链接 |
 | :--- | :--- | :--- |
-| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.5.1 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64_setup.exe) |
-| **Windows (x64)** | **MSI 安装包** | [下载 v0.5.1 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64.msi) |
-| **Chrome / Edge** | **浏览器扩展 ZIP** | [下载 v0.5.1 扩展](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_browser_extension.zip) |
+| **Windows (x64)** | **[推荐] NSIS 安装程序** | [下载 v0.5.2 `.exe`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64_setup.exe) |
+| **Windows (x64)** | **MSI 安装包** | [下载 v0.5.2 `.msi`](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_x64.msi) |
+| **Chrome / Edge** | **浏览器扩展 ZIP** | [下载 v0.5.2 扩展](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.2/LongTranslate_0.5.2_browser_extension.zip) |
 
 浏览器扩展安装：解压 ZIP，在 `chrome://extensions` 或 `edge://extensions` 开启开发者模式并选择“加载已解压的扩展程序”，然后打开扩展弹窗完成桌面配对。当前 MVP 使用固定开发 ID；Chrome Web Store 与 Edge Add-ons 正式上架后续单独处理。
 
@@ -133,6 +139,7 @@
 
 | 版本 | 日期 | 下载 |
 |------|------|------|
+| v0.5.1 | 2026-08 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.1/LongTranslate_0.5.1_x64.msi) |
 | v0.5.0 | 2026-08 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.5.0/LongTranslate_0.5.0_x64.msi) |
 | v0.4.9 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.9/LongTranslate_0.4.9_x64.msi) |
 | v0.4.8 | 2026-07 | [exe](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64_setup.exe) / [msi](https://github.com/Longyuyeee/long_TranslateSoftware/releases/download/v0.4.8/LongTranslate_0.4.8_x64.msi) |
@@ -157,6 +164,21 @@
 ### 更新日志
 
 <details open>
+<summary><strong>v0.5.2 — PDF 文档翻译预览版</strong></summary>
+
+**PDF 用户闭环**
+- 带文本层 PDF 可预览页数、分段与推断阅读顺序，并显式选择译文版或双语版 DOCX
+- 复用现有 Checkpoint、翻译队列、取消、失败段重试和不覆盖原子导出
+- 数字、日期、百分比等格式不变量由提示词、占位保护与质量门禁共同校验
+
+**真实验收与边界**
+- 真实模型成功、运行中取消和强制结束后恢复均通过，恢复只继续未完成/失败分段
+- 真实模型生成的单语、双语与 12 页恢复样本共 15 页通过 LibreOffice 逐页视觉检查
+- 扫描件 OCR、密码 PDF、复杂多栏自动重排和原 PDF 版式回写不在本版本范围内
+
+</details>
+
+<details>
 <summary><strong>v0.5.1 — DOCX 文档翻译预览版</strong></summary>
 
 **安全、可恢复的文档闭环**
@@ -558,7 +580,7 @@
 
 ## 🛠️ 技术栈
 
-当前稳定版为 v0.5.1，已交付带明确兼容性边界的 DOCX 文档翻译预览版；DOCX MVP 现已冻结为回归维护状态，Microsoft Word 正式兼容矩阵作为 P2 后续工作保留，PDF 延后到独立版本。详细步骤、审计结果和后续入口见：
+当前稳定版为 v0.5.2，已交付带明确兼容性边界的 PDF 文档翻译预览版；DOCX 继续保持回归维护，Microsoft Word 正式兼容矩阵作为 P2 后续工作保留。详细步骤、审计结果和后续入口见：
 
 - [v0.5.1 DOCX 文档翻译收尾执行计划](docs/V0.5.1_DOCX_CLOSEOUT_PLAN.md)
 - [PDF 文档翻译 MVP 执行与真实语料验收](docs/PDF_MVP_PLAN.md)
@@ -573,7 +595,7 @@
 - [体验打磨开发计划](EXPERIENCE_DEVELOPMENT_PLAN.md)
 - [竞品与功能差距审计](MARKET_AUDIT.md)
 
-浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.0 通过 Release ZIP 使用固定开发 ID 分发，商店正式 ID 与上架流程后续单独处理。v0.5.1 的 DOCX 用户闭环已经接通安全导入、Checkpoint 恢复、有界翻译队列、安全重试、最小工作台、译文/双语重建、发布前取消和不覆盖原子导出；权限拒绝、磁盘写入/同步失败和提交时目标竞争均已纳入安全失败回归，Release 门禁也已与普通 CI 对齐。5 份真实公开文档的译文版与双语版已经通过 LibreOffice 和 WPS Office 逐页验收；Microsoft Word 16.x/365 的同批真实文档验收尚未完成，因此本版本不宣称 Microsoft Word 全面兼容。PDF 独立后续版本的开发主线已接入受限文本层检查、真实公开语料、只读阅读顺序工作台和统一任务确认，但尚未随稳定版发布，也不能启动 PDF 翻译或导出。
+浏览器扩展已完成协议层、单 EXE Native Host、Windows 注册器、桌面私有 IPC、配对授权、`translate` / `cancel` / `add_word` 以及用户主动启用的划词翻译浮层。扩展只申请 `nativeMessaging`、`activeTab` 和 `scripting`，不声明持久网站权限或常驻 content script；刷新页面即移除注入，只有用户点击“译”后才把所选文字交给桌面翻译核心，翻译成功后才显示收藏入口。生词本写入使用独立的 `wordbook` 能力，旧的只读授权必须由用户重新确认；授权记录不保存 API Key、网页原文或译文。v0.5.2 的 PDF 用户闭环复用 DOCX 的 Checkpoint、有界队列、取消、失败段重试和不覆盖原子导出；4 份公开 PDF 解析语料、真实模型成功/取消/崩溃恢复和 15 页 LibreOffice 成品视觉验收均已通过。PDF 阅读顺序仍是推断结果，扫描件 OCR、密码 PDF、复杂多栏自动重排和原 PDF 回写不在本版本范围内。
 
 Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNativeHost -RequireDesktop`，排除浏览器缺失、旧 EXE、错误注册、扩展权限扩大和桌面桥接未就绪等环境问题；该预检不会替代 Chrome / Edge 的真实交互烟雾。
 
@@ -590,7 +612,7 @@ Windows 审计构建可先运行 `npm run smoke:browser:preflight -- -RegisterNa
 | **同步** | WebDAV 协议 (双向合并) |
 | **算法** | FSRS 间隔重复 (Anki 兼容) |
 | **浏览器桥接** | Native Messaging v1 + 单 EXE Host + Windows 安装集成 + 最小 MV3 扩展 |
-| **文档翻译** | v0.5.1 DOCX 预览版；PDF 开发主线已完成只读检查与任务确认，尚未发布且不能启动翻译/导出 |
+| **文档翻译** | v0.5.2 DOCX / 带文本层 PDF 预览版；支持可恢复翻译与译文/双语 DOCX 导出 |
 
 ### v0.5.0 浏览器桥接（2026-08-13）
 
@@ -618,7 +640,7 @@ npm run tauri build    # 生产构建
 
 ### 发布与自动更新
 
-推送形如 `v0.5.1` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包、浏览器扩展 ZIP 和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
+推送形如 `v0.5.2` 的版本标签后，GitHub Actions 会自动测试、构建、签名并发布 Windows 安装包、浏览器扩展 ZIP 和 `latest.json` 更新清单。完整的密钥保管、桥接版本和发版检查说明见 [Updater 发布指南](docs/UPDATER_RELEASE.md)。
 
 ---
 

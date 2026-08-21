@@ -11,6 +11,7 @@ import {
 } from "./documentTranslation";
 import {
   executeTranslationWithSnapshot,
+  requireTranslationFormat,
   type TranslationExecutionSnapshot,
   type TranslationTaskResult,
 } from "./translationTask";
@@ -59,6 +60,7 @@ const RETRYABLE_CODES: ReadonlySet<TranslationErrorCode> = new Set([
   "timeout",
   "network",
   "server",
+  "format-invalid",
 ]);
 const MAX_CHECKPOINT_ERROR_BYTES = 4 * 1024;
 export const DOCUMENT_DEFAULT_RETRIES_PER_SEGMENT = 2;
@@ -88,6 +90,49 @@ function cloneAndValidateJob(job: DocumentJob): DocumentJob {
     job,
   })) as unknown;
   return parseDocumentCheckpoint(checkpoint).job;
+}
+
+interface ProtectedDocumentSegment {
+  text: string;
+  restore: (candidate: string) => string;
+}
+
+/** Keeps digit-based invariants opaque to the model while preserving exact source tokens. */
+export function protectDocumentSegmentNumbers(source: string): ProtectedDocumentSegment {
+  let prefix = "LT_DOCUMENT_NUMBER";
+  while (source.includes(`__${prefix}_`)) prefix += "_SAFE";
+  const values: string[] = [];
+  const text = source.replace(
+    /(?<![\p{L}\p{N}_])[-+]?\d+(?:[.,:/-]\d+)*(?:%|°[CF])?(?![\p{L}\p{N}_])/gu,
+    value => {
+      const index = values.push(value) - 1;
+      return `__${prefix}_${index}__`;
+    },
+  );
+  return {
+    text,
+    restore: candidate => values.reduce((restored, value, index) => {
+      const token = `__${prefix}_${index}__`;
+      return restored.split(token).join(value);
+    }, candidate),
+  };
+}
+
+async function executeDocumentSegmentWithSnapshot(
+  source: string,
+  snapshot: TranslationExecutionSnapshot,
+  signal: AbortSignal,
+): Promise<TranslationTaskResult> {
+  const protectedSegment = protectDocumentSegmentNumbers(source);
+  const result = await executeTranslationWithSnapshot(
+    protectedSegment.text,
+    snapshot,
+    {},
+    signal,
+  );
+  const restored = protectedSegment.restore(result.text);
+  requireTranslationFormat(source, restored, snapshot.glossary);
+  return { ...result, text: restored };
 }
 
 export function assertDocumentExecutionSnapshotMatches(
@@ -209,8 +254,7 @@ export function startDocumentTranslationQueue(
     );
   }
   const waitForRetry = options.waitForRetry ?? defaultWaitForRetry;
-  const execute = options.execute ?? ((text, snapshot, signal) =>
-    executeTranslationWithSnapshot(text, snapshot, {}, signal));
+  const execute = options.execute ?? executeDocumentSegmentWithSnapshot;
   const controller = new AbortController();
   let active = 0;
   let nextIndex = 0;
