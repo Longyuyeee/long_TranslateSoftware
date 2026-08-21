@@ -101,3 +101,11 @@ cargo test --manifest-path src-tauri/Cargo.toml inspects_real_public_pdf_corpus_
 - 启动与内存：为避免干扰用户正在运行的正式 v0.5.1，以相同代码和 Release 优化、仅更换应用标识的隔离候选执行真实窗口启动。预期主窗口 5 秒内出现、15 秒进程树峰值不超过 750 MiB；首次实际 2.270 秒，第二次 0.364 秒，峰值 647.17 MiB、15 秒末 627.37 MiB。当前正式 v0.5.1 空闲进程树为 534.73 MiB，该差异包含冷启动峰值、WebView2 页面状态与不同数据目录，记录为容量基线，不伪装成严格 A/B。
 - 安装包检查：本地 MSI administrative image 展开成功（退出码 0），内含 EXE 的 FileVersion/ProductVersion 均为 0.5.2；NSIS/MSI 文件版本、命名、SHA-256 与字节数已记录。正式 Updater 签名和安装升级只由标签工作流使用 GitHub Secrets 生成并在发布后复核。
 - 发布判断：功能、真实成品、容量和本地候选门禁已达到 `v0.5.2` 范围，版本、README 和 Release Notes 已对齐；最终标签前只剩 PR / GitHub CI，标签后复核 7 个签名 Release 资产与在线 Updater。
+
+## 2026-08-21 正式发布审计
+
+- PR [#109](https://github.com/Longyuyeee/long_TranslateSoftware/pull/109) 的完整 Windows CI 通过并合并，`v0.5.2` 标签固定在发布基线 `7b900db9588846b38d05c55ca3baad04b8160f23`。
+- Release workflow [32440046681](https://github.com/Longyuyeee/long_TranslateSoftware/actions/runs/32440046681) 用时 25 分 12 秒，全量前端/Rust/扩展/Windows 生命周期、依赖审计、严格 Clippy、质量报告、构建、签名和发布步骤全部通过。
+- 正式 Release 已公开且不是草稿或预发布，共 7 个非空资产：NSIS、MSI、两份 Updater 签名、`latest.json`、浏览器扩展 ZIP 和 `quality-report.json`。下载后的 SHA-256 与 GitHub 资产摘要逐项一致，质量报告 `passed: true` 且提交、版本和 run ID 对齐。
+- 在线 `releases/latest/download/latest.json` 实际返回 HTTP 200，SHA-256 为 `BE5537347A973D744226C05A7308B8FCD367F4099BD4612E23FC8C449E73C0D8`，与下载资产一致；版本为 0.5.2，`windows-x86_64`、NSIS 和 MSI 映射到正确资产，内嵌签名与对应 `.sig` 逐字一致。
+- 正式 NSIS 的 FileVersion/ProductVersion 与扩展 `manifest.json` 均为 0.5.2。发布目标、README 下载链接、Release Notes、更新清单和正式产物现已闭合，v0.5.2 可以作为稳定版分发。
