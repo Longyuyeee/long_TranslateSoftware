@@ -189,6 +189,7 @@ export interface PdfImportSegment {
 export interface PdfImportWarning {
   code:
     | "reading-order-inferred"
+    | "complex-layout-review-required"
     | "page-text-missing"
     | "images-ignored"
     | "annotations-ignored";

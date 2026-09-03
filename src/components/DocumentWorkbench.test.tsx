@@ -102,6 +102,10 @@ describe("DocumentWorkbench", () => {
       warnings: [{
         code: "reading-order-inferred",
         message: "raw PDF warning",
+      }, {
+        code: "complex-layout-review-required",
+        message: "raw complex layout warning",
+        page: 2,
       }],
       segments: [{
         id: "pdf:2:0",
@@ -224,6 +228,10 @@ describe("DocumentWorkbench", () => {
     expect(screen.getByText("Public PDF body")).toBeInTheDocument();
     expect(screen.getByText(translations.en.pdfPageLabel.replace("{page}", "2"))).toBeInTheDocument();
     expect(screen.getByText(translations.en["pdfWarning_reading-order-inferred"])).toBeInTheDocument();
+    expect(screen.getByText(
+      translations.en["pdfWarning_complex-layout-review-required"],
+      { exact: false },
+    )).toHaveTextContent(translations.en.pdfPageLabel.replace("{page}", "2"));
     expect(screen.getByText(translations.en.documentOutputSetup)).toBeInTheDocument();
     expect(screen.getByText(translations.en.documentRecoveryTitle)).toBeInTheDocument();
     expect(screen.queryByText(/raw PDF warning|C:\\private/iu)).not.toBeInTheDocument();
