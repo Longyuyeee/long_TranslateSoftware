@@ -5,7 +5,7 @@
 ## 2026-09-03 持续开发审计
 
 - 安全基线已恢复：锁文件中的 `browserslist` 从 `4.28.1` 更新至 `4.28.8`，当前 `npm audit --audit-level=high` 为 0 个漏洞；干净 `npm ci`、前端测试、生产构建与包体审计均通过。
-- Rust 既有格式债务已收口，`cargo fmt --all -- --check`、159 项单元测试、11 项进程/注册集成测试和严格 Clippy 均通过。将格式检查写入 GitHub CI/Release 的改动因当前推送凭据缺少 `workflow` 权限而未提交，后续需使用具备该权限的凭据单独完成。
+- Rust 既有格式债务已收口，`cargo fmt --all -- --check`、159 项单元测试、11 项进程/注册集成测试和严格 Clippy 均通过。直接修改 GitHub 工作流会被当前凭据的 `workflow` 权限阻断，因此格式门禁改由普通 CI 与 Release 已执行的 `npm test` 统一调用，避免远端门禁存在空档。
 - PDF 导入现在会保守识别明显分离且纵向重叠的定位文本列，并以 `complex-layout-review-required` 给出逐页中英文提醒；该检测只提升风险可见性，不擅自改变内容流顺序，也不改变 PDF 预览能力边界。
 - 真实 Edge Runtime 已在缺少 Chrome 的环境中完成英文/中文弹窗、service worker、划词隐私时序、取消关联、收藏最小载荷、失败态、32 KiB 上限及缩放定位验证。Chrome 未安装现在被明确记录为人工门槛，不再阻断 Edge 自动门禁，也不会掩盖其他 Chrome 运行错误。
 - Microsoft Word 16.0 身份、微软签名和 COM 自动化探针通过，但 Office 仍未激活；正式 10 份 DOCX 导出与逐页验收被验收脚本正确阻断。激活有效 Microsoft 365 许可证前，不得移除 Word 未验证声明。

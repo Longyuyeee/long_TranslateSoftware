@@ -13,7 +13,9 @@
     "audit:docx:word": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/word-docx-acceptance.ps1",
     "smoke:browser:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/browser-smoke-preflight.ps1",
     "smoke:browser:runtime": "node scripts/browser-runtime-smoke.mjs",
-    "test": "vitest run",
+    "test": "npm run test:frontend && npm run audit:rust-format",
+    "test:frontend": "vitest run",
+    "audit:rust-format": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "quality:report": "vite-node scripts/generate-quality-report.ts",
     "preview": "vite preview",
     "tauri": "tauri"
