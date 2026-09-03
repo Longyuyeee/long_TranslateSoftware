@@ -4,7 +4,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { removeTemporaryBrowserProfile } from "./browser-smoke-cleanup.mjs";
-import { manualChromeRuntimeReason } from "./browser-runtime-policy.mjs";
+import {
+  manualChromeRuntimeReason,
+  missingBrowserRuntimeReason,
+} from "./browser-runtime-policy.mjs";
 
 const requireDesktop = process.argv.includes("--require-desktop");
 const extensionArgument = process.argv
@@ -81,7 +84,18 @@ const results = [];
 
 for (const candidate of browserCandidates) {
   const executable = candidate.paths.find((path) => path && existsSync(path));
-  if (!executable) throw new Error(`${candidate.name} was not found`);
+  if (!executable) {
+    const manualReason = missingBrowserRuntimeReason(candidate.name);
+    if (!manualReason) throw new Error(`${candidate.name} was not found`);
+    results.push({
+      browser: candidate.name,
+      executable: null,
+      language: "manual",
+      extensionLoaded: false,
+      reason: manualReason,
+    });
+    continue;
+  }
   for (const language of locales) {
     try {
       results.push(

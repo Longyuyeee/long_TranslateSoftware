@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { manualChromeRuntimeReason } from "./browser-runtime-policy.mjs";
+import {
+  manualChromeRuntimeReason,
+  missingBrowserRuntimeReason,
+} from "./browser-runtime-policy.mjs";
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -25,5 +28,11 @@ describe("browser runtime policy", () => {
     );
     expect(runtimeSource).toContain("Microsoft Edge.exe");
     expect(runtimeSource).toContain("filter(Boolean)");
+  });
+
+  it("keeps a missing Chrome installation manual without weakening Edge", () => {
+    expect(missingBrowserRuntimeReason("Chrome")).toContain("not installed");
+    expect(missingBrowserRuntimeReason("Chrome")).toContain("chrome://extensions");
+    expect(missingBrowserRuntimeReason("Edge")).toBeNull();
   });
 });
