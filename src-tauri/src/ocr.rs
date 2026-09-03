@@ -1,17 +1,17 @@
 use crate::{command_error::CommandError, db};
 use base64::{engine::general_purpose, Engine as _};
 use rusqlite::Connection;
-use screenshots::Screen;
 use screenshots::image::{imageops::FilterType, load_from_memory, DynamicImage, ImageFormat};
+use screenshots::Screen;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::io::Cursor;
 use tauri::{AppHandle, Emitter, Manager};
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::BitmapDecoder;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;
 use windows::Storage::Streams::InMemoryRandomAccessStream;
-use windows::Globalization::Language;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct OcrLanguageInfo {
@@ -21,14 +21,11 @@ pub struct OcrLanguageInfo {
 }
 
 fn open_database(app: &AppHandle) -> Result<Connection, CommandError> {
-    let app_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| {
-            CommandError::system(format!(
-                "Cannot resolve application data directory: {error}"
-            ))
-        })?;
+    let app_dir = app.path().app_data_dir().map_err(|error| {
+        CommandError::system(format!(
+            "Cannot resolve application data directory: {error}"
+        ))
+    })?;
     db::init_db(app_dir).map_err(|error| CommandError::database(error.to_string()))
 }
 
@@ -102,7 +99,13 @@ fn prepare_ocr_images(
 ) -> Result<(Vec<u8>, Vec<u8>), Box<dyn std::error::Error>> {
     let source = load_from_memory(image_bytes)?;
     let longest_side = source.width().max(source.height()).max(1);
-    let desired_scale: f32 = if source.height() < 80 { 3.0 } else if source.height() < 160 { 2.0 } else { 1.5 };
+    let desired_scale: f32 = if source.height() < 80 {
+        3.0
+    } else if source.height() < 160 {
+        2.0
+    } else {
+        1.5
+    };
     let max_scale = 2600.0 / longest_side as f32;
     let scale = desired_scale.min(max_scale).max(1.0);
     let width = ((source.width() as f32 * scale).round() as u32).max(1);
@@ -125,9 +128,20 @@ fn prepare_ocr_images(
 }
 
 fn text_quality_score(text: &str) -> usize {
-    let meaningful = text.chars().filter(|character| character.is_alphanumeric()).count();
-    let line_bonus = text.lines().filter(|line| !line.trim().is_empty()).count().min(8);
-    let noise = text.chars().filter(|character| *character == '\u{fffd}').count() * 4;
+    let meaningful = text
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .count();
+    let line_bonus = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count()
+        .min(8);
+    let noise = text
+        .chars()
+        .filter(|character| *character == '\u{fffd}')
+        .count()
+        * 4;
     meaningful.saturating_add(line_bonus).saturating_sub(noise)
 }
 
@@ -169,16 +183,41 @@ fn recognize_image(
     engine: &OcrEngine,
     image_bytes: &[u8],
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let stream = InMemoryRandomAccessStream::new().map_err(|e| format!("Failed to create stream: {}", e))?;
-    let writer = DataWriter::CreateDataWriter(&stream).map_err(|e| format!("Failed to create writer: {}", e))?;
-    writer.WriteBytes(image_bytes).map_err(|e| format!("Failed to write bytes: {}", e))?;
-    writer.StoreAsync().map_err(|e| format!("Failed to store async: {}", e))?.get().map_err(|e| format!("StoreAsync get failed: {}", e))?;
-    writer.FlushAsync().map_err(|e| format!("Failed to flush async: {}", e))?.get().map_err(|e| format!("FlushAsync get failed: {}", e))?;
+    let stream =
+        InMemoryRandomAccessStream::new().map_err(|e| format!("Failed to create stream: {}", e))?;
+    let writer = DataWriter::CreateDataWriter(&stream)
+        .map_err(|e| format!("Failed to create writer: {}", e))?;
+    writer
+        .WriteBytes(image_bytes)
+        .map_err(|e| format!("Failed to write bytes: {}", e))?;
+    writer
+        .StoreAsync()
+        .map_err(|e| format!("Failed to store async: {}", e))?
+        .get()
+        .map_err(|e| format!("StoreAsync get failed: {}", e))?;
+    writer
+        .FlushAsync()
+        .map_err(|e| format!("Failed to flush async: {}", e))?
+        .get()
+        .map_err(|e| format!("FlushAsync get failed: {}", e))?;
 
-    let decoder = BitmapDecoder::CreateAsync(&stream).map_err(|e| format!("Failed to create decoder: {}", e))?.get().map_err(|e| format!("CreateAsync get failed: {}", e))?;
-    let bitmap = decoder.GetSoftwareBitmapAsync().map_err(|e| format!("Failed to get bitmap: {}", e))?.get().map_err(|e| format!("GetSoftwareBitmapAsync get failed: {}", e))?;
-    let result = engine.RecognizeAsync(&bitmap).map_err(|e| format!("Failed to recognize: {}", e))?.get().map_err(|e| format!("RecognizeAsync get failed: {}", e))?;
-    let text = result.Text().map_err(|e| format!("Failed to get text: {}", e))?;
+    let decoder = BitmapDecoder::CreateAsync(&stream)
+        .map_err(|e| format!("Failed to create decoder: {}", e))?
+        .get()
+        .map_err(|e| format!("CreateAsync get failed: {}", e))?;
+    let bitmap = decoder
+        .GetSoftwareBitmapAsync()
+        .map_err(|e| format!("Failed to get bitmap: {}", e))?
+        .get()
+        .map_err(|e| format!("GetSoftwareBitmapAsync get failed: {}", e))?;
+    let result = engine
+        .RecognizeAsync(&bitmap)
+        .map_err(|e| format!("Failed to recognize: {}", e))?
+        .get()
+        .map_err(|e| format!("RecognizeAsync get failed: {}", e))?;
+    let text = result
+        .Text()
+        .map_err(|e| format!("Failed to get text: {}", e))?;
     Ok(text.to_string())
 }
 
@@ -187,8 +226,9 @@ fn create_ocr_engine(lang: &str) -> Result<OcrEngine, Box<dyn std::error::Error>
         let lang_hstr = windows::core::HSTRING::from(lang);
         if let Ok(language) = Language::CreateLanguage(&lang_hstr) {
             if OcrEngine::IsLanguageSupported(&language).unwrap_or(false) {
-                return OcrEngine::TryCreateFromLanguage(&language)
-                    .map_err(|error| format!("Failed to create OcrEngine for {lang}: {error}").into());
+                return OcrEngine::TryCreateFromLanguage(&language).map_err(|error| {
+                    format!("Failed to create OcrEngine for {lang}: {error}").into()
+                });
             }
         }
     }
@@ -197,7 +237,10 @@ fn create_ocr_engine(lang: &str) -> Result<OcrEngine, Box<dyn std::error::Error>
         .map_err(|error| format!("Failed to create default OcrEngine: {error}").into())
 }
 
-async fn recognize_text(image_bytes: Vec<u8>, lang: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn recognize_text(
+    image_bytes: Vec<u8>,
+    lang: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let engine = create_ocr_engine(lang)?;
     let original = recognize_image(&engine, &image_bytes)?;
     let mut best = original;
@@ -246,13 +289,17 @@ pub fn capture_rect(x: i32, y: i32, w: u32, h: u32) -> Result<Vec<u8>, Box<dyn s
     let screens = Screen::all()?;
     let (center_x, center_y) = capture_center(x, y, w, h)?;
 
-    let screen = screens.iter().find(|s| {
-        let display = s.display_info;
-        center_x >= display.x && center_x < display.x + display.width as i32 &&
-        center_y >= display.y && center_y < display.y + display.height as i32
-    }).or_else(|| {
-        screens.first()
-    }).ok_or("No screen found")?;
+    let screen = screens
+        .iter()
+        .find(|s| {
+            let display = s.display_info;
+            center_x >= display.x
+                && center_x < display.x + display.width as i32
+                && center_y >= display.y
+                && center_y < display.y + display.height as i32
+        })
+        .or_else(|| screens.first())
+        .ok_or("No screen found")?;
 
     let local_x = x - screen.display_info.x;
     let local_y = y - screen.display_info.y;
@@ -284,8 +331,7 @@ pub async fn capture_and_ocr(
     let conn = open_database(&app)?;
     let ocr_lang = configured_language(&conn).map_err(CommandError::database)?;
     capture_center(x, y, w, h).map_err(CommandError::invalid_input)?;
-    let bytes =
-        capture_rect(x, y, w, h).map_err(|error| CommandError::ocr(error.to_string()))?;
+    let bytes = capture_rect(x, y, w, h).map_err(|error| CommandError::ocr(error.to_string()))?;
     recognize_text(bytes, &ocr_lang)
         .await
         .map_err(|error| CommandError::ocr(error.to_string()))
@@ -353,21 +399,14 @@ mod tests {
                     if bits & (1 << column) == 0 {
                         continue;
                     }
-                    let origin_x = padding
-                        + character_index as u32 * glyph_width
-                        + column * scale;
+                    let origin_x = padding + character_index as u32 * glyph_width + column * scale;
                     let origin_y = padding + row as u32 * scale;
                     for offset_y in 0..scale {
                         for offset_x in 0..scale {
                             image.put_pixel(
                                 origin_x + offset_x,
                                 origin_y + offset_y,
-                                screenshots::image::Rgba([
-                                    foreground,
-                                    foreground,
-                                    foreground,
-                                    255,
-                                ]),
+                                screenshots::image::Rgba([foreground, foreground, foreground, 255]),
                             );
                         }
                     }
@@ -402,7 +441,9 @@ mod tests {
 
     #[test]
     fn text_quality_prefers_meaningful_text_over_replacement_noise() {
-        assert!(text_quality_score("Hello world 123") > text_quality_score("\u{fffd}\u{fffd}\u{fffd}"));
+        assert!(
+            text_quality_score("Hello world 123") > text_quality_score("\u{fffd}\u{fffd}\u{fffd}")
+        );
     }
 
     #[test]
@@ -413,10 +454,15 @@ mod tests {
             b"Hello"
         );
         assert!(decode_image_payload("").unwrap_err().contains("empty"));
-        assert_eq!(confirmed_text("  recognized text \n").unwrap(), "recognized text");
+        assert_eq!(
+            confirmed_text("  recognized text \n").unwrap(),
+            "recognized text"
+        );
         assert_eq!(confirmed_text(" \n ").unwrap_err(), "OCR text is empty");
         assert_eq!(capture_center(-100, -50, 20, 10).unwrap(), (-90, -45));
-        assert!(capture_center(0, 0, 0, 10).unwrap_err().contains("positive"));
+        assert!(capture_center(0, 0, 0, 10)
+            .unwrap_err()
+            .contains("positive"));
         assert!(capture_center(i32::MAX, 0, 2, 2)
             .unwrap_err()
             .contains("overflow"));
@@ -477,8 +523,8 @@ mod tests {
         let language = Language::CreateLanguage(&windows::core::HSTRING::from("en-US")).unwrap();
         let language_supported = OcrEngine::IsLanguageSupported(&language).unwrap_or(false);
         if !language_supported {
-            let language_is_required = std::env::var("LONG_TRANSLATE_REQUIRE_EN_US_OCR")
-                .is_ok_and(|value| value == "1");
+            let language_is_required =
+                std::env::var("LONG_TRANSLATE_REQUIRE_EN_US_OCR").is_ok_and(|value| value == "1");
             assert!(
                 !language_is_required,
                 "The quality runner must provide the en-US Windows OCR language"

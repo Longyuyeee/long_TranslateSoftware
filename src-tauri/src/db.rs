@@ -22,7 +22,8 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
 
 pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
     if !app_dir.exists() {
-        std::fs::create_dir_all(&app_dir).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        std::fs::create_dir_all(&app_dir)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     }
     let db_path = app_dir.join("words.db");
     let conn = Connection::open(db_path)?;
@@ -70,15 +71,23 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
             let mut stmt = conn.prepare("SELECT id FROM wordbook WHERE uuid IS NULL")?;
             let rows = stmt.query_map([], |row| row.get::<_, i32>(0))?;
             for id in rows.flatten() {
-                conn.execute("UPDATE wordbook SET uuid = ?1 WHERE id = ?2",
-                    [Uuid::new_v4().to_string(), id.to_string()])?;
+                conn.execute(
+                    "UPDATE wordbook SET uuid = ?1 WHERE id = ?2",
+                    [Uuid::new_v4().to_string(), id.to_string()],
+                )?;
             }
         }
         if !pragma_info.contains(&"is_deleted".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN is_deleted INTEGER DEFAULT 0", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN is_deleted INTEGER DEFAULT 0",
+                [],
+            )?;
         }
         if !pragma_info.contains(&"updated_at".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT '2024-01-01 00:00:00'", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN updated_at DATETIME DEFAULT '2024-01-01 00:00:00'",
+                [],
+            )?;
             conn.execute("UPDATE wordbook SET updated_at = CURRENT_TIMESTAMP WHERE updated_at = '2024-01-01 00:00:00'", [])?;
         }
         set_schema_version(&conn, 2)?;
@@ -94,7 +103,10 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
             )",
             [],
         )?;
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)", [])?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_history_created_at ON translation_history(created_at)",
+            [],
+        )?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS translation_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +119,10 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
         )?;
         // Create performance indexes
         for idx in &["word", "is_deleted", "created_at", "updated_at", "uuid"] {
-            let sql = format!("CREATE INDEX IF NOT EXISTS idx_wordbook_{} ON wordbook({})", idx, idx);
+            let sql = format!(
+                "CREATE INDEX IF NOT EXISTS idx_wordbook_{} ON wordbook({})",
+                idx, idx
+            );
             conn.execute(&sql, [])?;
         }
         set_schema_version(&conn, 3)?;
@@ -121,13 +136,22 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
             .filter_map(|r| r.ok())
             .collect();
         if !pragma_info.contains(&"ease_factor".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN ease_factor REAL DEFAULT 2.5", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN ease_factor REAL DEFAULT 2.5",
+                [],
+            )?;
         }
         if !pragma_info.contains(&"interval_days".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN interval_days INTEGER DEFAULT 0", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN interval_days INTEGER DEFAULT 0",
+                [],
+            )?;
         }
         if !pragma_info.contains(&"repetitions".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN repetitions INTEGER DEFAULT 0", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN repetitions INTEGER DEFAULT 0",
+                [],
+            )?;
         }
         if !pragma_info.contains(&"next_review".to_string()) {
             conn.execute("ALTER TABLE wordbook ADD COLUMN next_review DATETIME", [])?;
@@ -159,10 +183,16 @@ pub fn init_db(app_dir: PathBuf) -> Result<Connection> {
             .filter_map(|r| r.ok())
             .collect();
         if !pragma_info.contains(&"stability".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN stability REAL DEFAULT 0", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN stability REAL DEFAULT 0",
+                [],
+            )?;
         }
         if !pragma_info.contains(&"difficulty".to_string()) {
-            conn.execute("ALTER TABLE wordbook ADD COLUMN difficulty REAL DEFAULT 0", [])?;
+            conn.execute(
+                "ALTER TABLE wordbook ADD COLUMN difficulty REAL DEFAULT 0",
+                [],
+            )?;
         }
         // Migrate existing SM-2 data → FSRS: stability = interval_days, difficulty = 5.0 (default)
         conn.execute(
@@ -259,7 +289,8 @@ mod tests {
         conn.execute(
             "INSERT INTO wordbook (uuid, word) VALUES ('word-1', 'context')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO word_contexts (word_uuid, source_text, translated_text, source_type) VALUES ('word-1', 'in context', '在上下文中', 'selection')",
             [],
@@ -267,11 +298,13 @@ mod tests {
         drop(conn);
 
         let reopened = init_db(test_dir.clone()).unwrap();
-        let count: i32 = reopened.query_row(
-            "SELECT COUNT(*) FROM word_contexts WHERE word_uuid = 'word-1'",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let count: i32 = reopened
+            .query_row(
+                "SELECT COUNT(*) FROM word_contexts WHERE word_uuid = 'word-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 1);
         assert_eq!(get_schema_version(&reopened), 8);
 
@@ -290,21 +323,25 @@ mod tests {
 
     #[test]
     fn migration_v8_discards_stale_translation_cache() {
-        let test_dir = std::env::temp_dir().join(format!("long-translate-db-v7-{}", Uuid::new_v4()));
+        let test_dir =
+            std::env::temp_dir().join(format!("long-translate-db-v7-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&test_dir).unwrap();
         let conn = Connection::open(test_dir.join("words.db")).unwrap();
         conn.execute(
             "CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO schema_meta (key, value) VALUES ('version', '7')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "CREATE TABLE translation_memory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,19 +352,23 @@ mod tests {
                 UNIQUE(source_hash, target_lang)
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO translation_memory
              (source_hash, target_lang, source_text, translated_text)
              VALUES ('old-hash', 'Chinese', 'hello', '旧译文')",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         drop(conn);
 
         let migrated = init_db(test_dir.clone()).unwrap();
         assert_eq!(get_schema_version(&migrated), 8);
         let count: i32 = migrated
-            .query_row("SELECT COUNT(*) FROM translation_memory", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM translation_memory", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(count, 0);
         let columns: Vec<String> = migrated
