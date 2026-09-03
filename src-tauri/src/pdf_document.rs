@@ -161,6 +161,7 @@ fn page_has_complex_positioned_text(document: &Document, page_id: ObjectId) -> b
 
     let mut current_x = 0.0f32;
     let mut current_y = 0.0f32;
+    let mut line_height_scale = 1.0f32;
     let mut positions = Vec::new();
     for operation in content.operations {
         match operation.operator.as_str() {
@@ -175,15 +176,16 @@ fn page_has_complex_positioned_text(document: &Document, page_id: ObjectId) -> b
                 ) {
                     current_x = x;
                     current_y = y;
+                    line_height_scale = operation.operands[3]
+                        .as_float()
+                        .unwrap_or(1.0)
+                        .abs()
+                        .max(1.0);
                 }
             }
             "Td" | "TD" if operation.operands.len() >= 2 => {
-                if let (Ok(x), Ok(y)) = (
-                    operation.operands[0].as_float(),
-                    operation.operands[1].as_float(),
-                ) {
-                    current_x += x;
-                    current_y += y;
+                if let Ok(y) = operation.operands[1].as_float() {
+                    current_y += y * line_height_scale;
                 }
             }
             "Tj" | "TJ" | "'" | "\"" => positions.push((current_x, current_y)),
@@ -506,6 +508,7 @@ mod tests {
         page_count: usize,
         minimum_text_bytes: usize,
         required_text: &'static [&'static str],
+        requires_complex_layout_warning: bool,
     }
 
     fn test_pdf_with_operations(operations: Vec<Operation>) -> Vec<u8> {
@@ -682,6 +685,7 @@ mod tests {
                 page_count: 40,
                 minimum_text_bytes: 45_000,
                 required_text: &["Making written information", "learning disabilities"],
+                requires_complex_layout_warning: false,
             },
             PublicPdfCase {
                 file_name: "know-the-warnings.pdf",
@@ -689,6 +693,7 @@ mod tests {
                 page_count: 1,
                 minimum_text_bytes: 1_500,
                 required_text: &["Know the warnings", "Australian Warning System"],
+                requires_complex_layout_warning: true,
             },
             PublicPdfCase {
                 file_name: "know-your-neighbours.pdf",
@@ -696,6 +701,7 @@ mod tests {
                 page_count: 1,
                 minimum_text_bytes: 1_150,
                 required_text: &["Your neighbours can help", "Making a connection"],
+                requires_complex_layout_warning: true,
             },
             PublicPdfCase {
                 file_name: "resource-hub.pdf",
@@ -707,6 +713,7 @@ mod tests {
                     "Frequently Asked Questions",
                     "Get Ready Resource Hub",
                 ],
+                requires_complex_layout_warning: true,
             },
         ];
 
@@ -754,6 +761,15 @@ mod tests {
             assert!(inspection.warnings.iter().any(|warning| {
                 warning.code == "reading-order-inferred" && warning.page.is_none()
             }));
+            if case.requires_complex_layout_warning {
+                assert!(
+                    inspection.warnings.iter().any(|warning| {
+                        warning.code == "complex-layout-review-required" && warning.page == Some(1)
+                    }),
+                    "{} must flag its known complex positioned layout",
+                    case.file_name
+                );
+            }
             for required in case.required_text {
                 assert!(
                     text.contains(required),
