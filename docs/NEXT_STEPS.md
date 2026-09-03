@@ -36,7 +36,7 @@
 
 当前执行前置检查（2026-08-15）：忽略目录 `.docx-acceptance/docs` 已放入 5 份来自 NSW Crown Lands 官方模板页的真实公开 DOCX，最终输入目录 `.docx-acceptance/public-outputs-word-boundary-20260815-001029` 已具备 5 组译文版/双语版共 10 份成品；LibreOffice 26.2.5.2 与 WPS Office 12.1.0.28043 均已完成双模式逐页验收。本机现已通过官方 winget 源安装 Microsoft 365 Apps for enterprise，真实 Word 身份与签名可验证，但许可证仍未激活，10 份成品尚未开始正式 Word 导出。该缺口降级为已记录的兼容性风险，不得据 WPS/LibreOffice 结果推导或宣传 Microsoft Word 已通过。
 
-当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-08-14.md`](DEVELOPMENT_AUDIT_2026-08-14.md)，唯一执行顺序、逐步验收目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
+当前审计结论和下一入口见 [`DEVELOPMENT_AUDIT_2026-09-03.md`](DEVELOPMENT_AUDIT_2026-09-03.md)，DOCX 历史验收顺序、逐步目标和发布门槛见 [`V0.5.1_DOCX_CLOSEOUT_PLAN.md`](V0.5.1_DOCX_CLOSEOUT_PLAN.md)。历史范围背景见 [`DEVELOPMENT_PLAN_2026-08-10.md`](DEVELOPMENT_PLAN_2026-08-10.md)，Native Messaging 的既定安全约束见 [`NATIVE_MESSAGING_PROTOCOL.md`](NATIVE_MESSAGING_PROTOCOL.md)。
 
 ## 2026-08-12 接手状态更新
 
