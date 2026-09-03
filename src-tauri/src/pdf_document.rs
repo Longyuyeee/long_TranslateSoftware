@@ -1,4 +1,5 @@
-use lopdf::{Document, LoadOptions};
+use lopdf::content::Content;
+use lopdf::{Document, LoadOptions, ObjectId};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fmt::{Display, Formatter};
@@ -150,6 +151,70 @@ fn page_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn page_has_complex_positioned_text(document: &Document, page_id: ObjectId) -> bool {
+    let Ok(bytes) = document.get_page_content_with_limit(page_id, MAX_PAGE_CONTENT_BYTES) else {
+        return false;
+    };
+    let Ok(content) = Content::decode(&bytes) else {
+        return false;
+    };
+
+    let mut current_x = 0.0f32;
+    let mut current_y = 0.0f32;
+    let mut positions = Vec::new();
+    for operation in content.operations {
+        match operation.operator.as_str() {
+            "BT" => {
+                current_x = 0.0;
+                current_y = 0.0;
+            }
+            "Tm" if operation.operands.len() >= 6 => {
+                if let (Ok(x), Ok(y)) = (
+                    operation.operands[4].as_float(),
+                    operation.operands[5].as_float(),
+                ) {
+                    current_x = x;
+                    current_y = y;
+                }
+            }
+            "Td" | "TD" if operation.operands.len() >= 2 => {
+                if let (Ok(x), Ok(y)) = (
+                    operation.operands[0].as_float(),
+                    operation.operands[1].as_float(),
+                ) {
+                    current_x += x;
+                    current_y += y;
+                }
+            }
+            "Tj" | "TJ" | "'" | "\"" => positions.push((current_x, current_y)),
+            _ => {}
+        }
+    }
+
+    positions.sort_by(|left, right| left.0.total_cmp(&right.0));
+    for split_index in 1..positions.len() {
+        if positions[split_index].0 - positions[split_index - 1].0 < 120.0 {
+            continue;
+        }
+        let (left, right) = positions.split_at(split_index);
+        if left.len() < 2 || right.len() < 2 {
+            continue;
+        }
+        let vertical_span = |column: &[(f32, f32)]| {
+            column.iter().map(|position| position.1).fold(
+                (f32::INFINITY, f32::NEG_INFINITY),
+                |(minimum, maximum), y| (minimum.min(y), maximum.max(y)),
+            )
+        };
+        let (left_min, left_max) = vertical_span(left);
+        let (right_min, right_max) = vertical_span(right);
+        if left_max.min(right_max) - left_min.max(right_min) >= 24.0 {
+            return true;
+        }
+    }
+    false
+}
+
 fn load_pdf(bytes: &[u8]) -> ImportResult<Document> {
     let parsed = std::panic::catch_unwind(|| {
         Document::load_mem_with_options(
@@ -259,6 +324,13 @@ pub(crate) fn inspect_pdf_bytes(bytes: &[u8], file_name: String) -> ImportResult
             warnings.push(warning(
                 "annotations-ignored",
                 "PDF annotations are not included in the translation text",
+                Some(*page_number),
+            ));
+        }
+        if page_has_complex_positioned_text(&document, *page_id) {
+            warnings.push(warning(
+                "complex-layout-review-required",
+                "This page contains separated text columns or table-like positioning; verify reading order before translation",
                 Some(*page_number),
             ));
         }
@@ -436,7 +508,7 @@ mod tests {
         required_text: &'static [&'static str],
     }
 
-    fn test_pdf(text: Option<&str>) -> Vec<u8> {
+    fn test_pdf_with_operations(operations: Vec<Operation>) -> Vec<u8> {
         let mut document = Document::with_version("1.5");
         let pages_id = document.new_object_id();
         let page_id = document.new_object_id();
@@ -444,15 +516,6 @@ mod tests {
             "Type" => "Font",
             "Subtype" => "Type1",
             "BaseFont" => "Helvetica",
-        });
-        let operations = text.map_or_else(Vec::new, |text| {
-            vec![
-                Operation::new("BT", vec![]),
-                Operation::new("Tf", vec![Object::Name(b"F1".to_vec()), 12.into()]),
-                Operation::new("Td", vec![72.into(), 700.into()]),
-                Operation::new("Tj", vec![Object::string_literal(text)]),
-                Operation::new("ET", vec![]),
-            ]
         });
         let content = Content { operations }.encode().unwrap();
         let content_id = document.add_object(Stream::new(dictionary! {}, content));
@@ -488,6 +551,18 @@ mod tests {
         bytes
     }
 
+    fn test_pdf(text: Option<&str>) -> Vec<u8> {
+        test_pdf_with_operations(text.map_or_else(Vec::new, |text| {
+            vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec![Object::Name(b"F1".to_vec()), 12.into()]),
+                Operation::new("Td", vec![72.into(), 700.into()]),
+                Operation::new("Tj", vec![Object::string_literal(text)]),
+                Operation::new("ET", vec![]),
+            ]
+        }))
+    }
+
     #[test]
     fn extracts_page_level_text_with_stable_locations() {
         let bytes = test_pdf(Some("Expected public PDF text"));
@@ -509,6 +584,36 @@ mod tests {
             page_lines("Get  Ready\tResource Hub\nSecond   line"),
             vec!["Get Ready Resource Hub", "Second line"]
         );
+    }
+
+    #[test]
+    fn warns_when_positioned_text_forms_overlapping_columns() {
+        let mut operations = vec![
+            Operation::new("BT", vec![]),
+            Operation::new("Tf", vec![Object::Name(b"F1".to_vec()), 12.into()]),
+        ];
+        for (x, y, text) in [
+            (72, 700, "Left one"),
+            (72, 660, "Left two"),
+            (330, 700, "Right one"),
+            (330, 660, "Right two"),
+        ] {
+            operations.push(Operation::new(
+                "Tm",
+                vec![1.into(), 0.into(), 0.into(), 1.into(), x.into(), y.into()],
+            ));
+            operations.push(Operation::new("Tj", vec![Object::string_literal(text)]));
+        }
+        operations.push(Operation::new("ET", vec![]));
+
+        let inspection = inspect_pdf_bytes(
+            &test_pdf_with_operations(operations),
+            "columns.pdf".to_string(),
+        )
+        .unwrap();
+        assert!(inspection.warnings.iter().any(|warning| {
+            warning.code == "complex-layout-review-required" && warning.page == Some(1)
+        }));
     }
 
     #[test]
